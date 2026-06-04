@@ -50,7 +50,7 @@
   .navitem:hover{background:var(--soft)}
   .navitem.active{background:var(--teal);color:#fff}
   .navitem .ic{width:18px;text-align:center}
-  .main{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;min-height:480px}
+  .main{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;min-height:480px}
   .welcome{display:flex;align-items:center;gap:14px;margin-bottom:18px}
   .ava{width:52px;height:52px;border-radius:50%;background:var(--saffron);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex:none}
   .welcome h2{font-size:22px} .welcome p{font-size:13px;color:var(--muted);margin-top:2px}
@@ -60,7 +60,47 @@
   .tile .ic{font-size:22px} .tile h3{font-size:14px;margin:8px 0 4px} .tile p{font-size:12px;color:var(--muted)}
   .tile .soon{font-size:10px;font-weight:700;color:var(--saffron-deep);background:#fcefcf;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:8px}
   .note{font-size:12.5px;color:var(--muted);margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
-  @media(max-width:760px){.layout{grid-template-columns:1fr}}
+  /* page header */
+  .ph{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+  .ph h2{font-size:21px} .ph p{font-size:13px;color:var(--muted);margin-top:2px}
+  .kbtn{background:var(--saffron);color:#3a2c00;border:0;padding:9px 16px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer}
+  .kbtn.teal{background:var(--teal);color:#fff} .kbtn.ghost{background:var(--soft);color:var(--ink)}
+  .kbtn:disabled{opacity:.55;cursor:default}
+  /* kpis */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:6px}
+  .kpi{border:1px solid var(--line);border-radius:14px;padding:16px;background:linear-gradient(180deg,#fff,#fffdf8)}
+  .kpi .v{font-size:26px;font-weight:800} .kpi .l{font-size:12px;color:var(--muted)}
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 6px;border-bottom:1px solid var(--line)}
+  td{padding:11px 6px;border-bottom:1px solid #f1ead9}
+  tr:last-child td{border-bottom:0}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .b-green{background:#e2f3e9;color:var(--good)} .b-red{background:#fbe7e3;color:var(--warn)}
+  .b-amber{background:#fcefcf;color:#9a6b00} .b-teal{background:#e2f1ef;color:var(--teal-deep)}
+  .b-grey{background:#eee7d8;color:var(--muted)}
+  .rowbtn{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid var(--teal);color:var(--teal);background:#fff;cursor:pointer}
+  .searchbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .searchbar input{flex:1;min-width:200px;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;background:#fffdf8}
+  .empty{text-align:center;color:var(--muted);padding:40px 10px;font-size:14px}
+  /* form */
+  .form2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .panel{border:1px solid var(--line);border-radius:14px;padding:16px}
+  .panel h3{font-size:14px;margin-bottom:12px}
+  .kf{margin-bottom:11px}
+  .kf label{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
+  .kf input,.kf select,.kf textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fffdf8;font-family:inherit}
+  .kf input:focus,.kf select:focus,.kf textarea:focus{outline:2px solid var(--teal);border-color:var(--teal)}
+  .kf.minor-only{background:#fff7e8;border-radius:9px;padding:6px 8px}
+  .kf.adult-only{background:#e9f4f2;border-radius:9px;padding:6px 8px}
+  .check{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--ink);margin-bottom:8px}
+  .check input{margin-top:2px}
+  .notice{font-size:11.5px;line-height:1.5;background:var(--soft);border-radius:10px;padding:12px;margin:8px 0}
+  .formmsg{font-size:13px;margin:10px 0;min-height:16px}
+  .formmsg.err{color:var(--warn)} .formmsg.ok{color:var(--good)}
+  .dl{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1ead9;font-size:13.5px}
+  .dl .k{color:var(--muted)} .dl .hl{background:#fff7e8}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -71,7 +111,7 @@
       <img src="kala-kuteer-logo.png" alt="Kala Kuteer">
       <h1>Welcome to Kala Kuteer</h1>
       <p class="sub">Sign in to your portal</p>
-      <div id="cfgwarn" class="cfgwarn hide">⚠️ This app isn't connected to your database yet. Paste your Supabase URL and key into the CONFIG section at the top of this file.</div>
+      <div id="cfgwarn" class="cfgwarn hide">⚠️ Not connected to the database yet.</div>
       <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="you@example.com"></div>
       <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
       <button class="signin" id="signinBtn">Sign in</button>
@@ -95,88 +135,303 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* =====================================================================
-   CONFIG — paste your two Supabase values here (Dashboard → Project Settings → API)
+   CONFIG  (Supabase project — already connected)
    ===================================================================== */
 const SUPABASE_URL      = "https://qazimpjrscihrfjaycxb.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
 /* ===================================================================== */
 
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
+// nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard"],["👥","Students"],["📨","Enquiries"],["📝","Intake Form"],["₹","Fees & Invoices"],["🗓","Calendar"],["📊","Finance & P&L"],["🪕","Inventory"],["📣","News Board"],["💡","Suggestions"],["⚙️","Settings & Roles"]],
-  admin:[["▦","Dashboard"],["👥","Students"],["📨","Enquiries"],["📝","Intake Form"],["₹","Fees & Invoices"],["🗓","Calendar"],["🪕","Inventory"],["📣","News Board"],["💡","Suggestions"]],
-  teacher:[["🎼","My Batches"],["🗓","My Calendar"],["📨","Slot Requests"],["✓","Attendance"],["₹","My Earnings"]],
-  student:[["🏠","Dashboard"],["🌱","My Journey"],["🗓","My Calendar"],["₹","Fees"],["📣","News"],["📜","Exams"],["💡","Suggestion Box"]]
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
+  teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
+  student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
+const LIVE = { dashboard:1, students:1, intake:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
-let db = null;
-if (cfgOk) { db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const state = { role:"student", name:"", branches:[], courses:[], refLoaded:false };
 
 const $ = id => document.getElementById(id);
-function show(view){ $("login").classList.toggle("hide", view!=="login"); $("app").classList.toggle("hide", view!=="app"); }
+const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+function show(v){ $("login").classList.toggle("hide", v!=="login"); $("app").classList.toggle("hide", v!=="app"); }
 function msg(t, ok){ const m=$("loginMsg"); m.textContent=t; m.className="msg "+(ok?"ok":"err"); }
+function ageFromDOB(d){ if(!d) return null; const b=new Date(d), n=new Date(); let a=n.getFullYear()-b.getFullYear(); const m=n.getMonth()-b.getMonth(); if(m<0||(m===0&&n.getDate()<b.getDate())) a--; return a; }
 
 async function init(){
   if(!cfgOk){ $("cfgwarn").classList.remove("hide"); show("login"); return; }
   const { data:{ session } } = await db.auth.getSession();
   if(session) loadApp(session); else show("login");
-  db.auth.onAuthStateChange((_e, s)=>{ if(s) loadApp(s); else show("login"); });
+  db.auth.onAuthStateChange((_e,s)=>{ if(s) loadApp(s); else show("login"); });
 }
-
 async function signIn(){
-  if(!cfgOk){ msg("Not connected to the database yet — see the CONFIG note above."); return; }
   const email=$("email").value.trim(), password=$("password").value;
   if(!email||!password){ msg("Please enter your email and password."); return; }
   $("signinBtn").disabled=true; msg("Signing in…", true);
   const { error } = await db.auth.signInWithPassword({ email, password });
   $("signinBtn").disabled=false;
-  if(error){ msg(error.message); return; }
-  msg("", true); // success → onAuthStateChange loads the app
+  if(error){ msg(error.message); return; } msg("", true);
 }
-
 async function loadApp(session){
   let role="student", name=session.user.email, warn="";
   const { data, error } = await db.from("profiles").select("role, full_name").eq("id", session.user.id);
-  if(error){
-    warn = "Couldn't read your profile — "+error.message+" (code "+(error.code||"?")+")";
-  } else if(!data || data.length===0){
-    warn = "No profile row was returned for your account (rows = 0). Your user id is "+session.user.id;
-  } else {
-    role = data[0].role || "student";
-    name = data[0].full_name || session.user.email;
-  }
+  if(error) warn = "Couldn't read your profile — "+error.message;
+  else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; }
+  state.role=role; state.name=name;
   renderShell(role, name, warn);
   show("app");
 }
 
 function renderShell(role, name, warn){
-  $("whoName").textContent = "Hi, " + name;
+  $("whoName").textContent = "Hi, " + (name||"").split(" ")[0];
   $("whoRole").textContent = ROLE_LABELS[role] || role;
-  // nav
   const items = NAV[role] || NAV.student;
   $("sideNav").innerHTML = items.map((it,i)=>
-    `<div class="navitem${i===0?' active':''}"><span class="ic">${it[0]}</span> ${it[1]}</div>`).join("");
+    `<div class="navitem${i===0?' active':''}" data-key="${it[2]}"><span class="ic">${it[0]}</span> ${it[1]}</div>`).join("");
   $("sideNav").querySelectorAll(".navitem").forEach(n=>{
-    n.onclick=()=>{ $("sideNav").querySelectorAll(".navitem").forEach(x=>x.classList.remove("active")); n.classList.add("active"); };
+    n.onclick=()=>{
+      $("sideNav").querySelectorAll(".navitem").forEach(x=>x.classList.remove("active"));
+      n.classList.add("active");
+      navigate(n.dataset.key, name, warn);
+    };
   });
-  // main welcome + module tiles (foundation — modules are built next)
-  const tiles = items.slice(1).map(it=>
-    `<div class="tile"><div class="ic">${it[0]}</div><h3>${it[1]}</h3><p>Module</p><div class="soon">Coming next</div></div>`).join("");
-  $("mainArea").innerHTML = `
-    <div class="welcome">
-      <div class="ava">${(name[0]||"K").toUpperCase()}</div>
-      <div><h2>Welcome, ${name.split(" ")[0]}</h2><p>${ROLE_LABELS[role]||role} · Kala Kuteer portal</p></div>
+  navigate(items[0][2], name, warn);
+}
+
+const isAdmin = ()=> state.role==="admin"||state.role==="super_admin";
+
+function navigate(key, name, warn){
+  const M = $("mainArea");
+  if(key==="dashboard") return renderDashboard(name, warn);
+  if(key==="students")  return renderStudents();
+  if(key==="intake")    return renderIntake();
+  if(key==="studentdetail") return; // handled directly
+  // not-yet-built or non-admin shells
+  if(!isAdmin()){
+    const items = NAV[state.role]||[];
+    const tiles = items.slice(1).map(it=>`<div class="tile"><div class="ic">${it[0]}</div><h3>${it[1]}</h3><div class="soon">Coming next</div></div>`).join("");
+    M.innerHTML = `<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div><div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
+      <span class="ok-pill">✓ Signed in &amp; connected</span><div class="grid">${tiles}</div>
+      <p class="note">Your modules are being switched on next.</p>`;
+    return;
+  }
+  M.innerHTML = `<div class="ph"><div><h2>Coming next</h2><p>This module is being built. Students &amp; the Intake form are ready to use now.</p></div></div>
+    <div class="empty">🛠️ We'll switch this on in an upcoming update.</div>`;
+}
+
+async function loadRef(){
+  if(state.refLoaded) return;
+  const [b,c] = await Promise.all([
+    db.from("branches").select("id,name,monthly_fee").order("name"),
+    db.from("courses").select("id,name").eq("is_active",true).order("name")
+  ]);
+  state.branches = b.data||[]; state.courses = c.data||[]; state.refLoaded = true;
+}
+
+/* ---------------- DASHBOARD ---------------- */
+async function renderDashboard(name, warn){
+  const M=$("mainArea");
+  M.innerHTML = `<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
+    <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
+    ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
+    <div class="kpis" style="margin-top:16px">
+      <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
+      <div class="kpi"><div class="l">Total students</div><div class="v" id="kpiTotal">…</div></div>
+      <div class="kpi"><div class="l">Branches</div><div class="v" id="kpiBranch">…</div></div>
     </div>
-    ${warn ? `<div style="background:#fbe7e3;color:var(--warn);border-radius:10px;padding:12px;font-size:13px;margin-bottom:10px">⚠️ ${warn}</div>` : `<span class="ok-pill">✓ Signed in &amp; connected to the live database</span>`}
-    <div class="grid">${tiles}</div>
-    <p class="note">This is the foundation: secure login and role-based access are live. Each module above will be switched on next — your role already controls exactly what you can see.</p>`;
+    <p class="note">Live modules: <b>Students</b> and the <b>Intake form</b>. Use the menu to add your first student.</p>`;
+  const [act,tot] = await Promise.all([
+    db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
+    db.from("students").select("id",{count:"exact",head:true})
+  ]);
+  await loadRef();
+  $("kpiActive").textContent = act.count ?? 0;
+  $("kpiTotal").textContent  = tot.count ?? 0;
+  $("kpiBranch").textContent = state.branches.length;
+}
+
+/* ---------------- STUDENTS LIST ---------------- */
+async function renderStudents(){
+  const M=$("mainArea");
+  M.innerHTML = `<div class="ph"><div><h2>Students</h2><p>Loading…</p></div><button class="kbtn" id="newStu">+ New Student</button></div>
+    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…"></div>
+    <div id="stuList"><div class="empty">Loading students…</div></div>`;
+  $("newStu").onclick = ()=> gotoNav("intake");
+  const { data, error } = await db.from("students")
+    .select("id,full_name,level,status,join_date,date_of_birth,branches(name),courses(name)")
+    .order("created_at",{ascending:false});
+  if(error){ $("stuList").innerHTML=`<div class="cfgwarn">Couldn't load students — ${esc(error.message)}</div>`; return; }
+  state._students = data||[];
+  M.querySelector(".ph p").textContent = `${state._students.length} student${state._students.length===1?"":"s"}`;
+  drawStudents(state._students);
+  $("stuSearch").oninput = e=>{
+    const q=e.target.value.toLowerCase();
+    drawStudents(state._students.filter(s=>(s.full_name||"").toLowerCase().includes(q)));
+  };
+}
+const STATUS_BADGE = { active:"b-green", on_break:"b-amber", suspended:"b-red", alumni:"b-grey", completed:"b-teal" };
+function drawStudents(list){
+  if(!list.length){ $("stuList").innerHTML=`<div class="empty">No students yet. Click <b>+ New Student</b> to add your first.</div>`; return; }
+  $("stuList").innerHTML = `<table><tr><th>Name</th><th>Course</th><th>Branch</th><th>Level</th><th>Joined</th><th>Status</th><th></th></tr>
+    ${list.map(s=>`<tr>
+      <td><b>${esc(s.full_name)}</b></td>
+      <td>${esc(s.courses?.name||"—")}</td>
+      <td>${esc(s.branches?.name||"—")}</td>
+      <td>${esc(s.level||"—")}</td>
+      <td>${s.join_date?esc(s.join_date):"—"}</td>
+      <td><span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></td>
+      <td><span class="rowbtn" onclick="renderStudentDetail('${s.id}')">View →</span></td>
+    </tr>`).join("")}</table>`;
+}
+function gotoNav(key){
+  const nav=$("sideNav").querySelector(`[data-key="${key}"]`);
+  if(nav){ $("sideNav").querySelectorAll(".navitem").forEach(x=>x.classList.remove("active")); nav.classList.add("active"); }
+  navigate(key, state.name, "");
+}
+
+/* ---------------- STUDENT DETAIL ---------------- */
+async function renderStudentDetail(id){
+  const M=$("mainArea");
+  M.innerHTML=`<div class="empty">Loading profile…</div>`;
+  const { data:s, error } = await db.from("students").select("*,branches(name),courses(name)").eq("id",id).single();
+  if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load profile — ${esc(error.message)}</div>`; return; }
+  const age = s.date_of_birth?ageFromDOB(s.date_of_birth):null;
+  const minor = s.is_minor;
+  const contact = minor
+    ? `<div class="dl"><span class="k">Parent / guardian</span><span>${esc(s.parent_name||"—")}</span></div>
+       <div class="dl"><span class="k">Parent's phone</span><span>${esc(s.parent_phone||"—")}</span></div>
+       <div class="dl"><span class="k">Parent's email</span><span>${esc(s.parent_email||"—")}</span></div>
+       <div class="dl"><span class="k">Student's phone</span><span>${esc(s.phone||"—")}</span></div>
+       <div class="dl"><span class="k">Student's WhatsApp</span><span>${esc(s.whatsapp||"—")}</span></div>`
+    : `<div class="dl"><span class="k">Student's phone</span><span>${esc(s.phone||"—")}</span></div>
+       <div class="dl"><span class="k">Student's WhatsApp</span><span>${esc(s.whatsapp||"—")}</span></div>
+       <div class="dl"><span class="k">Student's email</span><span>${esc(s.email||"—")}</span></div>`;
+  M.innerHTML=`<div class="ph"><div><h2>${esc(s.full_name)}</h2>
+      <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.join_date||"—")}
+      · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></p></div>
+      <button class="kbtn ghost" onclick="gotoNav('students')">← Back to list</button></div>
+    <div class="form2">
+      <div class="panel"><h3>Contact &amp; personal</h3>
+        <div class="dl"><span class="k">Date of birth / age</span><span>${esc(s.date_of_birth||"—")}${age!=null?" · "+age:""}</span></div>
+        <div class="dl"><span class="k">Minor?</span><span>${minor?'<span class="badge b-amber">Yes (under 18)</span>':"No"}</span></div>
+        ${contact}
+        <div class="dl hl"><span class="k"><b>Emergency contact</b></span><span><b>${esc(s.emergency_contact||"—")}</b></span></div>
+      </div>
+      <div class="panel"><h3>School record</h3>
+        <div class="dl"><span class="k">Course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")}</span></div>
+        <div class="dl"><span class="k">Goal</span><span>${esc(s.goal||"—")}</span></div>
+        <div class="dl"><span class="k">Owns instrument</span><span>${s.owns_instrument==null?"—":(s.owns_instrument?"Yes":"No")}</span></div>
+        <div class="dl"><span class="k">Health / safety notes</span><span>${esc(s.health_notes||"none recorded")}</span></div>
+        <div class="dl"><span class="k">Heard about us via</span><span>${esc((s.heard_via||"—").replace("_"," "))}</span></div>
+        <div class="dl"><span class="k">Media consent</span><span>${s.consent_media?("☑ "+(s.consent_signed_at?String(s.consent_signed_at).slice(0,10):"")):"—"}</span></div>
+      </div>
+    </div>`;
+}
+
+/* ---------------- INTAKE FORM ---------------- */
+async function renderIntake(){
+  const M=$("mainArea");
+  await loadRef();
+  const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const courseOpts = state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p>Add a new student. Parent details appear only for minors.</p></div></div>
+  <form id="intakeForm" class="form2" onsubmit="return false">
+    <div class="panel"><h3>1 · Student &amp; contact</h3>
+      <div class="kf"><label>Full name *</label><input id="f_name" required></div>
+      <div class="kf"><label>Date of birth</label><input id="f_dob" type="date"></div>
+      <div class="check"><input type="checkbox" id="f_minor"><label for="f_minor" style="margin:0">Student is a minor (under 18) — show parent details</label></div>
+      <div class="kf minor-only"><label>Parent / guardian name</label><input id="f_parent"></div>
+      <div class="kf"><label>Student's phone</label><input id="f_phone"></div>
+      <div class="kf"><label>Student's WhatsApp</label><input id="f_wa"></div>
+      <div class="kf adult-only"><label>Student's email</label><input id="f_email" type="email"></div>
+      <div class="kf minor-only"><label>Parent's phone</label><input id="f_pphone"></div>
+      <div class="kf minor-only"><label>Parent's email</label><input id="f_pemail" type="email"></div>
+      <div class="kf"><label>Emergency contact number</label><input id="f_emer"></div>
+    </div>
+    <div class="panel"><h3>2 · Course, joining &amp; consent</h3>
+      <div class="kf"><label>Branch *</label><select id="f_branch" required><option value="">Select…</option>${branchOpts}</select></div>
+      <div class="kf"><label>Course *</label><select id="f_course" required><option value="">Select…</option>${courseOpts}</select></div>
+      <div class="kf"><label>Class level</label><select id="f_level"><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
+      <div class="kf"><label>Date of joining (= Session 1) *</label><input id="f_join" type="date" required></div>
+      <div style="font-size:11.5px;color:var(--teal-deep);margin:-4px 0 8px">↳ Monthly fee is calculated from this date.</div>
+      <div class="kf"><label>Goal</label><select id="f_goal"><option value="">—</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
+      <div class="kf"><label>Health / safety notes</label><textarea id="f_health" rows="2" placeholder="e.g. anxiety, allergies, seizures…"></textarea></div>
+      <div class="kf"><label>How did you find out about us?</label>
+        <select id="f_heard"><option value="">—</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
+      <div class="check"><input type="checkbox" id="f_owns"><label for="f_owns" style="margin:0">Student owns the instrument</label></div>
+      <div class="check"><input type="checkbox" id="f_media"><label for="f_media" style="margin:0">📸 Media consent — photos/videos may be used for promotion</label></div>
+      <div class="notice"><b>IMPORTANT NOTICE</b><br>
+        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
+        <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
+        <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.</div>
+      <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
+      <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer" required></div>
+      <div class="formmsg" id="intakeMsg"></div>
+      <button class="kbtn teal" id="saveStu" style="width:100%">Save student</button>
+    </div>
+  </form>`;
+  // minor toggle
+  function applyMinor(){
+    const m=$("f_minor").checked;
+    M.querySelectorAll(".minor-only").forEach(e=>e.style.display=m?"":"none");
+    M.querySelectorAll(".adult-only").forEach(e=>e.style.display=m?"none":"");
+  }
+  $("f_minor").onchange=applyMinor;
+  $("f_dob").onchange=()=>{ const a=ageFromDOB($("f_dob").value); if(a!=null){ $("f_minor").checked=a<18; applyMinor(); } };
+  applyMinor();
+  $("saveStu").onclick=submitIntake;
+}
+
+async function submitIntake(){
+  const m=$("intakeMsg"); m.className="formmsg";
+  const name=$("f_name").value.trim();
+  const branch=$("f_branch").value, course=$("f_course").value, join=$("f_join").value;
+  const terms=$("f_terms").checked, signer=$("f_signer").value.trim();
+  if(!name){ m.className="formmsg err"; m.textContent="Please enter the student's full name."; return; }
+  if(!branch){ m.className="formmsg err"; m.textContent="Please choose a branch."; return; }
+  if(!course){ m.className="formmsg err"; m.textContent="Please choose a course."; return; }
+  if(!join){ m.className="formmsg err"; m.textContent="Please set the date of joining."; return; }
+  if(!terms){ m.className="formmsg err"; m.textContent="The IMPORTANT NOTICE must be acknowledged."; return; }
+  if(!signer){ m.className="formmsg err"; m.textContent="Please enter the name of the person consenting."; return; }
+  const minor=$("f_minor").checked;
+  const rec = {
+    full_name:name,
+    date_of_birth: $("f_dob").value||null,
+    is_minor: minor,
+    parent_name: minor? ($("f_parent").value.trim()||null):null,
+    phone: $("f_phone").value.trim()||null,
+    whatsapp: $("f_wa").value.trim()||null,
+    email: minor? null : ($("f_email").value.trim()||null),
+    parent_phone: minor? ($("f_pphone").value.trim()||null):null,
+    parent_email: minor? ($("f_pemail").value.trim()||null):null,
+    emergency_contact: $("f_emer").value.trim()||null,
+    branch_id: branch, course_id: course,
+    level: $("f_level").value,
+    join_date: join,
+    goal: $("f_goal").value||null,
+    owns_instrument: $("f_owns").checked,
+    health_notes: $("f_health").value.trim()||null,
+    heard_via: $("f_heard").value||null,
+    consent_media: $("f_media").checked,
+    consent_terms: true,
+    consent_signed_by: signer,
+    consent_signed_at: new Date().toISOString(),
+    status: "active"
+  };
+  $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
+  const { error } = await db.from("students").insert(rec);
+  $("saveStu").disabled=false;
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  m.className="formmsg ok"; m.textContent="✓ Student saved! Opening the students list…";
+  setTimeout(()=>gotoNav("students"), 900);
 }
 
 $("signinBtn").onclick = signIn;
 $("loginform").addEventListener("keydown", e=>{ if(e.key==="Enter") signIn(); });
 $("logoutBtn").onclick = async ()=>{ if(db) await db.auth.signOut(); show("login"); $("password").value=""; };
-
 init();
 </script>
 </body>
