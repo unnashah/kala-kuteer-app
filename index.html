@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kala Kuteer — Portal</title>
+<style>
+  :root{
+    --navy:#16305A; --saffron:#E8A33D; --saffron-deep:#C9772A; --teal:#1F7A72; --teal-deep:#155E58;
+    --cream:#FBF6EC; --ink:#2B2018; --muted:#7C6F5F; --line:#E7DCC8; --soft:#F3EAD8;
+    --good:#2E8B57; --warn:#C24A3B; --card:#fff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:
+    radial-gradient(circle at 12% 8%, #fff7e8 0%, transparent 40%),
+    radial-gradient(circle at 90% 92%, #eaf5f3 0%, transparent 45%), var(--cream);
+    color:var(--ink);min-height:100vh}
+  .hide{display:none!important}
+  /* ---------- LOGIN ---------- */
+  #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .logincard{background:var(--card);border:1px solid var(--line);border-radius:20px;
+    box-shadow:0 16px 40px rgba(21,48,90,.14);padding:30px 28px;width:100%;max-width:380px;text-align:center}
+  .logincard img{height:110px;width:auto;margin:0 auto 8px;display:block}
+  .logincard h1{font-size:18px;color:var(--navy);margin-bottom:2px}
+  .logincard p.sub{font-size:12.5px;color:var(--muted);margin-bottom:20px}
+  .field{text-align:left;margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
+  .field input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:11px;font-size:14px;background:#fffdf8}
+  .field input:focus{outline:2px solid var(--teal);border-color:var(--teal)}
+  .signin{width:100%;background:var(--teal);color:#fff;border:0;padding:13px;border-radius:12px;font-weight:800;font-size:15px;cursor:pointer;margin-top:6px}
+  .signin:disabled{opacity:.6;cursor:default}
+  .msg{font-size:12.5px;margin-top:12px;min-height:16px}
+  .msg.err{color:var(--warn)} .msg.ok{color:var(--good)}
+  .loginfoot{font-size:11px;color:var(--muted);margin-top:16px}
+  .cfgwarn{background:#fbe7e3;color:var(--warn);border-radius:10px;padding:10px;font-size:12px;margin-bottom:16px;text-align:left}
+  /* ---------- APP SHELL ---------- */
+  #app{min-height:100vh}
+  .top{display:flex;align-items:center;justify-content:space-between;
+    background:linear-gradient(100deg,var(--teal-deep),var(--teal));color:#fff;padding:10px 18px;
+    box-shadow:0 6px 18px rgba(21,94,88,.22)}
+  .top .brand{display:flex;align-items:center;gap:10px}
+  .top .brand .badge{background:#fff;border-radius:10px;padding:4px 7px;display:flex}
+  .top .brand img{height:34px;display:block}
+  .top .who{display:flex;align-items:center;gap:12px;font-size:13px}
+  .rolechip{background:var(--saffron);color:#3a2c00;font-weight:700;font-size:11px;padding:3px 10px;border-radius:20px}
+  .logout{background:rgba(255,255,255,.16);color:#fff;border:0;padding:7px 13px;border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .layout{display:grid;grid-template-columns:220px 1fr;gap:16px;max-width:1180px;margin:16px auto;padding:0 16px}
+  .side{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;height:fit-content}
+  .navitem{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:10px;font-size:14px;font-weight:500;color:var(--ink);cursor:pointer}
+  .navitem:hover{background:var(--soft)}
+  .navitem.active{background:var(--teal);color:#fff}
+  .navitem .ic{width:18px;text-align:center}
+  .main{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;min-height:480px}
+  .welcome{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .ava{width:52px;height:52px;border-radius:50%;background:var(--saffron);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex:none}
+  .welcome h2{font-size:22px} .welcome p{font-size:13px;color:var(--muted);margin-top:2px}
+  .ok-pill{display:inline-flex;align-items:center;gap:6px;background:#e2f3e9;color:var(--good);font-size:12px;font-weight:700;padding:5px 11px;border-radius:20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-top:18px}
+  .tile{border:1px solid var(--line);border-radius:14px;padding:16px;background:linear-gradient(180deg,#fff,#fffdf8)}
+  .tile .ic{font-size:22px} .tile h3{font-size:14px;margin:8px 0 4px} .tile p{font-size:12px;color:var(--muted)}
+  .tile .soon{font-size:10px;font-weight:700;color:var(--saffron-deep);background:#fcefcf;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:8px}
+  .note{font-size:12.5px;color:var(--muted);margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+  <!-- ===================== LOGIN ===================== -->
+  <div id="login">
+    <form class="logincard" id="loginform" onsubmit="return false">
+      <img src="kala-kuteer-logo.png" alt="Kala Kuteer">
+      <h1>Welcome to Kala Kuteer</h1>
+      <p class="sub">Sign in to your portal</p>
+      <div id="cfgwarn" class="cfgwarn hide">⚠️ This app isn't connected to your database yet. Paste your Supabase URL and key into the CONFIG section at the top of this file.</div>
+      <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="you@example.com"></div>
+      <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <button class="signin" id="signinBtn">Sign in</button>
+      <div class="msg" id="loginMsg"></div>
+      <div class="loginfoot">Students, teachers &amp; admins all sign in here. Your role decides what you see.</div>
+    </form>
+  </div>
+
+  <!-- ===================== APP ===================== -->
+  <div id="app" class="hide">
+    <div class="top">
+      <div class="brand"><span class="badge"><img src="kala-kuteer-logo.png" alt="Kala Kuteer"></span></div>
+      <div class="who"><span id="whoName"></span><span class="rolechip" id="whoRole"></span><button class="logout" id="logoutBtn">Log out</button></div>
+    </div>
+    <div class="layout">
+      <div class="side" id="sideNav"></div>
+      <div class="main" id="mainArea"></div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* =====================================================================
+   CONFIG — paste your two Supabase values here (Dashboard → Project Settings → API)
+   ===================================================================== */
+const SUPABASE_URL      = "https://qazimpjrscihrfjaycxb.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
+/* ===================================================================== */
+
+const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
+const NAV = {
+  super_admin:[["▦","Dashboard"],["👥","Students"],["📨","Enquiries"],["📝","Intake Form"],["₹","Fees & Invoices"],["🗓","Calendar"],["📊","Finance & P&L"],["🪕","Inventory"],["📣","News Board"],["💡","Suggestions"],["⚙️","Settings & Roles"]],
+  admin:[["▦","Dashboard"],["👥","Students"],["📨","Enquiries"],["📝","Intake Form"],["₹","Fees & Invoices"],["🗓","Calendar"],["🪕","Inventory"],["📣","News Board"],["💡","Suggestions"]],
+  teacher:[["🎼","My Batches"],["🗓","My Calendar"],["📨","Slot Requests"],["✓","Attendance"],["₹","My Earnings"]],
+  student:[["🏠","Dashboard"],["🌱","My Journey"],["🗓","My Calendar"],["₹","Fees"],["📣","News"],["📜","Exams"],["💡","Suggestion Box"]]
+};
+
+const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
+let db = null;
+if (cfgOk) { db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+
+const $ = id => document.getElementById(id);
+function show(view){ $("login").classList.toggle("hide", view!=="login"); $("app").classList.toggle("hide", view!=="app"); }
+function msg(t, ok){ const m=$("loginMsg"); m.textContent=t; m.className="msg "+(ok?"ok":"err"); }
+
+async function init(){
+  if(!cfgOk){ $("cfgwarn").classList.remove("hide"); show("login"); return; }
+  const { data:{ session } } = await db.auth.getSession();
+  if(session) loadApp(session); else show("login");
+  db.auth.onAuthStateChange((_e, s)=>{ if(s) loadApp(s); else show("login"); });
+}
+
+async function signIn(){
+  if(!cfgOk){ msg("Not connected to the database yet — see the CONFIG note above."); return; }
+  const email=$("email").value.trim(), password=$("password").value;
+  if(!email||!password){ msg("Please enter your email and password."); return; }
+  $("signinBtn").disabled=true; msg("Signing in…", true);
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  $("signinBtn").disabled=false;
+  if(error){ msg(error.message); return; }
+  msg("", true); // success → onAuthStateChange loads the app
+}
+
+async function loadApp(session){
+  let role="student", name=session.user.email, warn="";
+  const { data, error } = await db.from("profiles").select("role, full_name").eq("id", session.user.id);
+  if(error){
+    warn = "Couldn't read your profile — "+error.message+" (code "+(error.code||"?")+")";
+  } else if(!data || data.length===0){
+    warn = "No profile row was returned for your account (rows = 0). Your user id is "+session.user.id;
+  } else {
+    role = data[0].role || "student";
+    name = data[0].full_name || session.user.email;
+  }
+  renderShell(role, name, warn);
+  show("app");
+}
+
+function renderShell(role, name, warn){
+  $("whoName").textContent = "Hi, " + name;
+  $("whoRole").textContent = ROLE_LABELS[role] || role;
+  // nav
+  const items = NAV[role] || NAV.student;
+  $("sideNav").innerHTML = items.map((it,i)=>
+    `<div class="navitem${i===0?' active':''}"><span class="ic">${it[0]}</span> ${it[1]}</div>`).join("");
+  $("sideNav").querySelectorAll(".navitem").forEach(n=>{
+    n.onclick=()=>{ $("sideNav").querySelectorAll(".navitem").forEach(x=>x.classList.remove("active")); n.classList.add("active"); };
+  });
+  // main welcome + module tiles (foundation — modules are built next)
+  const tiles = items.slice(1).map(it=>
+    `<div class="tile"><div class="ic">${it[0]}</div><h3>${it[1]}</h3><p>Module</p><div class="soon">Coming next</div></div>`).join("");
+  $("mainArea").innerHTML = `
+    <div class="welcome">
+      <div class="ava">${(name[0]||"K").toUpperCase()}</div>
+      <div><h2>Welcome, ${name.split(" ")[0]}</h2><p>${ROLE_LABELS[role]||role} · Kala Kuteer portal</p></div>
+    </div>
+    ${warn ? `<div style="background:#fbe7e3;color:var(--warn);border-radius:10px;padding:12px;font-size:13px;margin-bottom:10px">⚠️ ${warn}</div>` : `<span class="ok-pill">✓ Signed in &amp; connected to the live database</span>`}
+    <div class="grid">${tiles}</div>
+    <p class="note">This is the foundation: secure login and role-based access are live. Each module above will be switched on next — your role already controls exactly what you can see.</p>`;
+}
+
+$("signinBtn").onclick = signIn;
+$("loginform").addEventListener("keydown", e=>{ if(e.key==="Enter") signIn(); });
+$("logoutBtn").onclick = async ()=>{ if(db) await db.auth.signOut(); show("login"); $("password").value=""; };
+
+init();
+</script>
+</body>
+</html>
