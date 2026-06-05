@@ -354,7 +354,7 @@ function drawAttendance(studs, map){
       <td class="mini">${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")}</td>
       <td>${btn(s.id,"present","Present","background:var(--good);color:#fff;border-color:var(--good)")}${btn(s.id,"absent","Absent","background:var(--warn);color:#fff;border-color:var(--warn)")}${btn(s.id,"excused","Excused","background:var(--saffron);color:#3a2c00;border-color:var(--saffron)")}</td>
     </tr>`).join("")}</table>
-    <p class="footnote" style="margin-top:26px;border-top:1px solid var(--line);padding-top:14px">Tap Present / Absent / Excused for each student, then click <b>Save attendance</b>. Re-opening this date shows what you saved.</p>`;
+    <p class="footnote" style="margin-top:26px;border-top:1px solid var(--line);padding-top:14px">Tap Present / Absent / Excused for each student, then click <b>Save attendance</b>.</p>`;
 }
 function markAtt(id,status){ state._att[id]=status; drawAttendance(state._attStuds, state._att); }
 async function saveAttendance(){
