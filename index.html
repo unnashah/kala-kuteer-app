@@ -339,7 +339,26 @@ async function renderStudentDetail(id){
         <div class="dl"><span class="k">Heard about us via</span><span>${esc((s.heard_via||"—").replace("_"," "))}</span></div>
         <div class="dl"><span class="k">Media consent</span><span>${s.consent_media?("☑ "+(s.consent_signed_at?String(s.consent_signed_at).slice(0,10):"")):"—"}</span></div>
       </div>
+    </div>
+    <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
+      <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
+      <button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>
+      <div class="formmsg" id="manageMsg"></div>
+      <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Delete</b> is permanent — use it only for mistakes or test entries.</p>
     </div>`;
+}
+async function setStudentStatus(id, status){
+  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
+  const { error } = await db.from("students").update({ status }).eq("id", id);
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
+  renderStudentDetail(id);
+}
+async function deleteStudent(id){
+  if(!confirm("Permanently delete this student and all their records (attendance, fees, etc.)? This cannot be undone.")) return;
+  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Deleting…"; }
+  const { error } = await db.from("students").delete().eq("id", id);
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't delete — "+error.message; } return; }
+  gotoNav("students");
 }
 
 /* ---------------- INTAKE FORM ---------------- */
