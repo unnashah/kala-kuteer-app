@@ -337,40 +337,42 @@ async function renderIntake(){
   await loadRef();
   const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts = state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
-  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p>Add a new student. Parent details appear only for minors.</p></div></div>
+  const cc = id=>`<select id="${id}_cc" style="max-width:96px"><option value="+91" selected>+91</option><option value="+1">+1</option><option value="+7">+7</option><option value="+44">+44</option><option value="+56">+56</option><option value="+65">+65</option><option value="+66">+66</option><option value="+971">+971</option></select>`;
+  const phone=(id,label,cls)=>`<div class="kf ${cls||''}"><label>${label} *</label><div style="display:flex;gap:6px">${cc(id)}<input id="${id}" inputmode="numeric" maxlength="10" placeholder="10-digit number" oninput="this.value=this.value.replace(/\\D/g,'')"></div></div>`;
+  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Parent details appear only for minors. Phone numbers must be 10 digits.</p></div></div>
   <form id="intakeForm" class="form2" onsubmit="return false">
     <div class="panel"><h3>1 · Student &amp; contact</h3>
-      <div class="kf"><label>Full name *</label><input id="f_name" required></div>
-      <div class="kf"><label>Date of birth</label><input id="f_dob" type="date"></div>
+      <div class="kf"><label>Full name *</label><input id="f_name"></div>
+      <div class="kf"><label>Date of birth *</label><input id="f_dob" type="date"></div>
       <div class="check"><input type="checkbox" id="f_minor"><label for="f_minor" style="margin:0">Student is a minor (under 18) — show parent details</label></div>
-      <div class="kf minor-only"><label>Parent / guardian name</label><input id="f_parent"></div>
-      <div class="kf"><label>Student's phone</label><input id="f_phone"></div>
-      <div class="kf"><label>Student's WhatsApp</label><input id="f_wa"></div>
-      <div class="kf adult-only"><label>Student's email</label><input id="f_email" type="email"></div>
-      <div class="kf minor-only"><label>Parent's phone</label><input id="f_pphone"></div>
-      <div class="kf minor-only"><label>Parent's email</label><input id="f_pemail" type="email"></div>
-      <div class="kf"><label>Emergency contact number</label><input id="f_emer"></div>
+      <div class="kf minor-only"><label>Parent / guardian name *</label><input id="f_parent"></div>
+      ${phone('f_phone',"Student's phone")}
+      ${phone('f_wa',"Student's WhatsApp")}
+      <div class="kf adult-only"><label>Student's email *</label><input id="f_email" type="email"></div>
+      ${phone('f_pphone',"Parent's phone",'minor-only')}
+      <div class="kf minor-only"><label>Parent's email *</label><input id="f_pemail" type="email"></div>
+      ${phone('f_emer','Emergency contact')}
     </div>
     <div class="panel"><h3>2 · Course, joining &amp; consent</h3>
-      <div class="kf"><label>Branch *</label><select id="f_branch" required><option value="">Select…</option>${branchOpts}</select></div>
-      <div class="kf"><label>Course *</label><select id="f_course" required><option value="">Select…</option>${courseOpts}</select></div>
-      <div class="kf"><label>Class level</label><select id="f_level"><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
-      <div class="kf"><label>Date of joining (= Session 1) *</label><input id="f_join" type="date" required></div>
+      <div class="kf"><label>Branch *</label><select id="f_branch"><option value="">Select…</option>${branchOpts}</select></div>
+      <div class="kf"><label>Course *</label><select id="f_course"><option value="">Select…</option>${courseOpts}</select></div>
+      <div class="kf"><label>Class level *</label><select id="f_level"><option value="">Select…</option><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
+      <div class="kf"><label>Date of joining (= Session 1) *</label><input id="f_join" type="date"></div>
       <div style="font-size:11.5px;color:var(--teal-deep);margin:-4px 0 8px">↳ Monthly fee is calculated from this date.</div>
-      <div class="kf"><label>Goal</label><select id="f_goal"><option value="">—</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
-      <div class="kf"><label>Health / safety notes</label><textarea id="f_health" rows="2" placeholder="e.g. anxiety, allergies, seizures…"></textarea></div>
-      <div class="kf"><label>How did you find out about us?</label>
-        <select id="f_heard"><option value="">—</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
-      <div class="check"><input type="checkbox" id="f_owns"><label for="f_owns" style="margin:0">Student owns the instrument</label></div>
-      <div class="check"><input type="checkbox" id="f_media"><label for="f_media" style="margin:0">📸 Media consent — photos/videos may be used for promotion</label></div>
+      <div class="kf"><label>Goal *</label><select id="f_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
+      <div class="kf"><label>Health / safety notes *</label><textarea id="f_health" rows="2" placeholder="Type 'None' if not applicable"></textarea></div>
+      <div class="kf"><label>How did you find out about us? *</label>
+        <select id="f_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
+      <div class="kf"><label>Owns the instrument? *</label><select id="f_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+      <div class="kf"><label>📸 Media consent — may we use photos/videos for promotion? *</label><select id="f_media"><option value="">Select…</option><option value="yes">Yes, I consent</option><option value="no">No</option></select></div>
       <div class="notice"><b>IMPORTANT NOTICE</b><br>
         <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
         <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
         <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.</div>
       <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
-      <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer" required></div>
+      <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer"></div>
       <div class="formmsg" id="intakeMsg"></div>
-      <button class="kbtn teal" id="saveStu" style="width:100%">Save student</button>
+      <button type="button" class="kbtn teal" id="saveStu" style="width:100%">Save student</button>
     </div>
   </form>`;
   // minor toggle
@@ -386,40 +388,50 @@ async function renderIntake(){
 }
 
 async function submitIntake(){
-  const m=$("intakeMsg"); m.className="formmsg";
-  const name=$("f_name").value.trim();
-  const branch=$("f_branch").value, course=$("f_course").value, join=$("f_join").value;
-  const terms=$("f_terms").checked, signer=$("f_signer").value.trim();
-  if(!name){ m.className="formmsg err"; m.textContent="Please enter the student's full name."; return; }
-  if(!branch){ m.className="formmsg err"; m.textContent="Please choose a branch."; return; }
-  if(!course){ m.className="formmsg err"; m.textContent="Please choose a course."; return; }
-  if(!join){ m.className="formmsg err"; m.textContent="Please set the date of joining."; return; }
-  if(!terms){ m.className="formmsg err"; m.textContent="The IMPORTANT NOTICE must be acknowledged."; return; }
-  if(!signer){ m.className="formmsg err"; m.textContent="Please enter the name of the person consenting."; return; }
+  const m=$("intakeMsg");
   const minor=$("f_minor").checked;
+  const D=id=>((($(id)||{}).value)||"").toString().trim();
+  const digits=id=>D(id).replace(/\D/g,"");
+  function fail(id,message){ m.className="formmsg err"; m.textContent=message; const el=$(id); if(el){ el.focus(); el.scrollIntoView({block:"center",behavior:"smooth"}); } return false; }
+  // every field required (visible ones), phones must be 10 digits
+  if(!D("f_name"))  return fail("f_name","Please enter the student's full name.");
+  if(!D("f_dob"))   return fail("f_dob","Please enter the date of birth.");
+  if(minor && !D("f_parent")) return fail("f_parent","Please enter the parent/guardian name.");
+  if(digits("f_phone").length!==10) return fail("f_phone","Student's phone must be exactly 10 digits.");
+  if(digits("f_wa").length!==10)    return fail("f_wa","Student's WhatsApp must be exactly 10 digits.");
+  if(minor){
+    if(digits("f_pphone").length!==10) return fail("f_pphone","Parent's phone must be exactly 10 digits.");
+    if(!D("f_pemail")) return fail("f_pemail","Please enter the parent's email.");
+  } else {
+    if(!D("f_email")) return fail("f_email","Please enter the student's email.");
+  }
+  if(digits("f_emer").length!==10) return fail("f_emer","Emergency contact must be exactly 10 digits.");
+  if(!D("f_branch")) return fail("f_branch","Please choose a branch.");
+  if(!D("f_course")) return fail("f_course","Please choose a course.");
+  if(!D("f_level"))  return fail("f_level","Please choose the class level.");
+  if(!D("f_join"))   return fail("f_join","Please set the date of joining.");
+  if(!D("f_goal"))   return fail("f_goal","Please choose a goal.");
+  if(!D("f_health")) return fail("f_health","Please fill health/safety notes (type 'None' if not applicable).");
+  if(!D("f_heard"))  return fail("f_heard","Please choose how they found out about us.");
+  if(!D("f_owns"))   return fail("f_owns","Please choose whether the student owns the instrument.");
+  if(!D("f_media"))  return fail("f_media","Please choose the media-consent option.");
+  if(!$("f_terms").checked){ m.className="formmsg err"; m.textContent="The IMPORTANT NOTICE must be acknowledged."; $("f_terms").focus(); return; }
+  if(!D("f_signer")) return fail("f_signer","Please enter the name of the person consenting.");
+  const ph=id=>$(id+"_cc").value+" "+digits(id);
   const rec = {
-    full_name:name,
-    date_of_birth: $("f_dob").value||null,
-    is_minor: minor,
-    parent_name: minor? ($("f_parent").value.trim()||null):null,
-    phone: $("f_phone").value.trim()||null,
-    whatsapp: $("f_wa").value.trim()||null,
-    email: minor? null : ($("f_email").value.trim()||null),
-    parent_phone: minor? ($("f_pphone").value.trim()||null):null,
-    parent_email: minor? ($("f_pemail").value.trim()||null):null,
-    emergency_contact: $("f_emer").value.trim()||null,
-    branch_id: branch, course_id: course,
-    level: $("f_level").value,
-    join_date: join,
-    goal: $("f_goal").value||null,
-    owns_instrument: $("f_owns").checked,
-    health_notes: $("f_health").value.trim()||null,
-    heard_via: $("f_heard").value||null,
-    consent_media: $("f_media").checked,
-    consent_terms: true,
-    consent_signed_by: signer,
-    consent_signed_at: new Date().toISOString(),
-    status: "active"
+    full_name:D("f_name"), date_of_birth:D("f_dob"), is_minor:minor,
+    parent_name: minor?D("f_parent"):null,
+    phone: ph("f_phone"), whatsapp: ph("f_wa"),
+    email: minor? null : D("f_email"),
+    parent_phone: minor? ph("f_pphone"):null,
+    parent_email: minor? D("f_pemail"):null,
+    emergency_contact: ph("f_emer"),
+    branch_id:D("f_branch"), course_id:D("f_course"), level:D("f_level"), join_date:D("f_join"),
+    goal:D("f_goal"), owns_instrument: D("f_owns")==="yes",
+    health_notes:D("f_health"), heard_via:D("f_heard"),
+    consent_media: D("f_media")==="yes", consent_terms:true,
+    consent_signed_by:D("f_signer"), consent_signed_at:new Date().toISOString(),
+    status:"active"
   };
   $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
   const { error } = await db.from("students").insert(rec);
