@@ -33,6 +33,9 @@
   .msg.err{color:var(--warn)} .msg.ok{color:var(--good)}
   .loginfoot{font-size:11px;color:var(--muted);margin-top:16px}
   .cfgwarn{background:#fbe7e3;color:var(--warn);border-radius:10px;padding:10px;font-size:12px;margin-bottom:16px;text-align:left}
+  .logintabs{display:flex;background:var(--soft);border-radius:30px;padding:4px;gap:4px;margin-bottom:16px}
+  .ltab{flex:1;border:0;background:transparent;color:var(--muted);font-weight:700;font-size:12.5px;padding:8px;border-radius:30px;cursor:pointer}
+  .ltab.active{background:#fff;color:var(--teal-deep);box-shadow:0 1px 4px rgba(0,0,0,.08)}
   /* ---------- APP SHELL ---------- */
   #app{min-height:100vh}
   .top{display:flex;align-items:center;justify-content:space-between;
@@ -112,11 +115,19 @@
       <h1>Welcome to Kala Kuteer</h1>
       <p class="sub">Sign in to your portal</p>
       <div id="cfgwarn" class="cfgwarn hide">⚠️ Not connected to the database yet.</div>
-      <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="you@example.com"></div>
-      <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
-      <button class="signin" id="signinBtn">Sign in</button>
+      <div class="logintabs"><button type="button" id="tabPhone" class="ltab active">Student / Parent</button><button type="button" id="tabEmail" class="ltab">Staff</button></div>
+      <div id="phoneForm">
+        <div class="field"><label>Mobile number</label><div style="display:flex;gap:6px"><select id="lphone_cc" style="max-width:84px"><option value="+91" selected>+91</option><option value="+1">+1</option><option value="+44">+44</option><option value="+7">+7</option><option value="+56">+56</option><option value="+65">+65</option><option value="+66">+66</option><option value="+971">+971</option></select><input id="lphone" inputmode="numeric" placeholder="mobile number" oninput="this.value=this.value.replace(/\D/g,'')"></div></div>
+        <div class="field"><label>PIN</label><input id="lpin" type="password" inputmode="numeric" placeholder="PIN (date of birth, DDMMYYYY)"></div>
+        <button class="signin" id="signinPhoneBtn">Sign in</button>
+      </div>
+      <div id="emailForm" style="display:none">
+        <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="you@example.com"></div>
+        <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+        <button class="signin" id="signinBtn">Sign in</button>
+      </div>
       <div class="msg" id="loginMsg"></div>
-      <div class="loginfoot">Students, teachers &amp; admins all sign in here. Your role decides what you see.</div>
+      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.</div>
     </form>
   </div>
 
@@ -460,17 +471,38 @@ async function submitIntake(){
     status:"active"
   };
   $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
-  const { error } = await db.from("students").insert(rec);
+  const { data:ins, error } = await db.from("students").insert(rec).select("id").single();
+  if(error){ $("saveStu").disabled=false; m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; state._dupeOK=false; return; }
+  // auto-create the student's login (mobile + DOB PIN)
+  let cred=" Opening the students list…";
+  try{
+    const { data:fn, error:ferr } = await db.functions.invoke("create-student-login", { body:{ student_id:ins.id, phone:primaryE164, dob:D("f_dob"), name:D("f_name") } });
+    if(ferr) cred=" (login will be set up shortly)";
+    else if(fn && fn.ok) cred=" Login → mobile "+primaryE164+", PIN = date of birth ("+fn.pin+"). Share with them.";
+    else if(fn && fn.error) cred=" (login note: "+fn.error+")";
+  }catch(e){ cred=" (login pending)"; }
   $("saveStu").disabled=false;
-  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; state._dupeOK=false; return; }
   clearDraft();
-  m.className="formmsg ok"; m.textContent="✓ Student saved! Opening the students list…";
-  setTimeout(()=>gotoNav("students"), 900);
+  m.className="formmsg ok"; m.textContent="✓ Student saved!"+cred;
+  setTimeout(()=>gotoNav("students"), 2600);
 }
 
+async function signInPhone(){
+  const code=$("lphone_cc").value.replace("+",""), num=($("lphone").value||"").replace(/\D/g,""), pin=$("lpin").value;
+  if(!num||!pin){ msg("Please enter your mobile number and PIN."); return; }
+  $("signinPhoneBtn").disabled=true; msg("Signing in…", true);
+  const email = code+num+"@student.kalakuteer.org";
+  const { error } = await db.auth.signInWithPassword({ email, password: pin });
+  $("signinPhoneBtn").disabled=false;
+  if(error){ msg("Couldn't sign in — please check your mobile number and PIN."); return; }
+  msg("", true);
+}
 $("signinBtn").onclick = signIn;
-$("loginform").addEventListener("keydown", e=>{ if(e.key==="Enter") signIn(); });
-$("logoutBtn").onclick = async ()=>{ if(db) await db.auth.signOut(); show("login"); $("password").value=""; };
+$("signinPhoneBtn").onclick = signInPhone;
+$("tabPhone").onclick=()=>{ $("tabPhone").classList.add("active"); $("tabEmail").classList.remove("active"); $("phoneForm").style.display=""; $("emailForm").style.display="none"; msg("",true); };
+$("tabEmail").onclick=()=>{ $("tabEmail").classList.add("active"); $("tabPhone").classList.remove("active"); $("emailForm").style.display=""; $("phoneForm").style.display="none"; msg("",true); };
+$("loginform").addEventListener("keydown", e=>{ if(e.key==="Enter"){ if($("phoneForm").style.display!=="none") signInPhone(); else signIn(); } });
+$("logoutBtn").onclick = async ()=>{ if(db) await db.auth.signOut(); show("login"); if($("password"))$("password").value=""; if($("lpin"))$("lpin").value=""; };
 init();
 </script>
 </body>
