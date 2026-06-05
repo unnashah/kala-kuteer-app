@@ -318,7 +318,8 @@ async function renderAttendance(){
     </div>
     <div class="formmsg" id="attMsg"></div>
     <div id="attList"><div class="empty">Loading…</div></div>`;
-  $("attDate").value = new Date().toISOString().slice(0,10);
+  const today = new Date().toISOString().slice(0,10);
+  $("attDate").value = today; $("attDate").max = today;
   $("attLoad").onclick = loadAttendance;
   $("attSave").onclick = saveAttendance;
   $("attBranch").onchange = loadAttendance;
@@ -326,8 +327,10 @@ async function renderAttendance(){
 }
 async function loadAttendance(){
   const date=$("attDate").value, branch=$("attBranch").value;
+  const today=new Date().toISOString().slice(0,10);
   if(!date){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Please pick a date."; return; }
-  $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
+  if(date>today){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Attendance can only be marked for today or a past date."; $("attList").innerHTML=""; return; }
+  $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
   let q=db.from("students").select("id,full_name,branches(name),courses(name)").eq("status","active").order("full_name");
   if(branch) q=q.eq("branch_id",branch);
   const { data:studs, error } = await q;
@@ -351,11 +354,13 @@ function drawAttendance(studs, map){
       <td class="mini">${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")}</td>
       <td>${btn(s.id,"present","Present","background:var(--good);color:#fff;border-color:var(--good)")}${btn(s.id,"absent","Absent","background:var(--warn);color:#fff;border-color:var(--warn)")}${btn(s.id,"excused","Excused","background:var(--saffron);color:#3a2c00;border-color:var(--saffron)")}</td>
     </tr>`).join("")}</table>
-    <p class="footnote">Tap Present / Absent / Excused for each student, then click <b>Save attendance</b>. Re-opening this date shows what you saved.</p>`;
+    <p class="footnote" style="margin-top:26px;border-top:1px solid var(--line);padding-top:14px">Tap Present / Absent / Excused for each student, then click <b>Save attendance</b>. Re-opening this date shows what you saved.</p>`;
 }
 function markAtt(id,status){ state._att[id]=status; drawAttendance(state._attStuds, state._att); }
 async function saveAttendance(){
   const m=$("attMsg"); const date=state._attDate;
+  const today=new Date().toISOString().slice(0,10);
+  if(date>today){ m.className="formmsg err"; m.textContent="Attendance can only be saved for today or a past date."; return; }
   const rows=Object.keys(state._att||{}).filter(sid=>state._att[sid]).map(sid=>({ student_id:sid, class_date:date, status:state._att[sid] }));
   if(!rows.length){ m.className="formmsg err"; m.textContent="Mark at least one student first."; return; }
   m.className="formmsg ok"; m.textContent="Saving…";
