@@ -192,31 +192,33 @@ async function loadApp(session){
   if(error) warn = "Couldn't read your profile — "+error.message;
   else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; pinSet=data[0].pin_set!==false; }
   state.role=role; state.name=name;
-  if(role==="student" && !pinSet){ renderSetPin(name); show("app"); return; }
+  if((role==="student"||role==="teacher") && !pinSet){ renderSetPin(name, role); show("app"); return; }
   renderShell(role, name, warn);
   show("app");
 }
-function renderSetPin(name){
+function renderSetPin(name, role){
+  const teacher = role==="teacher"; state._setRole=role;
   $("whoName").textContent="Hi, "+(name||"").split(" ")[0];
-  $("whoRole").textContent="Student";
+  $("whoRole").textContent= teacher?"Teacher":"Student";
   $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
-    <h2 style="font-size:20px;margin-bottom:6px">Set your private PIN 🔒</h2>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your privacy, please choose your own PIN now. You'll use this to sign in from here on — your date of birth will no longer work.</p>
-    <div class="kf"><label>New PIN (6–8 digits)</label><input id="np1" type="password" inputmode="numeric" maxlength="8" placeholder="choose a PIN"></div>
-    <div class="kf"><label>Confirm PIN</label><input id="np2" type="password" inputmode="numeric" maxlength="8" placeholder="re-enter it"></div>
+    <h2 style="font-size:20px;margin-bottom:6px">${teacher?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${teacher?"password":"PIN"} now. You'll use this to sign in from here on${teacher?"":" — your date of birth will no longer work"}.</p>
+    <div class="kf"><label>${teacher?"New password (min 6 characters)":"New PIN (6–8 digits)"}</label><input id="np1" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:8}" placeholder="choose one"></div>
+    <div class="kf"><label>Confirm</label><input id="np2" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:8}" placeholder="re-enter it"></div>
     <div class="formmsg" id="pinMsg"></div>
-    <button class="kbtn teal" id="setPinBtn" style="width:100%">Save my PIN</button>
+    <button class="kbtn teal" id="setPinBtn" style="width:100%">Save</button>
   </div>`;
   $("setPinBtn").onclick=saveNewPin;
 }
 async function saveNewPin(){
-  const m=$("pinMsg"); const a=$("np1").value, b=$("np2").value;
-  if(!/^\d{6,8}$/.test(a)){ m.className="formmsg err"; m.textContent="PIN must be 6 to 8 digits."; return; }
-  if(a!==b){ m.className="formmsg err"; m.textContent="The two PINs don't match."; return; }
+  const m=$("pinMsg"); const a=$("np1").value, b=$("np2").value; const teacher=state._setRole==="teacher";
+  if(teacher){ if((a||"").length<6){ m.className="formmsg err"; m.textContent="Password must be at least 6 characters."; return; } }
+  else { if(!/^\d{6,8}$/.test(a)){ m.className="formmsg err"; m.textContent="PIN must be 6 to 8 digits."; return; } }
+  if(a!==b){ m.className="formmsg err"; m.textContent="The two don't match."; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("setPinBtn").disabled=true;
   const { error:pe } = await db.auth.updateUser({ password:a });
-  if(pe){ $("setPinBtn").disabled=false; m.className="formmsg err"; m.textContent="Couldn't set PIN — "+pe.message; return; }
+  if(pe){ $("setPinBtn").disabled=false; m.className="formmsg err"; m.textContent="Couldn't save — "+pe.message; return; }
   const { data:{ user } } = await db.auth.getUser();
   await db.from("profiles").update({ pin_set:true }).eq("id", user.id);
   const { data:{ session } } = await db.auth.getSession();
