@@ -332,26 +332,36 @@ async function renderStudentDetail(id){
 }
 
 /* ---------------- INTAKE FORM ---------------- */
+// per-country digit length [min,max]; default 7–15
+const PHONE_RULES = { "+91":[10,10], "+1":[10,10], "+44":[10,11], "+7":[10,10], "+56":[8,9], "+65":[8,8], "+66":[9,9], "+971":[9,9] };
+const CC_OPTS = [["+91","🇮🇳 India +91"],["+1","🇺🇸 USA/Canada +1"],["+44","🇬🇧 UK +44"],["+7","🇷🇺 Russia +7"],["+56","🇨🇱 Chile +56"],["+65","🇸🇬 Singapore +65"],["+66","🇹🇭 Thailand +66"],["+971","🇦🇪 UAE +971"]];
+function phoneOK(code,d){ const r=PHONE_RULES[code]||[7,15]; return d.length>=r[0]&&d.length<=r[1]; }
+function phoneHint(code){ const r=PHONE_RULES[code]; return r?(r[0]===r[1]?r[0]+" digits":r[0]+"–"+r[1]+" digits"):"7–15 digits"; }
+const DRAFT_KEY="kk_intake_draft_v2";
+function saveDraft(){ const f=$("intakeForm"); if(!f) return; const o={}; f.querySelectorAll("input,select,textarea").forEach(el=>{ if(!el.id) return; o[el.id]=el.type==="checkbox"?el.checked:el.value; }); try{ localStorage.setItem(DRAFT_KEY,JSON.stringify(o)); }catch(e){} }
+function restoreDraft(){ let o; try{ o=JSON.parse(localStorage.getItem(DRAFT_KEY)||"null"); }catch(e){} if(!o) return false; let any=false; Object.keys(o).forEach(id=>{ const el=$(id); if(!el) return; if(el.type==="checkbox") el.checked=o[id]; else el.value=o[id]; if(o[id]!==""&&o[id]!==false) any=true; }); return any; }
+function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
+
 async function renderIntake(){
   const M=$("mainArea");
   await loadRef();
   const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts = state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
-  const cc = id=>`<select id="${id}_cc" style="max-width:96px"><option value="+91" selected>+91</option><option value="+1">+1</option><option value="+7">+7</option><option value="+44">+44</option><option value="+56">+56</option><option value="+65">+65</option><option value="+66">+66</option><option value="+971">+971</option></select>`;
-  const phone=(id,label,cls)=>`<div class="kf ${cls||''}"><label>${label} *</label><div style="display:flex;gap:6px">${cc(id)}<input id="${id}" inputmode="numeric" maxlength="10" placeholder="10-digit number" oninput="this.value=this.value.replace(/\\D/g,'')"></div></div>`;
-  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Parent details appear only for minors. Phone numbers must be 10 digits.</p></div></div>
+  const cc = id=>`<select id="${id}_cc" style="max-width:160px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
+  const numIn = id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
+  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Numbers are validated; your draft is auto-saved as you type.</p></div></div>
+  <div id="draftNote" class="hide" style="background:#fff7e8;border-radius:9px;padding:8px 10px;font-size:12px;margin-bottom:10px">📝 Restored your unsaved draft. <span onclick="clearDraft();renderIntake()" style="color:var(--saffron-deep);font-weight:700;cursor:pointer">Start fresh</span></div>
   <form id="intakeForm" class="form2" onsubmit="return false">
     <div class="panel"><h3>1 · Student &amp; contact</h3>
       <div class="kf"><label>Full name *</label><input id="f_name"></div>
       <div class="kf"><label>Date of birth *</label><input id="f_dob" type="date"></div>
-      <div class="check"><input type="checkbox" id="f_minor"><label for="f_minor" style="margin:0">Student is a minor (under 18) — show parent details</label></div>
+      <div class="check"><input type="checkbox" id="f_minor"><label for="f_minor" style="margin:0">Student is a minor (under 18)</label></div>
       <div class="kf minor-only"><label>Parent / guardian name *</label><input id="f_parent"></div>
-      ${phone('f_phone',"Student's phone")}
-      ${phone('f_wa',"Student's WhatsApp")}
-      <div class="kf adult-only"><label>Student's email *</label><input id="f_email" type="email"></div>
-      ${phone('f_pphone',"Parent's phone",'minor-only')}
-      <div class="kf minor-only"><label>Parent's email *</label><input id="f_pemail" type="email"></div>
-      ${phone('f_emer','Emergency contact')}
+      <div class="kf"><label id="lbl_phone">Mobile number *</label><div style="display:flex;gap:6px">${cc('f_phone')}${numIn('f_phone')}</div>
+        <div class="check" style="margin:6px 0 0"><input type="checkbox" id="f_wasame" checked><label for="f_wasame" style="margin:0;font-size:12px">WhatsApp is the same number</label></div></div>
+      <div class="kf" id="wawrap" style="display:none"><label>WhatsApp number</label><div style="display:flex;gap:6px">${cc('f_wa')}${numIn('f_wa')}</div></div>
+      <div class="kf"><label id="lbl_email">Email *</label><input id="f_email" type="email"></div>
+      <div class="kf"><label>Emergency contact *</label><div style="display:flex;gap:6px">${cc('f_emer')}${numIn('f_emer')}</div></div>
     </div>
     <div class="panel"><h3>2 · Course, joining &amp; consent</h3>
       <div class="kf"><label>Branch *</label><select id="f_branch"><option value="">Select…</option>${branchOpts}</select></div>
@@ -360,11 +370,11 @@ async function renderIntake(){
       <div class="kf"><label>Date of joining (= Session 1) *</label><input id="f_join" type="date"></div>
       <div style="font-size:11.5px;color:var(--teal-deep);margin:-4px 0 8px">↳ Monthly fee is calculated from this date.</div>
       <div class="kf"><label>Goal *</label><select id="f_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
-      <div class="kf"><label>Health / safety notes *</label><textarea id="f_health" rows="2" placeholder="Type 'None' if not applicable"></textarea></div>
       <div class="kf"><label>How did you find out about us? *</label>
         <select id="f_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
       <div class="kf"><label>Owns the instrument? *</label><select id="f_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
-      <div class="kf"><label>📸 Media consent — may we use photos/videos for promotion? *</label><select id="f_media"><option value="">Select…</option><option value="yes">Yes, I consent</option><option value="no">No</option></select></div>
+      <div class="kf"><label>Health / safety — any conditions we should know? *</label><textarea id="f_health" rows="2" placeholder="e.g. anxiety, panic attacks, cardiac issues, etc. — or write NA"></textarea></div>
+      <div class="kf"><label>📸 Media consent — may we use photos/videos? *</label><select id="f_media"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="notice"><b>IMPORTANT NOTICE</b><br>
         <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
         <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
@@ -375,15 +385,20 @@ async function renderIntake(){
       <button type="button" class="kbtn teal" id="saveStu" style="width:100%">Save student</button>
     </div>
   </form>`;
-  // minor toggle
-  function applyMinor(){
-    const m=$("f_minor").checked;
-    M.querySelectorAll(".minor-only").forEach(e=>e.style.display=m?"":"none");
-    M.querySelectorAll(".adult-only").forEach(e=>e.style.display=m?"none":"");
+  function applyMinor(){ const mn=$("f_minor").checked;
+    M.querySelectorAll(".minor-only").forEach(e=>e.style.display=mn?"":"none");
+    $("lbl_phone").textContent = mn?"Parent's mobile number *":"Mobile number *";
+    $("lbl_email").textContent = mn?"Parent's email *":"Email *";
   }
-  $("f_minor").onchange=applyMinor;
-  $("f_dob").onchange=()=>{ const a=ageFromDOB($("f_dob").value); if(a!=null){ $("f_minor").checked=a<18; applyMinor(); } };
+  $("f_minor").onchange=()=>{ applyMinor(); saveDraft(); };
+  $("f_dob").onchange=()=>{ const a=ageFromDOB($("f_dob").value); if(a!=null){ $("f_minor").checked=a<18; } applyMinor(); saveDraft(); };
+  $("f_wasame").onchange=()=>{ $("wawrap").style.display=$("f_wasame").checked?"none":""; saveDraft(); };
+  $("intakeForm").addEventListener("input", saveDraft);
+  const restored = restoreDraft();
+  if(restored) $("draftNote").classList.remove("hide");
   applyMinor();
+  $("wawrap").style.display=$("f_wasame").checked?"none":"";
+  state._dupeOK=false;
   $("saveStu").onclick=submitIntake;
 }
 
@@ -393,50 +408,62 @@ async function submitIntake(){
   const D=id=>((($(id)||{}).value)||"").toString().trim();
   const digits=id=>D(id).replace(/\D/g,"");
   function fail(id,message){ m.className="formmsg err"; m.textContent=message; const el=$(id); if(el){ el.focus(); el.scrollIntoView({block:"center",behavior:"smooth"}); } return false; }
-  // every field required (visible ones), phones must be 10 digits
-  if(!D("f_name"))  return fail("f_name","Please enter the student's full name.");
-  if(!D("f_dob"))   return fail("f_dob","Please enter the date of birth.");
+  // ---- required: name, dob, primary mobile (valid by country), branch, course, joining, consent ----
+  if(!D("f_name")) return fail("f_name","Please enter the student's full name.");
+  if(!D("f_dob"))  return fail("f_dob","Please enter the date of birth.");
   if(minor && !D("f_parent")) return fail("f_parent","Please enter the parent/guardian name.");
-  if(digits("f_phone").length!==10) return fail("f_phone","Student's phone must be exactly 10 digits.");
-  if(digits("f_wa").length!==10)    return fail("f_wa","Student's WhatsApp must be exactly 10 digits.");
-  if(minor){
-    if(digits("f_pphone").length!==10) return fail("f_pphone","Parent's phone must be exactly 10 digits.");
-    if(!D("f_pemail")) return fail("f_pemail","Please enter the parent's email.");
-  } else {
-    if(!D("f_email")) return fail("f_email","Please enter the student's email.");
-  }
-  if(digits("f_emer").length!==10) return fail("f_emer","Emergency contact must be exactly 10 digits.");
+  const pcode=$("f_phone_cc").value, pnum=digits("f_phone");
+  if(!pnum) return fail("f_phone","Please enter a mobile number.");
+  if(!phoneOK(pcode,pnum)) return fail("f_phone","That mobile doesn't look right — "+pcode+" needs "+phoneHint(pcode)+".");
+  let waE164 = pcode+pnum;
+  if(!$("f_wasame").checked){ const wc=$("f_wa_cc").value, wn=digits("f_wa"); if(!wn) return fail("f_wa","Please enter the WhatsApp number (or tick 'same number')."); if(!phoneOK(wc,wn)) return fail("f_wa","WhatsApp number — "+wc+" needs "+phoneHint(wc)+"."); waE164=wc+wn; }
+  if(!D("f_email")) return fail("f_email","Please enter the email.");
+  const ec=$("f_emer_cc").value, en=digits("f_emer");
+  if(!en) return fail("f_emer","Please enter an emergency contact number.");
+  if(!phoneOK(ec,en)) return fail("f_emer","Emergency contact — "+ec+" needs "+phoneHint(ec)+".");
+  const emerE164=ec+en;
   if(!D("f_branch")) return fail("f_branch","Please choose a branch.");
   if(!D("f_course")) return fail("f_course","Please choose a course.");
   if(!D("f_level"))  return fail("f_level","Please choose the class level.");
   if(!D("f_join"))   return fail("f_join","Please set the date of joining.");
   if(!D("f_goal"))   return fail("f_goal","Please choose a goal.");
-  if(!D("f_health")) return fail("f_health","Please fill health/safety notes (type 'None' if not applicable).");
   if(!D("f_heard"))  return fail("f_heard","Please choose how they found out about us.");
   if(!D("f_owns"))   return fail("f_owns","Please choose whether the student owns the instrument.");
+  if(!D("f_health")) return fail("f_health","Please fill health/safety (write NA if none).");
   if(!D("f_media"))  return fail("f_media","Please choose the media-consent option.");
   if(!$("f_terms").checked){ m.className="formmsg err"; m.textContent="The IMPORTANT NOTICE must be acknowledged."; $("f_terms").focus(); return; }
   if(!D("f_signer")) return fail("f_signer","Please enter the name of the person consenting.");
-  const ph=id=>$(id+"_cc").value+" "+digits(id);
+  const primaryE164 = pcode+pnum;
+  // ---- duplicate check (by primary number) — best effort ----
+  if(!state._dupeOK){
+    try{
+      const { data:dupe } = await db.from("students").select("full_name").or(`phone.eq.${primaryE164},parent_phone.eq.${primaryE164},whatsapp.eq.${primaryE164}`).limit(1);
+      if(dupe && dupe.length){ state._dupeOK=true; m.className="formmsg err"; m.textContent="⚠️ "+dupe[0].full_name+" already has this number. Click Save again to add anyway."; return; }
+    }catch(e){}
+  }
   const rec = {
     full_name:D("f_name"), date_of_birth:D("f_dob"), is_minor:minor,
     parent_name: minor?D("f_parent"):null,
-    phone: ph("f_phone"), whatsapp: ph("f_wa"),
+    phone: minor? null : primaryE164,
+    whatsapp: waE164,
     email: minor? null : D("f_email"),
-    parent_phone: minor? ph("f_pphone"):null,
-    parent_email: minor? D("f_pemail"):null,
-    emergency_contact: ph("f_emer"),
-    branch_id:D("f_branch"), course_id:D("f_course"), level:D("f_level"), join_date:D("f_join"),
-    goal:D("f_goal"), owns_instrument: D("f_owns")==="yes",
-    health_notes:D("f_health"), heard_via:D("f_heard"),
-    consent_media: D("f_media")==="yes", consent_terms:true,
-    consent_signed_by:D("f_signer"), consent_signed_at:new Date().toISOString(),
+    parent_phone: minor? primaryE164 : null,
+    parent_email: minor? D("f_email") : null,
+    emergency_contact: emerE164,
+    branch_id:D("f_branch"), course_id:D("f_course"),
+    level: D("f_level"), join_date:D("f_join"),
+    goal: D("f_goal"),
+    owns_instrument: D("f_owns")==="yes",
+    health_notes: D("f_health"), heard_via: D("f_heard"),
+    consent_media: D("f_media")==="yes",
+    consent_terms:true, consent_signed_by:D("f_signer"), consent_signed_at:new Date().toISOString(),
     status:"active"
   };
   $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
   const { error } = await db.from("students").insert(rec);
   $("saveStu").disabled=false;
-  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; state._dupeOK=false; return; }
+  clearDraft();
   m.className="formmsg ok"; m.textContent="✓ Student saved! Opening the students list…";
   setTimeout(()=>gotoNav("students"), 900);
 }
