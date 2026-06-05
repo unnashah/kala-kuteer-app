@@ -203,9 +203,9 @@ function renderSetPin(name, role){
   $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
     <h2 style="font-size:20px;margin-bottom:6px">${teacher?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${teacher?"password":"PIN"} now. You'll use this to sign in from here on${teacher?"":" — your date of birth will no longer work"}.</p>
-    <div class="kf"><label>${teacher?"New password (min 6 characters)":"New PIN (6–8 digits)"}</label><input id="np1" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:8}" placeholder="choose one"></div>
-    <div class="kf"><label>Confirm</label><input id="np2" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:8}" placeholder="re-enter it"></div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${teacher?"password":"PIN"} now. You'll use this to sign in from here on${teacher?"":" — your date of birth won't work after this"}.${teacher?"":" <b>Pick any 6 numbers</b> you'll remember (please avoid your birthday)."}</p>
+    <div class="kf"><label>${teacher?"New password (min 6 characters)":"New PIN — exactly 6 digits"}</label><input id="np1" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:6}" placeholder="${teacher?"choose a password":"6-digit number"}"></div>
+    <div class="kf"><label>Confirm</label><input id="np2" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:6}" placeholder="re-enter it"></div>
     <div class="formmsg" id="pinMsg"></div>
     <button class="kbtn teal" id="setPinBtn" style="width:100%">Save</button>
   </div>`;
@@ -214,7 +214,7 @@ function renderSetPin(name, role){
 async function saveNewPin(){
   const m=$("pinMsg"); const a=$("np1").value, b=$("np2").value; const teacher=state._setRole==="teacher";
   if(teacher){ if((a||"").length<6){ m.className="formmsg err"; m.textContent="Password must be at least 6 characters."; return; } }
-  else { if(!/^\d{6,8}$/.test(a)){ m.className="formmsg err"; m.textContent="PIN must be 6 to 8 digits."; return; } }
+  else { if(!/^\d{6}$/.test(a)){ m.className="formmsg err"; m.textContent="Your PIN must be exactly 6 digits (numbers only)."; return; } }
   if(a!==b){ m.className="formmsg err"; m.textContent="The two don't match."; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("setPinBtn").disabled=true;
   const { error:pe } = await db.auth.updateUser({ password:a });
