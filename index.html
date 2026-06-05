@@ -155,12 +155,12 @@ const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["⚙️","Settings & Roles","settings"]],
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -187,13 +187,40 @@ async function signIn(){
   if(error){ msg(error.message); return; } msg("", true);
 }
 async function loadApp(session){
-  let role="student", name=session.user.email, warn="";
-  const { data, error } = await db.from("profiles").select("role, full_name").eq("id", session.user.id);
+  let role="student", name=session.user.email, warn="", pinSet=true;
+  const { data, error } = await db.from("profiles").select("role, full_name, pin_set").eq("id", session.user.id);
   if(error) warn = "Couldn't read your profile — "+error.message;
-  else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; }
+  else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; pinSet=data[0].pin_set!==false; }
   state.role=role; state.name=name;
+  if(role==="student" && !pinSet){ renderSetPin(name); show("app"); return; }
   renderShell(role, name, warn);
   show("app");
+}
+function renderSetPin(name){
+  $("whoName").textContent="Hi, "+(name||"").split(" ")[0];
+  $("whoRole").textContent="Student";
+  $("sideNav").innerHTML="";
+  $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
+    <h2 style="font-size:20px;margin-bottom:6px">Set your private PIN 🔒</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your privacy, please choose your own PIN now. You'll use this to sign in from here on — your date of birth will no longer work.</p>
+    <div class="kf"><label>New PIN (6–8 digits)</label><input id="np1" type="password" inputmode="numeric" maxlength="8" placeholder="choose a PIN"></div>
+    <div class="kf"><label>Confirm PIN</label><input id="np2" type="password" inputmode="numeric" maxlength="8" placeholder="re-enter it"></div>
+    <div class="formmsg" id="pinMsg"></div>
+    <button class="kbtn teal" id="setPinBtn" style="width:100%">Save my PIN</button>
+  </div>`;
+  $("setPinBtn").onclick=saveNewPin;
+}
+async function saveNewPin(){
+  const m=$("pinMsg"); const a=$("np1").value, b=$("np2").value;
+  if(!/^\d{6,8}$/.test(a)){ m.className="formmsg err"; m.textContent="PIN must be 6 to 8 digits."; return; }
+  if(a!==b){ m.className="formmsg err"; m.textContent="The two PINs don't match."; return; }
+  m.className="formmsg ok"; m.textContent="Saving…"; $("setPinBtn").disabled=true;
+  const { error:pe } = await db.auth.updateUser({ password:a });
+  if(pe){ $("setPinBtn").disabled=false; m.className="formmsg err"; m.textContent="Couldn't set PIN — "+pe.message; return; }
+  const { data:{ user } } = await db.auth.getUser();
+  await db.from("profiles").update({ pin_set:true }).eq("id", user.id);
+  const { data:{ session } } = await db.auth.getSession();
+  loadApp(session);
 }
 
 function renderShell(role, name, warn){
@@ -219,6 +246,8 @@ function navigate(key, name, warn){
   if(key==="dashboard") return renderDashboard(name, warn);
   if(key==="students")  return renderStudents();
   if(key==="attendance") return renderAttendance();
+  if(key==="fees")      return renderFees();
+  if(key==="teachers")  return renderTeachers();
   if(key==="intake")    return renderIntake();
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
@@ -369,6 +398,136 @@ async function saveAttendance(){
   m.className="formmsg ok"; m.textContent="✓ Saved attendance for "+date+" ("+rows.length+" students).";
 }
 
+/* ---------------- FEES & INVOICES ---------------- */
+const PAD=n=>String(n).padStart(2,"0");
+const MONS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN");
+function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().toISOString().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y }; }
+async function renderFees(){
+  const M=$("mainArea"); await loadRef();
+  const thisMonth=new Date().toISOString().slice(0,7);
+  M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
+    <div class="searchbar"><span class="mini">Month</span><input id="feeMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:180px;flex:none"><button class="kbtn ghost" id="feeLoad">Load</button></div>
+    <div class="formmsg" id="feeMsg"></div>
+    <div class="kpis" id="feeKpis" style="margin-bottom:12px"></div>
+    <div id="feeList"><div class="empty">Loading…</div></div>`;
+  $("feeMonth").onchange=loadFees; $("feeLoad").onclick=loadFees; $("genInv").onclick=generateInvoices;
+  loadFees();
+}
+async function loadFees(){
+  const P=feePeriod();
+  $("feeList").innerHTML=`<div class="empty">Loading…</div>`;
+  const { data:studs, error } = await db.from("students").select("id,full_name,branches(name,monthly_fee)").eq("status","active").order("full_name");
+  if(error){ $("feeList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status").eq("period_label",P.label);
+  const invMap={}; (inv||[]).forEach(i=>invMap[i.student_id]=i);
+  const invIds=(inv||[]).map(i=>i.id); let payMap={};
+  if(invIds.length){ const { data:pays } = await db.from("payments").select("invoice_id,method").in("invoice_id",invIds); (pays||[]).forEach(p=>payMap[p.invoice_id]=p.method); }
+  state._fee={ studs, invMap, payMap, P };
+  drawFees();
+}
+function drawFees(){
+  const { studs, invMap, payMap, P } = state._fee;
+  const today=new Date().toISOString().slice(0,10);
+  let billed=0, collected=0;
+  const rows=studs.map(s=>{
+    const inv=invMap[s.id];
+    if(inv){ billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount); }
+    let stHtml, action="";
+    if(!inv){ stHtml=`<span class="badge b-grey">No invoice</span>`; }
+    else if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>`; }
+    else { const overdue=inv.due_date<today;
+      stHtml = overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`;
+      action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
+    }
+    const amt = inv?INR(inv.amount):(s.branches&&s.branches.monthly_fee?INR(s.branches.monthly_fee):"—");
+    return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amt}</td><td>${stHtml}</td><td>${action}</td></tr>`;
+  }).join("");
+  const pending=billed-collected;
+  $("feeKpis").innerHTML=`<div class="kpi"><div class="l">Billed (${esc(P.label)})</div><div class="v">${INR(billed)}</div></div>
+    <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div></div>
+    <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>`;
+  $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Record payment</th></tr>${rows}</table>
+    <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px">Click <b>Generate invoices</b> to raise this month's fees for active students who don't have one yet. Overdue rows are flagged red — that's your follow-up list.</p>`:`<div class="empty">No active students.</div>`;
+}
+async function generateInvoices(){
+  const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
+  const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").eq("status","active");
+  const { data:inv } = await db.from("invoices").select("student_id").eq("period_label",P.label);
+  const have=new Set((inv||[]).map(i=>i.student_id));
+  const today=new Date().toISOString().slice(0,10);
+  const dim=new Date(P.year, P.monthIdx+1, 0).getDate();
+  const rows=(studs||[]).filter(s=>!have.has(s.id) && s.branches && Number(s.branches.monthly_fee)>0).map(s=>{
+    const day=s.join_date?new Date(s.join_date).getDate():1;
+    const due=`${P.year}-${PAD(P.monthIdx+1)}-${PAD(Math.min(day,dim))}`;
+    return { student_id:s.id, period_label:P.label, amount:s.branches.monthly_fee, due_date:due, status: due<today?"overdue":"pending" };
+  });
+  if(!rows.length){ m.className="formmsg ok"; m.textContent="Everyone already has an invoice for "+P.label+" (or has no branch fee set)."; loadFees(); return; }
+  const { error } = await db.from("invoices").insert(rows);
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't generate — "+error.message; return; }
+  m.className="formmsg ok"; m.textContent="✓ Created "+rows.length+" invoice(s) for "+P.label+".";
+  loadFees();
+}
+async function recordPayment(invId, amount){
+  const m=$("feeMsg"); const sel=$("pm_"+invId); const method=sel?sel.value:"cash";
+  m.className="formmsg ok"; m.textContent="Recording…";
+  const { error:pe } = await db.from("payments").insert({ invoice_id:invId, amount, method });
+  if(pe){ m.className="formmsg err"; m.textContent="Couldn't record — "+pe.message; return; }
+  const { error:ie } = await db.from("invoices").update({ status:"paid" }).eq("id",invId);
+  if(ie){ m.className="formmsg err"; m.textContent="Payment saved but status didn't update — "+ie.message; return; }
+  m.className="formmsg ok"; m.textContent="✓ Payment recorded ("+method+").";
+  loadFees();
+}
+
+/* ---------------- TEACHERS ---------------- */
+async function renderTeachers(){
+  const M=$("mainArea");
+  M.innerHTML=`<div class="ph"><div><h2>Teachers</h2><p>Staff logins — teachers sign in on the <b>Staff</b> tab with email + password</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Add a teacher</h3>
+      <div class="form2">
+        <div><div class="kf"><label>Full name *</label><input id="t_name"></div>
+          <div class="kf"><label>Email *</label><input id="t_email" type="email"></div></div>
+        <div><div class="kf"><label>Starting password *</label><input id="t_pass" placeholder="min 6 chars — they can change it later"></div>
+          <div class="kf"><label>Instrument / subject (optional)</label><input id="t_disc" placeholder="e.g. Sitar, Tabla"></div></div>
+      </div>
+      <div class="formmsg" id="tMsg"></div>
+      <button class="kbtn teal" id="addTeacher">Create teacher login</button>
+    </div>
+    <div id="tList"><div class="empty">Loading teachers…</div></div>`;
+  $("addTeacher").onclick=addTeacher;
+  loadTeachers();
+}
+async function loadTeachers(){
+  const { data, error } = await db.from("teachers").select("id,disciplines,payout_pct,profiles(full_name,email)").order("created_at",{ascending:false});
+  if(error){ $("tList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
+  if(!data||!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
+  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td></tr>`).join("")}</table>`;
+}
+async function addTeacher(){
+  const m=$("tMsg"); const name=$("t_name").value.trim(), email=$("t_email").value.trim(), pass=$("t_pass").value, disc=$("t_disc").value.trim();
+  if(!name) return failMsg(m,"Enter the teacher's name.");
+  if(!email) return failMsg(m,"Enter an email.");
+  if(!pass||pass.length<6) return failMsg(m,"Starting password must be at least 6 characters.");
+  m.className="formmsg ok"; m.textContent="Creating…"; $("addTeacher").disabled=true;
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"create_staff", role:"teacher", name, email, password:pass, disciplines: disc?disc.split(",").map(x=>x.trim()).filter(Boolean):[] } });
+  $("addTeacher").disabled=false;
+  if(ferr){ return failMsg(m,"Couldn't create — "+(await fnErr(ferr))); }
+  if(fn && fn.ok){ m.className="formmsg ok"; m.textContent="✓ Teacher created. They sign in on the Staff tab with "+email+" and the password you set."; ["t_name","t_email","t_pass","t_disc"].forEach(i=>$(i).value=""); loadTeachers(); }
+  else failMsg(m,"Couldn't create — "+((fn&&fn.error)||"unknown"));
+}
+function failMsg(m,t){ if(m){ m.className="formmsg err"; m.textContent=t; } return false; }
+async function fnErr(ferr){ let d=ferr.message||"error"; try{ const b=await ferr.context.json(); if(b&&b.error) d=b.error; }catch(e){} return d; }
+async function resetStudentPin(id, dob){
+  if(!dob){ alert("This student has no date of birth on record, so the PIN can't be reset to it."); return; }
+  if(!confirm("Reset this student's PIN to their date of birth? They'll be asked to set a new private PIN the next time they log in.")) return;
+  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Resetting…"; }
+  const [y,mo,d]=dob.split("-"); const pin=`${d}${mo}${y}`;
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"reset_pin", student_id:id, new_pin:pin } });
+  if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't reset — "+(await fnErr(ferr)); } return; }
+  if(fn&&fn.ok){ if(m){ m.className="formmsg ok"; m.textContent="✓ PIN reset to date of birth ("+pin+"). They'll set a new private PIN on next login."; } }
+  else if(m){ m.className="formmsg err"; m.textContent="Couldn't reset — "+((fn&&fn.error)||"unknown"); }
+}
+
 /* ---------------- STUDENT DETAIL ---------------- */
 async function renderStudentDetail(id){
   const M=$("mainArea");
@@ -378,6 +537,10 @@ async function renderStudentDetail(id){
   const { data:att } = await db.from("attendance").select("status").eq("student_id",id);
   const attTotal=(att||[]).length, attPresent=(att||[]).filter(a=>a.status==="present").length;
   const attPct = attTotal? Math.round(attPresent/attTotal*100):null;
+  const { data:linv } = await db.from("invoices").select("period_label,due_date,status").eq("student_id",id).order("due_date",{ascending:false}).limit(1);
+  const lf = linv&&linv[0];
+  const todayS = new Date().toISOString().slice(0,10);
+  const feeHtml = lf?(lf.status==="paid"?`<span class="badge b-green">Paid · ${esc(lf.period_label)}</span>`:(lf.due_date<todayS?`<span class="badge b-red">Overdue · ${esc(lf.period_label)}</span>`:`<span class="badge b-amber">Due ${esc(lf.due_date)}</span>`)):"—";
   const age = s.date_of_birth?ageFromDOB(s.date_of_birth):null;
   const minor = s.is_minor;
   const contact = minor
@@ -403,6 +566,7 @@ async function renderStudentDetail(id){
       <div class="panel"><h3>School record</h3>
         <div class="dl"><span class="k">Course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")}</span></div>
         <div class="dl"><span class="k">Attendance</span><span>${attPct!=null?attPct+"% ("+attPresent+"/"+attTotal+" days)":"—"}</span></div>
+        <div class="dl"><span class="k">Latest fee</span><span>${feeHtml}</span></div>
         <div class="dl"><span class="k">Goal</span><span>${esc(s.goal||"—")}</span></div>
         <div class="dl"><span class="k">Owns instrument</span><span>${s.owns_instrument==null?"—":(s.owns_instrument?"Yes":"No")}</span></div>
         <div class="dl"><span class="k">Health / safety notes</span><span>${esc(s.health_notes||"none recorded")}</span></div>
@@ -413,6 +577,7 @@ async function renderStudentDetail(id){
     <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
       <button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>
+      <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
       <div class="formmsg" id="manageMsg"></div>
       <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Delete</b> is permanent — use it only for mistakes or test entries.</p>
     </div>`;
