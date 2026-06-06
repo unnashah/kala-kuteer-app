@@ -422,7 +422,7 @@ async function loadFees(){
   $("feeList").innerHTML=`<div class="empty">Loading…</div>`;
   const { data:studs, error } = await db.from("students").select("id,full_name,branches(name,monthly_fee)").eq("status","active").order("full_name");
   if(error){ $("feeList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status").eq("period_label",P.label);
+  const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status,student_response").eq("period_label",P.label);
   const invMap={}; (inv||[]).forEach(i=>invMap[i.student_id]=i);
   const invIds=(inv||[]).map(i=>i.id); let payMap={};
   if(invIds.length){ const { data:pays } = await db.from("payments").select("invoice_id,method").in("invoice_id",invIds); (pays||[]).forEach(p=>payMap[p.invoice_id]=p.method); }
@@ -438,9 +438,11 @@ function drawFees(){
     if(inv){ billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount); }
     let stHtml, action="";
     if(!inv){ stHtml=`<span class="badge b-grey">No invoice</span>`; }
-    else if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>`; }
+    else if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>`; }
     else { const overdue=inv.due_date<today;
       stHtml = overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`;
+      if(inv.student_response==="says_paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
+      else if(inv.student_response==="will_pay_later") stHtml+=` <span class="badge b-grey">Student: will pay later</span>`;
       action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
     }
     const amt = inv?INR(inv.amount):(s.branches&&s.branches.monthly_fee?INR(s.branches.monthly_fee):"—");
@@ -450,7 +452,7 @@ function drawFees(){
   $("feeKpis").innerHTML=`<div class="kpi"><div class="l">Billed (${esc(P.label)})</div><div class="v">${INR(billed)}</div></div>
     <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div></div>
     <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>`;
-  $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Record payment</th></tr>${rows}</table>
+  $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Action</th></tr>${rows}</table>
     <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px">Click <b>Generate invoices</b> to raise this month's fees for active students who don't have one yet. Overdue rows are flagged red — that's your follow-up list.</p>`:`<div class="empty">No active students.</div>`;
 }
 async function generateInvoices(){
@@ -480,6 +482,51 @@ async function recordPayment(invId, amount){
   if(ie){ m.className="formmsg err"; m.textContent="Payment saved but status didn't update — "+ie.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Payment recorded ("+method+").";
   loadFees();
+}
+
+async function genReceipt(invId){
+  const { data:i, error } = await db.from("invoices").select("id,period_label,amount,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
+  if(error||!i){ alert("Couldn't load the receipt — "+(error?.message||"")); return; }
+  const pay=(i.payments&&i.payments[0])||{};
+  const paidOn = pay.paid_at?String(pay.paid_at).slice(0,10):new Date().toISOString().slice(0,10);
+  const num="KK-"+String(i.id).slice(0,8).toUpperCase();
+  const amt="₹"+Number(i.amount||0).toLocaleString("en-IN");
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${num}</title>
+   <style>body{font-family:Georgia,'Times New Roman',serif;color:#16305A;max-width:600px;margin:30px auto;padding:0 22px}
+   .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #16305A;padding-bottom:14px}
+   .hd img{height:64px}.hd h1{font-size:22px;margin:0}.hd p{margin:2px 0 0;font-size:12px;color:#666;font-style:italic}
+   h2{font-size:15px;letter-spacing:1.5px;color:#1F7A72;margin:24px 0 12px}
+   table{width:100%;border-collapse:collapse;font-size:14px}td{padding:9px 4px;border-bottom:1px solid #eee}
+   .amt{font-size:26px;font-weight:bold;color:#2E8B57;margin:18px 0}.k{color:#888;width:140px}
+   .ft{margin-top:22px;font-size:12px;color:#666}
+   @media print{button{display:none}}</style></head><body>
+   <div class="hd"><img src="kala-kuteer-logo.png" alt="Kala Kuteer"><div><h1>Kala Kuteer</h1><p>A blissful mind for well-being of all</p></div></div>
+   <h2>PAYMENT RECEIPT</h2>
+   <table>
+     <tr><td class="k">Receipt no.</td><td>${num}</td></tr>
+     <tr><td class="k">Date</td><td>${paidOn}</td></tr>
+     <tr><td class="k">Received from</td><td><b>${esc(i.student?.full_name||"")}</b></td></tr>
+     <tr><td class="k">Branch</td><td>${esc(i.student?.branches?.name||"—")}</td></tr>
+     <tr><td class="k">For</td><td>Tuition fee — ${esc(i.period_label||"")}</td></tr>
+     <tr><td class="k">Paid via</td><td>${esc(pay.method||"—")}</td></tr>
+   </table>
+   <div class="amt">${amt}</div>
+   <div class="ft">No GST is applicable on tuition fees. This is a computer-generated receipt.<br>Thank you! — Kala Kuteer 🎶</div>
+   <button onclick="window.print()" style="margin-top:20px;background:#1F7A72;color:#fff;border:0;padding:11px 20px;border-radius:8px;cursor:pointer;font-size:14px">Print / Save as PDF</button>
+   </body></html>`;
+  const w=window.open("","_blank");
+  if(!w){ alert("Please allow pop-ups for this site to open the receipt."); return; }
+  w.document.write(html); w.document.close();
+}
+async function waReceipt(invId){
+  const { data:i, error } = await db.from("invoices").select("period_label,amount,student:students(full_name,whatsapp,phone,parent_phone),payments(method)").eq("id",invId).single();
+  if(error||!i){ alert("Couldn't load — "+(error?.message||"")); return; }
+  const num=((i.student?.whatsapp)||(i.student?.phone)||(i.student?.parent_phone)||"").replace(/\D/g,"");
+  if(!num){ alert("No phone number on record for this student."); return; }
+  const pay=(i.payments&&i.payments[0])||{};
+  const amt="₹"+Number(i.amount||0).toLocaleString("en-IN");
+  const txt=`*Kala Kuteer — Payment Receipt*\nName: ${i.student?.full_name||""}\nFee: ${i.period_label||""} — ${amt}\nPaid via ${pay.method||"-"}\nThank you! 🎶`;
+  window.open("https://wa.me/"+num+"?text="+encodeURIComponent(txt),"_blank");
 }
 
 /* ---------------- TEACHERS ---------------- */
