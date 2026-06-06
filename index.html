@@ -160,7 +160,7 @@ const NAV = {
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -192,28 +192,28 @@ async function loadApp(session){
   if(error) warn = "Couldn't read your profile — "+error.message;
   else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; pinSet=data[0].pin_set!==false; }
   state.role=role; state.name=name;
-  if((role==="student"||role==="teacher") && !pinSet){ renderSetPin(name, role); show("app"); return; }
+  if((role==="student"||role==="teacher"||role==="admin") && !pinSet){ renderSetPin(name, role); show("app"); return; }
   renderShell(role, name, warn);
   show("app");
 }
 function renderSetPin(name, role){
-  const teacher = role==="teacher"; state._setRole=role;
+  const staff = role!=="student"; state._setRole=role;
   $("whoName").textContent="Hi, "+(name||"").split(" ")[0];
-  $("whoRole").textContent= teacher?"Teacher":"Student";
+  $("whoRole").textContent= role==="teacher"?"Teacher":(role==="admin"?"Admin":"Student");
   $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
-    <h2 style="font-size:20px;margin-bottom:6px">${teacher?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${teacher?"password":"PIN"} now. You'll use this to sign in from here on${teacher?"":" — your date of birth won't work after this"}.${teacher?"":" <b>Pick any 6 numbers</b> you'll remember (please avoid your birthday)."}</p>
-    <div class="kf"><label>${teacher?"New password (min 6 characters)":"New PIN — exactly 6 digits"}</label><input id="np1" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:6}" placeholder="${teacher?"choose a password":"6-digit number"}"></div>
-    <div class="kf"><label>Confirm</label><input id="np2" type="password" ${teacher?"":'inputmode="numeric"'} maxlength="${teacher?32:6}" placeholder="re-enter it"></div>
+    <h2 style="font-size:20px;margin-bottom:6px">${staff?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${staff?"password":"PIN"} now. You'll use this to sign in from here on${staff?"":" — your date of birth won't work after this"}.${staff?"":" <b>Pick any 6 numbers</b> you'll remember (please avoid your birthday)."}</p>
+    <div class="kf"><label>${staff?"New password (min 6 characters)":"New PIN — exactly 6 digits"}</label><input id="np1" type="password" ${staff?"":'inputmode="numeric"'} maxlength="${staff?32:6}" placeholder="${staff?"choose a password":"6-digit number"}"></div>
+    <div class="kf"><label>Confirm</label><input id="np2" type="password" ${staff?"":'inputmode="numeric"'} maxlength="${staff?32:6}" placeholder="re-enter it"></div>
     <div class="formmsg" id="pinMsg"></div>
     <button class="kbtn teal" id="setPinBtn" style="width:100%">Save</button>
   </div>`;
   $("setPinBtn").onclick=saveNewPin;
 }
 async function saveNewPin(){
-  const m=$("pinMsg"); const a=$("np1").value, b=$("np2").value; const teacher=state._setRole==="teacher";
-  if(teacher){ if((a||"").length<6){ m.className="formmsg err"; m.textContent="Password must be at least 6 characters."; return; } }
+  const m=$("pinMsg"); const a=$("np1").value, b=$("np2").value; const staff=state._setRole!=="student";
+  if(staff){ if((a||"").length<6){ m.className="formmsg err"; m.textContent="Password must be at least 6 characters."; return; } }
   else { if(!/^\d{6}$/.test(a)){ m.className="formmsg err"; m.textContent="Your PIN must be exactly 6 digits (numbers only)."; return; } }
   if(a!==b){ m.className="formmsg err"; m.textContent="The two don't match."; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("setPinBtn").disabled=true;
@@ -250,6 +250,7 @@ function navigate(key, name, warn){
   if(key==="attendance") return renderAttendance();
   if(key==="fees")      return renderFees();
   if(key==="teachers")  return renderTeachers();
+  if(key==="settings")  return renderSettings();
   if(key==="intake")    return renderIntake();
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
@@ -519,6 +520,60 @@ async function addTeacher(){
 }
 function failMsg(m,t){ if(m){ m.className="formmsg err"; m.textContent=t; } return false; }
 async function fnErr(ferr){ let d=ferr.message||"error"; try{ const b=await ferr.context.json(); if(b&&b.error) d=b.error; }catch(e){} return d; }
+/* ---------------- SETTINGS & ROLES ---------------- */
+async function renderSettings(){
+  const M=$("mainArea"); state.refLoaded=false; await loadRef();
+  const inp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v||0}" style="width:130px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
+  M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
+      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th></tr>
+        ${state.branches.map(b=>`<tr><td><b>${esc(b.name)}</b></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td></tr>`).join("")}</table>
+      <div class="formmsg" id="feeStructMsg"></div>
+      <button class="kbtn teal" id="saveFees" style="margin-top:8px">Save fee structure</button>
+      <p class="footnote" style="margin-top:8px">No GST is added to tuition. Set the <b>Online</b> monthly fee here to start billing online students.</p>
+    </div>
+    <div class="panel"><h3>Staff &amp; access</h3>
+      <div id="staffList"><div class="empty">Loading…</div></div>
+      <h3 style="margin-top:16px;font-size:13px">Add a front-desk admin</h3>
+      <div class="form2">
+        <div><div class="kf"><label>Full name *</label><input id="a_name"></div><div class="kf"><label>Email *</label><input id="a_email" type="email"></div></div>
+        <div><div class="kf"><label>Starting password *</label><input id="a_pass" placeholder="min 6 chars — they set their own on first login"></div></div>
+      </div>
+      <div class="formmsg" id="adminMsg"></div>
+      <button class="kbtn" id="addAdmin">Create admin login</button>
+      <p class="footnote" style="margin-top:8px">Admins run day-to-day operations but <b>cannot</b> see Finance/P&amp;L, payouts, fee structure, or delete records.</p>
+    </div>`;
+  $("saveFees").onclick=saveFeeStructure;
+  $("addAdmin").onclick=addAdmin;
+  loadStaff();
+}
+async function saveFeeStructure(){
+  const m=$("feeStructMsg"); m.className="formmsg ok"; m.textContent="Saving…";
+  for(const b of state.branches){
+    const mf=Number($("bf_"+b.id).value)||0, rf=Number($("br_"+b.id).value)||0;
+    const { error } = await db.from("branches").update({ monthly_fee:mf, registration_fee:rf }).eq("id",b.id);
+    if(error){ m.className="formmsg err"; m.textContent="Couldn't save "+b.name+" — "+error.message; return; }
+  }
+  state.refLoaded=false; await loadRef();
+  m.className="formmsg ok"; m.textContent="✓ Fee structure saved.";
+}
+async function loadStaff(){
+  const { data, error } = await db.from("profiles").select("full_name,email,role").in("role",["super_admin","admin","teacher"]).order("role");
+  if(error){ $("staffList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
+  $("staffList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Role</th></tr>${(data||[]).map(p=>`<tr><td><b>${esc(p.full_name||"—")}</b></td><td>${esc(p.email||"—")}</td><td><span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc((p.role||"").replace("_"," "))}</span></td></tr>`).join("")}</table>`;
+}
+async function addAdmin(){
+  const m=$("adminMsg"); const name=$("a_name").value.trim(), email=$("a_email").value.trim(), pass=$("a_pass").value;
+  if(!name) return failMsg(m,"Enter a name.");
+  if(!email) return failMsg(m,"Enter an email.");
+  if(!pass||pass.length<6) return failMsg(m,"Starting password must be at least 6 characters.");
+  m.className="formmsg ok"; m.textContent="Creating…"; $("addAdmin").disabled=true;
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"create_staff", role:"admin", name, email, password:pass } });
+  $("addAdmin").disabled=false;
+  if(ferr){ return failMsg(m,"Couldn't create — "+(await fnErr(ferr))); }
+  if(fn&&fn.ok){ m.className="formmsg ok"; m.textContent="✓ Admin created. They sign in on the Staff tab with "+email+"."; ["a_name","a_email","a_pass"].forEach(i=>$(i).value=""); loadStaff(); }
+  else failMsg(m,"Couldn't create — "+((fn&&fn.error)||"unknown"));
+}
 async function resetStudentPin(id, dob){
   if(!dob){ alert("This student has no date of birth on record, so the PIN can't be reset to it."); return; }
   if(!confirm("Reset this student's PIN to their date of birth? They'll be asked to set a new private PIN the next time they log in.")) return;
