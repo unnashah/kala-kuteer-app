@@ -160,7 +160,7 @@ const NAV = {
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -249,6 +249,7 @@ function navigate(key, name, warn){
   if(key==="students")  return renderStudents();
   if(key==="attendance") return renderAttendance();
   if(key==="fees")      return renderFees();
+  if(key==="finance")   return renderFinance();
   if(key==="teachers")  return renderTeachers();
   if(key==="settings")  return renderSettings();
   if(key==="intake")    return renderIntake();
@@ -363,7 +364,11 @@ async function loadAttendance(){
   if(!date){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Please pick a date."; return; }
   if(date>today){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Attendance can only be marked for today or a past date."; $("attList").innerHTML=""; return; }
   $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
-  let q=db.from("students").select("id,full_name,branches(name),courses(name)").eq("status","active").order("full_name");
+  // show students who were active on this date: currently active, OR went inactive AFTER this date — and joined on/before it
+  let q=db.from("students").select("id,full_name,branches(name),courses(name)")
+    .lte("join_date",date)
+    .or(`status.eq.active,status_effective_date.gt.${date}`)
+    .order("full_name");
   if(branch) q=q.eq("branch_id",branch);
   const { data:studs, error } = await q;
   if(error){ $("attList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
@@ -405,7 +410,7 @@ async function saveAttendance(){
 const PAD=n=>String(n).padStart(2,"0");
 const MONS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN");
-function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().toISOString().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y }; }
+function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().toISOString().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01` }; }
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
   const thisMonth=new Date().toISOString().slice(0,7);
@@ -420,7 +425,7 @@ async function renderFees(){
 async function loadFees(){
   const P=feePeriod();
   $("feeList").innerHTML=`<div class="empty">Loading…</div>`;
-  const { data:studs, error } = await db.from("students").select("id,full_name,branches(name,monthly_fee)").eq("status","active").order("full_name");
+  const { data:studs, error } = await db.from("students").select("id,full_name,branches(name,monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`).order("full_name");
   if(error){ $("feeList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status,student_response").eq("period_label",P.label);
   const invMap={}; (inv||[]).forEach(i=>invMap[i.student_id]=i);
@@ -457,7 +462,7 @@ function drawFees(){
 }
 async function generateInvoices(){
   const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
-  const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").eq("status","active");
+  const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`);
   const { data:inv } = await db.from("invoices").select("student_id").eq("period_label",P.label);
   const have=new Set((inv||[]).map(i=>i.student_id));
   const today=new Date().toISOString().slice(0,10);
@@ -482,6 +487,85 @@ async function recordPayment(invId, amount){
   if(ie){ m.className="formmsg err"; m.textContent="Payment saved but status didn't update — "+ie.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Payment recorded ("+method+").";
   loadFees();
+}
+
+/* ---------------- FINANCE & P&L ---------------- */
+function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||new Date().toISOString().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=new Date(y,m,0).toISOString().slice(0,10); const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
+async function renderFinance(){
+  const M=$("mainArea"); state.refLoaded=false; await loadRef();
+  const thisMonth=new Date().toISOString().slice(0,7);
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const cats=["Rent","Salaries","Teacher payouts","Utilities","Marketing","Water & pantry","Celebrations","Instruments","Maintenance","Other"];
+  M.innerHTML=`<div class="ph"><div><h2>Finance &amp; P&amp;L</h2><p>Income from fees · your expenses · profit/loss per centre</p></div></div>
+    <div class="searchbar"><span class="mini">Month</span><input id="finMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="finLoad">Load</button></div>
+    <div class="kpis" id="finKpis" style="margin-bottom:12px"></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Record an expense</h3>
+      <div class="form2">
+        <div><div class="kf"><label>Category *</label><input id="x_cat" list="x_cats" placeholder="e.g. Rent"><datalist id="x_cats">${cats.map(c=>`<option>${c}</option>`).join("")}</datalist></div>
+          <div class="kf"><label>Sub-category (optional)</label><input id="x_sub" placeholder="e.g. Repair / New purchase"></div></div>
+        <div><div class="kf"><label>Amount (₹) *</label><input id="x_amt" type="number" min="0"></div>
+          <div class="kf"><label>Branch (optional)</label><select id="x_branch"><option value="">— not branch-specific —</option>${branchOpts}</select></div></div>
+      </div>
+      <div class="form2"><div class="kf"><label>Date</label><input id="x_date" type="date"></div><div class="kf"><label>Note (optional)</label><input id="x_note"></div></div>
+      <div class="formmsg" id="xMsg"></div>
+      <button class="kbtn teal" id="addExpense">Add expense</button>
+    </div>
+    <div id="finBody"><div class="empty">Loading…</div></div>`;
+  $("x_date").value=new Date().toISOString().slice(0,10);
+  $("finMonth").onchange=loadFinance; $("finLoad").onclick=loadFinance; $("addExpense").onclick=addExpense;
+  loadFinance();
+}
+async function loadFinance(){
+  const P=finPeriod();
+  $("finBody").innerHTML=`<div class="empty">Loading…</div>`;
+  const { data:pays } = await db.from("payments").select("amount,paid_at,invoices(students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next);
+  const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note").gte("spent_on",P.start).lte("spent_on",P.end).order("spent_on",{ascending:false});
+  if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._fin={ pays:pays||[], exps:exps||[], P }; drawFinance();
+}
+function drawFinance(){
+  const { pays, exps, P } = state._fin;
+  const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
+  let income=0; const incByBranch={};
+  pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; });
+  let expense=0; const expByBranch={}, expByCat={};
+  exps.forEach(e=>{ const a=Number(e.amount||0); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; const c=e.category||"Other"; expByCat[c]=(expByCat[c]||0)+a; });
+  const net=income-expense;
+  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div></div>
+    <div class="kpi"><div class="l">Expenses</div><div class="v" style="color:var(--warn)">${INR(expense)}</div></div>
+    <div class="kpi"><div class="l">Net (P/L)</div><div class="v" style="color:${net<0?"var(--warn)":"var(--ink)"}">${INR(net)}</div></div>`;
+  const branchRows=state.branches.map(b=>{ const inc=incByBranch[b.id]||0, ex=expByBranch[b.id]||0; return `<tr><td><b>${esc(b.name)}</b></td><td>${INR(inc)}</td><td>${INR(ex)}</td><td>${INR(inc-ex)}</td></tr>`; }).join("");
+  const uEx=expByBranch["none"]||0, uIn=incByBranch["none"]||0;
+  const catKeys=Object.keys(expByCat).sort();
+  const catRows=catKeys.length?catKeys.map(c=>`<tr><td>${esc(c)}</td><td>${INR(expByCat[c])}</td></tr>`).join(""):`<tr><td colspan="2" class="mini">No expenses this month.</td></tr>`;
+  const expList=exps.length?exps.map(e=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(e.amount)}</td><td class="mini">${esc(e.note||"")} <span class="rowbtn" onclick="delExpense('${e.id}')">delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
+  $("finBody").innerHTML=`<div class="row2">
+      <div class="panel"><h3>Profit / Loss per centre</h3>
+        <table><tr><th>Branch</th><th>Income</th><th>Expenses</th><th>Net</th></tr>${branchRows}
+          ${(uEx||uIn)?`<tr><td class="mini">Not branch-specific</td><td>${INR(uIn)}</td><td>${INR(uEx)}</td><td>${INR(uIn-uEx)}</td></tr>`:""}</table></div>
+      <div class="panel"><h3>Expenses by category</h3><table><tr><th>Category</th><th>Amount</th></tr>${catRows}</table></div>
+    </div>
+    <div class="panel" style="margin-top:14px"><h3>Expense entries — ${esc(P.label)}</h3>
+      <table><tr><th>Date</th><th>Category</th><th>Branch</th><th>Amount</th><th>Note</th></tr>${expList}</table></div>`;
+}
+async function addExpense(){
+  const m=$("xMsg"); const cat=$("x_cat").value.trim(), sub=$("x_sub").value.trim(), amt=Number($("x_amt").value), branch=$("x_branch").value, date=$("x_date").value, note=$("x_note").value.trim();
+  if(!cat) return failMsg(m,"Enter a category.");
+  if(!amt||amt<=0) return failMsg(m,"Enter a valid amount.");
+  if(!date) return failMsg(m,"Pick a date.");
+  m.className="formmsg ok"; m.textContent="Saving…"; $("addExpense").disabled=true;
+  const { error } = await db.from("expenses").insert({ category:cat, subcategory:sub||null, amount:amt, branch_id:branch||null, spent_on:date, note:note||null });
+  $("addExpense").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent="✓ Expense added.";
+  ["x_cat","x_sub","x_amt","x_note"].forEach(i=>$(i).value=""); $("x_branch").value="";
+  loadFinance();
+}
+async function delExpense(id){
+  if(!confirm("Delete this expense entry?")) return;
+  const { error } = await db.from("expenses").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  loadFinance();
 }
 
 async function genReceipt(invId){
@@ -658,7 +742,7 @@ async function renderStudentDetail(id){
        <div class="dl"><span class="k">Student's email</span><span>${esc(s.email||"—")}</span></div>`;
   M.innerHTML=`<div class="ph"><div><h2>${esc(s.full_name)}</h2>
       <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.join_date||"—")}
-      · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></p></div>
+      · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>${s.status!=="active"&&s.status_effective_date?` <span class="mini">${s.status_effective_date>todayS?"from":"since"} ${esc(s.status_effective_date)}</span>`:""}</p></div>
       <button class="kbtn ghost" onclick="gotoNav('students')">← Back to list</button></div>
     <div class="form2">
       <div class="panel"><h3>Contact &amp; personal</h3>
@@ -679,6 +763,7 @@ async function renderStudentDetail(id){
       </div>
     </div>
     <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
+      <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
       <button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>
       <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
@@ -688,7 +773,8 @@ async function renderStudentDetail(id){
 }
 async function setStudentStatus(id, status){
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
-  const { error } = await db.from("students").update({ status }).eq("id", id);
+  const eff = ($("mng_date")&&$("mng_date").value) || new Date().toISOString().slice(0,10);
+  const { error } = await db.from("students").update({ status, status_effective_date: eff }).eq("id", id);
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
   renderStudentDetail(id);
 }
