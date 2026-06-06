@@ -160,7 +160,7 @@ const NAV = {
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -253,6 +253,7 @@ function navigate(key, name, warn){
   if(key==="teachers")  return renderTeachers();
   if(key==="settings")  return renderSettings();
   if(key==="intake")    return renderIntake();
+  if(key==="enquiries") return renderEnquiries();
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
   if(!isAdmin()){
@@ -492,14 +493,14 @@ async function recordPayment(invId, amount){
 /* ---------------- FINANCE & P&L ---------------- */
 function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||new Date().toISOString().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=new Date(y,m,0).toISOString().slice(0,10); const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
 async function renderFinance(){
-  const M=$("mainArea"); state.refLoaded=false; await loadRef();
+  const M=$("mainArea"); state.refLoaded=false; await loadRef(); state._expEdit=null;
   const thisMonth=new Date().toISOString().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const cats=["Rent","Salaries","Teacher payouts","Utilities","Marketing","Water & pantry","Celebrations","Instruments","Maintenance","Other"];
   M.innerHTML=`<div class="ph"><div><h2>Finance &amp; P&amp;L</h2><p>Income from fees · your expenses · profit/loss per centre</p></div></div>
     <div class="searchbar"><span class="mini">Month</span><input id="finMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="finLoad">Load</button></div>
     <div class="kpis" id="finKpis" style="margin-bottom:12px"></div>
-    <div class="panel" style="margin-bottom:14px"><h3>Record an expense</h3>
+    <div class="panel" style="margin-bottom:14px"><h3 id="expFormTitle">Record an expense</h3>
       <div class="form2">
         <div><div class="kf"><label>Category *</label><input id="x_cat" list="x_cats" placeholder="e.g. Rent"><datalist id="x_cats">${cats.map(c=>`<option>${c}</option>`).join("")}</datalist></div>
           <div class="kf"><label>Sub-category (optional)</label><input id="x_sub" placeholder="e.g. Repair / New purchase"></div></div>
@@ -509,6 +510,7 @@ async function renderFinance(){
       <div class="form2"><div class="kf"><label>Date</label><input id="x_date" type="date"></div><div class="kf"><label>Note (optional)</label><input id="x_note"></div></div>
       <div class="formmsg" id="xMsg"></div>
       <button class="kbtn teal" id="addExpense">Add expense</button>
+      <button class="kbtn ghost" id="expCancelBtn" style="display:none;margin-left:6px" onclick="cancelExpEdit()">Cancel</button>
     </div>
     <div id="finBody"><div class="empty">Loading…</div></div>`;
   $("x_date").value=new Date().toISOString().slice(0,10);
@@ -538,7 +540,7 @@ function drawFinance(){
   const uEx=expByBranch["none"]||0, uIn=incByBranch["none"]||0;
   const catKeys=Object.keys(expByCat).sort();
   const catRows=catKeys.length?catKeys.map(c=>`<tr><td>${esc(c)}</td><td>${INR(expByCat[c])}</td></tr>`).join(""):`<tr><td colspan="2" class="mini">No expenses this month.</td></tr>`;
-  const expList=exps.length?exps.map(e=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(e.amount)}</td><td class="mini">${esc(e.note||"")} <span class="rowbtn" onclick="delExpense('${e.id}')">delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
+  const expList=exps.length?exps.map(e=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(e.amount)}</td><td class="mini">${esc(e.note||"")} <span class="rowbtn" onclick="editExpense('${e.id}')">edit</span> · <span class="rowbtn" onclick="delExpense('${e.id}')">delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
   $("finBody").innerHTML=`<div class="row2">
       <div class="panel"><h3>Profit / Loss per centre</h3>
         <table><tr><th>Branch</th><th>Income</th><th>Expenses</th><th>Net</th></tr>${branchRows}
@@ -554,18 +556,179 @@ async function addExpense(){
   if(!amt||amt<=0) return failMsg(m,"Enter a valid amount.");
   if(!date) return failMsg(m,"Pick a date.");
   m.className="formmsg ok"; m.textContent="Saving…"; $("addExpense").disabled=true;
-  const { error } = await db.from("expenses").insert({ category:cat, subcategory:sub||null, amount:amt, branch_id:branch||null, spent_on:date, note:note||null });
+  const rec={ category:cat, subcategory:sub||null, amount:amt, branch_id:branch||null, spent_on:date, note:note||null };
+  let error;
+  if(state._expEdit){ ({ error } = await db.from("expenses").update(rec).eq("id",state._expEdit)); }
+  else { ({ error } = await db.from("expenses").insert(rec)); }
   $("addExpense").disabled=false;
   if(error) return failMsg(m,"Couldn't save — "+error.message);
-  m.className="formmsg ok"; m.textContent="✓ Expense added.";
-  ["x_cat","x_sub","x_amt","x_note"].forEach(i=>$(i).value=""); $("x_branch").value="";
+  m.className="formmsg ok"; m.textContent=state._expEdit?"✓ Expense updated.":"✓ Expense added.";
+  cancelExpEdit();
   loadFinance();
+}
+function editExpense(id){
+  const e=((state._fin&&state._fin.exps)||[]).find(x=>x.id===id); if(!e) return;
+  state._expEdit=id;
+  $("x_cat").value=e.category||""; $("x_sub").value=e.subcategory||"";
+  $("x_amt").value=e.amount||""; $("x_branch").value=e.branch_id||"";
+  $("x_date").value=e.spent_on||""; $("x_note").value=e.note||"";
+  $("expFormTitle").textContent="Edit expense";
+  $("addExpense").textContent="Save changes"; $("expCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelExpEdit(){
+  state._expEdit=null;
+  ["x_cat","x_sub","x_amt","x_note"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("x_branch")) $("x_branch").value="";
+  if($("x_date")) $("x_date").value=new Date().toISOString().slice(0,10);
+  if($("expFormTitle")) $("expFormTitle").textContent="Record an expense";
+  if($("addExpense")) $("addExpense").textContent="Add expense";
+  if($("expCancelBtn")) $("expCancelBtn").style.display="none";
 }
 async function delExpense(id){
   if(!confirm("Delete this expense entry?")) return;
   const { error } = await db.from("expenses").delete().eq("id",id);
   if(error){ alert("Couldn't delete — "+error.message); return; }
   loadFinance();
+}
+
+/* ---------------- ENQUIRIES / LEADS ---------------- */
+const ENQ_SOURCES = [["signboard","Signboard"],["website","Website"],["google","Google"],["justdial","JustDial"],["recommended","Recommended"],["other","Other"]];
+const ENQ_SRC_LABEL = Object.fromEntries(ENQ_SOURCES);
+const ENQ_STAGES = [["new","New"],["following_up","Following up"],["trial_booked","Trial booked"],["converted","Converted"],["lost","Lost"]];
+const ENQ_STAGE_LABEL = Object.fromEntries(ENQ_STAGES);
+const ENQ_STAGE_BADGE = { new:"b-teal", following_up:"b-amber", trial_booked:"b-green", converted:"b-green", lost:"b-grey" };
+async function renderEnquiries(){
+  const M=$("mainArea"); await loadRef(); state._enqEdit=null;
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const srcOpts=ENQ_SOURCES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>Enquiries</h2><p>Track every lead from first call to enrolment</p></div></div>
+    <div class="kpis" id="enqKpis" style="margin-bottom:12px"></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="enqFormTitle">Log a new enquiry</h3>
+      <div class="form2">
+        <div class="kf"><label>Name *</label><input id="e_name" placeholder="Caller's name"></div>
+        <div class="kf"><label>Phone / WhatsApp</label><input id="e_phone" placeholder="10-digit mobile"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Interested in (course)</label><select id="e_course"><option value="">— not sure —</option>${courseOpts}</select></div>
+        <div class="kf"><label>Branch</label><select id="e_branch"><option value="">— any —</option>${branchOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>How did they hear about us?</label><select id="e_source">${srcOpts}</select></div>
+        <div class="kf"><label>Mode</label><select id="e_mode"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
+      </div>
+      <div class="kf"><label>Notes (optional)</label><input id="e_msg" placeholder="What did they ask about?"></div>
+      <div class="formmsg" id="eMsg"></div>
+      <button class="kbtn teal" id="addEnq">Add enquiry</button>
+      <button class="kbtn ghost" id="enqCancelBtn" style="display:none;margin-left:6px" onclick="cancelEnqEdit()">Cancel</button>
+    </div>
+    <div class="searchbar"><input id="enqSearch" placeholder="🔍 Search by name or phone…" style="flex:1">
+      <select id="enqFilter" style="max-width:180px;flex:none"><option value="open">Open (not converted/lost)</option><option value="">All stages</option>${ENQ_STAGES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}</select></div>
+    <div id="enqList"><div class="empty">Loading…</div></div>`;
+  $("addEnq").onclick=addEnquiry;
+  $("enqSearch").oninput=drawEnquiries;
+  $("enqFilter").onchange=drawEnquiries;
+  loadEnquiries();
+}
+async function loadEnquiries(){
+  const { data, error } = await db.from("enquiries")
+    .select("id,name,phone,whatsapp,source,stage,mode,message,follow_up_log,created_at,course_id,branch_id,courses(name),branches(name)")
+    .order("created_at",{ascending:false});
+  if(error){ $("enqList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._enq=data||[]; drawEnquiries();
+}
+function drawEnquiries(){
+  const all=state._enq||[];
+  const counts={ new:0, following_up:0, trial_booked:0, converted:0, lost:0 };
+  all.forEach(e=>{ if(counts[e.stage]!=null) counts[e.stage]++; });
+  const open=counts.new+counts.following_up+counts.trial_booked;
+  $("enqKpis").innerHTML=`<div class="kpi"><div class="l">Open leads</div><div class="v">${open}</div></div>
+    <div class="kpi"><div class="l">Following up</div><div class="v" style="color:var(--warn)">${counts.following_up}</div></div>
+    <div class="kpi"><div class="l">Trial booked</div><div class="v">${counts.trial_booked}</div></div>
+    <div class="kpi"><div class="l">Converted</div><div class="v" style="color:var(--good)">${counts.converted}</div></div>`;
+  const q=(($("enqSearch")&&$("enqSearch").value)||"").toLowerCase().trim();
+  const f=($("enqFilter")&&$("enqFilter").value)||"";
+  let list=all.filter(e=>{
+    if(f==="open"){ if(e.stage==="converted"||e.stage==="lost") return false; }
+    else if(f && e.stage!==f) return false;
+    if(q){ const hay=((e.name||"")+" "+(e.phone||"")+" "+(e.whatsapp||"")).toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  });
+  if(!list.length){ $("enqList").innerHTML=`<div class="empty">No enquiries${f||q?" match this filter":" yet — log your first above"}.</div>`; return; }
+  const stageSel=e=>`<select class="enqStage" onchange="setEnqStage('${e.id}',this.value)">${ENQ_STAGES.map(s=>`<option value="${s[0]}"${e.stage===s[0]?" selected":""}>${s[1]}</option>`).join("")}</select>`;
+  $("enqList").innerHTML=`<table><tr><th>Name</th><th>Interest</th><th>Source</th><th>Stage</th><th>Added</th><th></th></tr>
+    ${list.map(e=>`<tr>
+      <td><b>${esc(e.name)}</b>${e.phone?`<br><span class="mini">${esc(e.phone)}</span>`:""}</td>
+      <td>${esc(e.courses?.name||"—")}${e.branches?.name?`<br><span class="mini">${esc(e.branches.name)}</span>`:""}</td>
+      <td>${esc(ENQ_SRC_LABEL[e.source]||e.source||"—")}</td>
+      <td>${stageSel(e)}</td>
+      <td class="mini">${String(e.created_at).slice(0,10)}</td>
+      <td class="mini"><span class="rowbtn" onclick="editEnquiry('${e.id}')">Edit</span> · <span class="rowbtn" onclick="logEnqNote('${e.id}')">Note</span> · <span class="rowbtn" onclick="convertEnq('${e.id}')">Convert</span> · <span class="rowbtn" onclick="delEnquiry('${e.id}')">Delete</span></td>
+    </tr>${e.follow_up_log?`<tr class="enqlog"><td colspan="6" class="mini" style="white-space:pre-wrap;color:#666;padding-top:0">${esc(e.follow_up_log)}</td></tr>`:""}`).join("")}</table>`;
+}
+async function addEnquiry(){
+  const m=$("eMsg"); const name=$("e_name").value.trim(), phone=$("e_phone").value.trim();
+  if(!name) return failMsg(m,"Enter a name.");
+  const rec={ name, phone:phone||null, whatsapp:phone||null, course_id:$("e_course").value||null, branch_id:$("e_branch").value||null, source:$("e_source").value, mode:$("e_mode").value, message:$("e_msg").value.trim()||null };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("addEnq").disabled=true;
+  let error;
+  if(state._enqEdit){ ({ error } = await db.from("enquiries").update(rec).eq("id",state._enqEdit)); }
+  else { ({ error } = await db.from("enquiries").insert(rec)); }
+  $("addEnq").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent=state._enqEdit?"✓ Enquiry updated.":"✓ Enquiry logged.";
+  cancelEnqEdit();
+  loadEnquiries();
+}
+function editEnquiry(id){
+  const e=(state._enq||[]).find(x=>x.id===id); if(!e) return;
+  state._enqEdit=id;
+  $("e_name").value=e.name||""; $("e_phone").value=e.phone||e.whatsapp||"";
+  $("e_course").value=e.course_id||""; $("e_branch").value=e.branch_id||"";
+  $("e_source").value=e.source||"website"; $("e_mode").value=e.mode||"in_person";
+  $("e_msg").value=e.message||"";
+  $("enqFormTitle").textContent="Edit enquiry — "+(e.name||"");
+  $("addEnq").textContent="Save changes"; $("enqCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelEnqEdit(){
+  state._enqEdit=null;
+  ["e_name","e_phone","e_msg"].forEach(i=>{ if($(i)) $(i).value=""; });
+  if($("e_course")) $("e_course").value=""; if($("e_branch")) $("e_branch").value="";
+  if($("enqFormTitle")) $("enqFormTitle").textContent="Log a new enquiry";
+  if($("addEnq")) $("addEnq").textContent="Add enquiry";
+  if($("enqCancelBtn")) $("enqCancelBtn").style.display="none";
+}
+async function setEnqStage(id,stage){
+  const { error } = await db.from("enquiries").update({ stage }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  const e=(state._enq||[]).find(x=>x.id===id); if(e) e.stage=stage;
+  drawEnquiries();
+}
+async function logEnqNote(id){
+  const txt=prompt("Add a follow-up note (e.g. 'Called — will visit Sat'):");
+  if(txt==null||!txt.trim()) return;
+  const e=(state._enq||[]).find(x=>x.id===id);
+  const stamp=new Date().toISOString().slice(0,10);
+  const line=`${stamp}: ${txt.trim()}`;
+  const merged=e&&e.follow_up_log?(e.follow_up_log+"\n"+line):line;
+  const { error } = await db.from("enquiries").update({ follow_up_log:merged }).eq("id",id);
+  if(error){ alert("Couldn't save note — "+error.message); return; }
+  if(e) e.follow_up_log=merged;
+  drawEnquiries();
+}
+async function convertEnq(id){
+  if(!confirm("Mark this lead as Converted and open the Intake form to enrol them?")) return;
+  const { error } = await db.from("enquiries").update({ stage:"converted" }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  const e=(state._enq||[]).find(x=>x.id===id); if(e) e.stage="converted";
+  gotoNav("intake");
+}
+async function delEnquiry(id){
+  if(!confirm("Delete this enquiry? This can't be undone.")) return;
+  const { error } = await db.from("enquiries").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  state._enq=(state._enq||[]).filter(x=>x.id!==id); drawEnquiries();
 }
 
 async function genReceipt(invId){
@@ -632,10 +795,40 @@ async function renderTeachers(){
   loadTeachers();
 }
 async function loadTeachers(){
-  const { data, error } = await db.from("teachers").select("id,disciplines,payout_pct,profiles(full_name,email)").order("created_at",{ascending:false});
+  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,profiles(full_name,email)").order("created_at",{ascending:false});
   if(error){ $("tList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
-  if(!data||!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
-  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td></tr>`).join("")}</table>`;
+  state._teachers=data||[]; drawTeachers();
+}
+function drawTeachers(){
+  const data=state._teachers||[];
+  if(!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
+  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini"><span class="rowbtn" onclick="editTeacher('${t.id}')">Edit</span></td></tr>`).join("")}</table>`;
+}
+function editTeacher(id){
+  const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
+  $("tList").innerHTML=`<div class="panel"><h3>Edit teacher</h3>
+    <div class="form2">
+      <div class="kf"><label>Full name</label><input id="te_name" value="${esc(t.profiles?.full_name||"")}"></div>
+      <div class="kf"><label>Subjects (comma-separated)</label><input id="te_disc" value="${esc((t.disciplines||[]).join(", "))}"></div>
+    </div>
+    <div class="kf" style="max-width:220px"><label>Payout %</label><input id="te_pay" type="number" min="0" max="100" value="${t.payout_pct||40}"></div>
+    <div class="kf"><label>Login email</label><input value="${esc(t.profiles?.email||"")}" disabled style="background:#f1f1f1"></div>
+    <p class="footnote">The login email can't be changed here — tell me if a teacher's email needs updating and I'll handle it safely.</p>
+    <div class="formmsg" id="teMsg"></div>
+    <button class="kbtn teal" onclick="saveTeacherEdits('${id}','${t.profile_id}')">Save changes</button>
+    <button class="kbtn ghost" style="margin-left:6px" onclick="drawTeachers()">Cancel</button></div>`;
+}
+async function saveTeacherEdits(id, profileId){
+  const m=$("teMsg"); const name=$("te_name").value.trim();
+  if(!name){ m.className="formmsg err"; m.textContent="Name can't be empty."; return; }
+  const disc=$("te_disc").value.split(",").map(x=>x.trim()).filter(Boolean);
+  const pay=Number($("te_pay").value)||40;
+  m.className="formmsg ok"; m.textContent="Saving…";
+  const { error:e1 } = await db.from("profiles").update({ full_name:name }).eq("id",profileId);
+  if(e1){ m.className="formmsg err"; m.textContent="Couldn't save name — "+e1.message; return; }
+  const { error:e2 } = await db.from("teachers").update({ disciplines:disc, payout_pct:pay }).eq("id",id);
+  if(e2){ m.className="formmsg err"; m.textContent="Couldn't save — "+e2.message; return; }
+  loadTeachers();
 }
 async function addTeacher(){
   const m=$("tMsg"); const name=$("t_name").value.trim(), email=$("t_email").value.trim(), pass=$("t_pass").value, disc=$("t_disc").value.trim();
@@ -743,7 +936,8 @@ async function renderStudentDetail(id){
   M.innerHTML=`<div class="ph"><div><h2>${esc(s.full_name)}</h2>
       <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.join_date||"—")}
       · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>${s.status!=="active"&&s.status_effective_date?` <span class="mini">${s.status_effective_date>todayS?"from":"since"} ${esc(s.status_effective_date)}</span>`:""}</p></div>
-      <button class="kbtn ghost" onclick="gotoNav('students')">← Back to list</button></div>
+      <button class="kbtn" onclick="editStudent('${s.id}')">✏️ Edit details</button>
+      <button class="kbtn ghost" style="margin-left:6px" onclick="gotoNav('students')">← Back to list</button></div>
     <div class="form2">
       <div class="panel"><h3>Contact &amp; personal</h3>
         <div class="dl"><span class="k">Date of birth / age</span><span>${esc(s.date_of_birth||"—")}${age!=null?" · "+age:""}</span></div>
@@ -784,6 +978,65 @@ async function deleteStudent(id){
   const { error } = await db.from("students").delete().eq("id", id);
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't delete — "+error.message; } return; }
   gotoNav("students");
+}
+async function editStudent(id){
+  const M=$("mainArea"); await loadRef();
+  const { data:s, error } = await db.from("students").select("*").eq("id",id).single();
+  if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}"${s.branch_id===b.id?" selected":""}>${esc(b.name)}</option>`).join("");
+  const courseOpts=state.courses.map(c=>`<option value="${c.id}"${s.course_id===c.id?" selected":""}>${esc(c.name)}</option>`).join("");
+  const opt=(val,list)=>list.map(o=>`<option${o===val?" selected":""}>${o}</option>`).join("");
+  const heardOpts=[["signboard","Signboard"],["website","Website"],["google","Google"],["justdial","Justdial"],["recommended","Recommended by someone"],["other","Others"]];
+  const yn=(id2,val)=>`<select id="${id2}"><option value="">—</option><option value="yes"${val===true?" selected":""}>Yes</option><option value="no"${val===false?" selected":""}>No</option></select>`;
+  M.innerHTML=`<div class="ph"><div><h2>Edit — ${esc(s.full_name)}</h2><p>Fix any manually-entered detail, then Save changes.</p></div>
+      <button class="kbtn ghost" onclick="renderStudentDetail('${id}')">Cancel</button></div>
+    <div class="form2">
+      <div class="panel"><h3>Contact &amp; personal</h3>
+        <div class="kf"><label>Full name</label><input id="ed_name" value="${esc(s.full_name||"")}"></div>
+        <div class="kf"><label>Date of birth</label><input id="ed_dob" type="date" value="${esc(s.date_of_birth||"")}"></div>
+        <div class="check"><input type="checkbox" id="ed_minor"${s.is_minor?" checked":""}><label for="ed_minor" style="margin:0">Minor (under 18)</label></div>
+        <div class="kf"><label>Parent / guardian name</label><input id="ed_parent" value="${esc(s.parent_name||"")}"></div>
+        <div class="kf"><label>Parent's phone</label><input id="ed_pphone" value="${esc(s.parent_phone||"")}"></div>
+        <div class="kf"><label>Parent's email</label><input id="ed_pemail" value="${esc(s.parent_email||"")}"></div>
+        <div class="kf"><label>Student's phone</label><input id="ed_phone" value="${esc(s.phone||"")}"></div>
+        <div class="kf"><label>Student's WhatsApp</label><input id="ed_wa" value="${esc(s.whatsapp||"")}"></div>
+        <div class="kf"><label>Student's email</label><input id="ed_email" value="${esc(s.email||"")}"></div>
+        <div class="kf"><label>Emergency contact</label><input id="ed_emer" value="${esc(s.emergency_contact||"")}"></div>
+        <p class="footnote">Phone numbers are stored with their country code (e.g. +91…). Keep that format when correcting.</p>
+      </div>
+      <div class="panel"><h3>School record</h3>
+        <div class="kf"><label>Branch</label><select id="ed_branch"><option value="">Select…</option>${branchOpts}</select></div>
+        <div class="kf"><label>Course</label><select id="ed_course"><option value="">Select…</option>${courseOpts}</select></div>
+        <div class="kf"><label>Class level</label><select id="ed_level"><option value="">Select…</option>${opt(s.level,["Beginner","Some experience","Advanced"])}</select></div>
+        <div class="kf"><label>Date of joining</label><input id="ed_join" type="date" value="${esc(s.join_date||"")}"></div>
+        <div class="kf"><label>Goal</label><select id="ed_goal"><option value="">Select…</option>${opt(s.goal,["Hobby","Certification","Stage performance","Professional"])}</select></div>
+        <div class="kf"><label>Owns the instrument?</label>${yn("ed_owns",s.owns_instrument)}</div>
+        <div class="kf"><label>Health / safety notes</label><textarea id="ed_health" rows="2">${esc(s.health_notes||"")}</textarea></div>
+        <div class="kf"><label>How did they find us?</label><select id="ed_heard"><option value="">Select…</option>${heardOpts.map(o=>`<option value="${o[0]}"${s.heard_via===o[0]?" selected":""}>${o[1]}</option>`).join("")}</select></div>
+        <div class="kf"><label>Media consent</label>${yn("ed_media",s.consent_media)}</div>
+      </div>
+    </div>
+    <div class="formmsg" id="edMsg"></div>
+    <button class="kbtn teal" onclick="saveStudentEdits('${id}')">Save changes</button>
+    <button class="kbtn ghost" style="margin-left:6px" onclick="renderStudentDetail('${id}')">Cancel</button>`;
+}
+async function saveStudentEdits(id){
+  const m=$("edMsg"); const V=i=>((($(i)||{}).value)||"").trim();
+  if(!V("ed_name")){ m.className="formmsg err"; m.textContent="Name can't be empty."; return; }
+  const owns=V("ed_owns"), media=V("ed_media");
+  const upd={
+    full_name:V("ed_name"), date_of_birth:V("ed_dob")||null, is_minor:$("ed_minor").checked,
+    parent_name:V("ed_parent")||null, parent_phone:V("ed_pphone")||null, parent_email:V("ed_pemail")||null,
+    phone:V("ed_phone")||null, whatsapp:V("ed_wa")||null, email:V("ed_email")||null,
+    emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null,
+    level:V("ed_level")||null, join_date:V("ed_join")||null, goal:V("ed_goal")||null,
+    owns_instrument: owns===""?null:(owns==="yes"), health_notes:V("ed_health")||null,
+    heard_via:V("ed_heard")||null, consent_media: media===""?null:(media==="yes")
+  };
+  m.className="formmsg ok"; m.textContent="Saving…";
+  const { error } = await db.from("students").update(upd).eq("id",id);
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  renderStudentDetail(id);
 }
 
 /* ---------------- INTAKE FORM ---------------- */
