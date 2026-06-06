@@ -82,7 +82,9 @@
   .b-green{background:#e2f3e9;color:var(--good)} .b-red{background:#fbe7e3;color:var(--warn)}
   .b-amber{background:#fcefcf;color:#9a6b00} .b-teal{background:#e2f1ef;color:var(--teal-deep)}
   .b-grey{background:#eee7d8;color:var(--muted)}
-  .rowbtn{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid var(--teal);color:var(--teal);background:#fff;cursor:pointer}
+  .rowbtn{font-size:11px;font-weight:700;padding:5px 11px;border-radius:20px;border:1px solid var(--teal);color:var(--teal);background:#fff;cursor:pointer;display:inline-block;margin:2px 3px 2px 0}
+  .rowbtn.edit{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .rowbtn.danger{border-color:var(--warn);color:var(--warn)}
   .searchbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
   .searchbar input{flex:1;min-width:200px;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;background:#fffdf8}
   .empty{text-align:center;color:var(--muted);padding:40px 10px;font-size:14px}
@@ -160,7 +162,7 @@ const NAV = {
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -254,6 +256,7 @@ function navigate(key, name, warn){
   if(key==="settings")  return renderSettings();
   if(key==="intake")    return renderIntake();
   if(key==="enquiries") return renderEnquiries();
+  if(key==="inventory") return renderInventory();
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
   if(!isAdmin()){
@@ -540,7 +543,7 @@ function drawFinance(){
   const uEx=expByBranch["none"]||0, uIn=incByBranch["none"]||0;
   const catKeys=Object.keys(expByCat).sort();
   const catRows=catKeys.length?catKeys.map(c=>`<tr><td>${esc(c)}</td><td>${INR(expByCat[c])}</td></tr>`).join(""):`<tr><td colspan="2" class="mini">No expenses this month.</td></tr>`;
-  const expList=exps.length?exps.map(e=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(e.amount)}</td><td class="mini">${esc(e.note||"")} <span class="rowbtn" onclick="editExpense('${e.id}')">edit</span> · <span class="rowbtn" onclick="delExpense('${e.id}')">delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
+  const expList=exps.length?exps.map(e=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(e.amount)}</td><td class="mini">${esc(e.note||"")}<br><span class="rowbtn edit" onclick="editExpense('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delExpense('${e.id}')">Delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
   $("finBody").innerHTML=`<div class="row2">
       <div class="panel"><h3>Profit / Loss per centre</h3>
         <table><tr><th>Branch</th><th>Income</th><th>Expenses</th><th>Net</th></tr>${branchRows}
@@ -663,7 +666,7 @@ function drawEnquiries(){
       <td>${esc(ENQ_SRC_LABEL[e.source]||e.source||"—")}</td>
       <td>${stageSel(e)}</td>
       <td class="mini">${String(e.created_at).slice(0,10)}</td>
-      <td class="mini"><span class="rowbtn" onclick="editEnquiry('${e.id}')">Edit</span> · <span class="rowbtn" onclick="logEnqNote('${e.id}')">Note</span> · <span class="rowbtn" onclick="convertEnq('${e.id}')">Convert</span> · <span class="rowbtn" onclick="delEnquiry('${e.id}')">Delete</span></td>
+      <td class="mini"><span class="rowbtn edit" onclick="editEnquiry('${e.id}')">✏️ Edit</span><span class="rowbtn" onclick="logEnqNote('${e.id}')">Note</span><span class="rowbtn" onclick="convertEnq('${e.id}')">Convert</span><span class="rowbtn danger" onclick="delEnquiry('${e.id}')">Delete</span></td>
     </tr>${e.follow_up_log?`<tr class="enqlog"><td colspan="6" class="mini" style="white-space:pre-wrap;color:#666;padding-top:0">${esc(e.follow_up_log)}</td></tr>`:""}`).join("")}</table>`;
 }
 async function addEnquiry(){
@@ -729,6 +732,123 @@ async function delEnquiry(id){
   const { error } = await db.from("enquiries").delete().eq("id",id);
   if(error){ alert("Couldn't delete — "+error.message); return; }
   state._enq=(state._enq||[]).filter(x=>x.id!==id); drawEnquiries();
+}
+
+/* ---------------- INVENTORY ---------------- */
+const INV_TYPES=["Instrument","Prop","Costume","Equipment","Other"];
+const INV_CONDS=["Good","Needs service","Under repair","Retired"];
+const INV_COND_BADGE={ "Good":"b-green", "Needs service":"b-amber", "Under repair":"b-red", "Retired":"b-grey" };
+async function renderInventory(){
+  const M=$("mainArea"); await loadRef(); state._invEdit=null;
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const typeOpts=INV_TYPES.map(t=>`<option>${t}</option>`).join("");
+  const condOpts=INV_CONDS.map(c=>`<option>${c}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>Inventory</h2><p>Instruments, props, costumes &amp; equipment — across every centre</p></div></div>
+    <div class="kpis" id="invKpis" style="margin-bottom:12px"></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="invFormTitle">Add an item</h3>
+      <div class="form2">
+        <div class="kf"><label>Item name *</label><input id="i_name" placeholder="e.g. Tabla set #2"></div>
+        <div class="kf"><label>Type</label><select id="i_type"><option value="">— select —</option>${typeOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Branch</label><select id="i_branch"><option value="">— not assigned —</option>${branchOpts}</select></div>
+        <div class="kf"><label>Condition</label><select id="i_cond">${condOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Purchase date</label><input id="i_pdate" type="date"></div>
+        <div class="kf"><label>Purchase cost (₹)</label><input id="i_cost" type="number" min="0"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Last serviced</label><input id="i_serv" type="date"></div>
+        <div class="kf"><label>Notes</label><input id="i_notes" placeholder="e.g. spare skin needed"></div>
+      </div>
+      <div class="formmsg" id="iMsg"></div>
+      <button class="kbtn teal" id="addInv">Add item</button>
+      <button class="kbtn ghost" id="invCancelBtn" style="display:none;margin-left:6px" onclick="cancelInvEdit()">Cancel</button>
+    </div>
+    <div class="searchbar"><input id="invSearch" placeholder="🔍 Search by name…" style="flex:1">
+      <select id="invBranchF" style="max-width:160px;flex:none"><option value="">All branches</option>${branchOpts}</select>
+      <select id="invCondF" style="max-width:160px;flex:none"><option value="">All conditions</option>${condOpts}</select></div>
+    <div id="invList"><div class="empty">Loading…</div></div>`;
+  $("addInv").onclick=saveInventoryItem;
+  $("invSearch").oninput=drawInventory; $("invBranchF").onchange=drawInventory; $("invCondF").onchange=drawInventory;
+  loadInventory();
+}
+async function loadInventory(){
+  const { data, error } = await db.from("inventory").select("id,name,item_type,branch_id,condition,purchase_date,purchase_cost,last_serviced,notes").order("name");
+  if(error){ $("invList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._inv=data||[]; drawInventory();
+}
+function drawInventory(){
+  const all=state._inv||[];
+  const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
+  let totVal=0, attention=0;
+  all.forEach(i=>{ totVal+=Number(i.purchase_cost||0); if(i.condition==="Needs service"||i.condition==="Under repair") attention++; });
+  $("invKpis").innerHTML=`<div class="kpi"><div class="l">Total items</div><div class="v">${all.length}</div></div>
+    <div class="kpi"><div class="l">Needs attention</div><div class="v" style="color:var(--warn)">${attention}</div></div>
+    <div class="kpi"><div class="l">Total purchase value</div><div class="v">${INR(totVal)}</div></div>`;
+  const q=(($("invSearch")&&$("invSearch").value)||"").toLowerCase().trim();
+  const bf=($("invBranchF")&&$("invBranchF").value)||"";
+  const cf=($("invCondF")&&$("invCondF").value)||"";
+  let list=all.filter(i=>{
+    if(bf && i.branch_id!==bf) return false;
+    if(cf && i.condition!==cf) return false;
+    if(q && !((i.name||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+  if(!list.length){ $("invList").innerHTML=`<div class="empty">No items${q||bf||cf?" match this filter":" yet — add your first above"}.</div>`; return; }
+  $("invList").innerHTML=`<table><tr><th>Item</th><th>Type</th><th>Branch</th><th>Condition</th><th>Last serviced</th><th>Cost</th><th></th></tr>
+    ${list.map(i=>`<tr>
+      <td><b>${esc(i.name)}</b>${i.notes?`<br><span class="mini">${esc(i.notes)}</span>`:""}</td>
+      <td>${esc(i.item_type||"—")}</td>
+      <td>${esc(bname(i.branch_id))}</td>
+      <td><span class="badge ${INV_COND_BADGE[i.condition]||"b-grey"}">${esc(i.condition||"—")}</span></td>
+      <td class="mini">${i.last_serviced?esc(i.last_serviced):"—"}</td>
+      <td>${i.purchase_cost?INR(i.purchase_cost):"—"}</td>
+      <td class="mini"><span class="rowbtn edit" onclick="editInvItem('${i.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delInvItem('${i.id}')">Delete</span></td>
+    </tr>`).join("")}</table>
+    <p class="footnote">Tip: log a repair or new-purchase <b>cost</b> as an expense in Finance &amp; P&amp;L (category “Instruments” or “Maintenance”) so it flows into your centre P&amp;L.</p>`;
+}
+async function saveInventoryItem(){
+  const m=$("iMsg"); const name=$("i_name").value.trim();
+  if(!name) return failMsg(m,"Enter an item name.");
+  const rec={ name, item_type:$("i_type").value||null, branch_id:$("i_branch").value||null,
+    condition:$("i_cond").value||"Good", purchase_date:$("i_pdate").value||null,
+    purchase_cost:$("i_cost").value?Number($("i_cost").value):null,
+    last_serviced:$("i_serv").value||null, notes:$("i_notes").value.trim()||null };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("addInv").disabled=true;
+  let error;
+  if(state._invEdit){ ({ error } = await db.from("inventory").update(rec).eq("id",state._invEdit)); }
+  else { ({ error } = await db.from("inventory").insert(rec)); }
+  $("addInv").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent=state._invEdit?"✓ Item updated.":"✓ Item added.";
+  cancelInvEdit(); loadInventory();
+}
+function editInvItem(id){
+  const i=(state._inv||[]).find(x=>x.id===id); if(!i) return;
+  state._invEdit=id;
+  $("i_name").value=i.name||""; $("i_type").value=i.item_type||"";
+  $("i_branch").value=i.branch_id||""; $("i_cond").value=i.condition||"Good";
+  $("i_pdate").value=i.purchase_date||""; $("i_cost").value=i.purchase_cost||"";
+  $("i_serv").value=i.last_serviced||""; $("i_notes").value=i.notes||"";
+  $("invFormTitle").textContent="Edit item — "+(i.name||"");
+  $("addInv").textContent="Save changes"; $("invCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelInvEdit(){
+  state._invEdit=null;
+  ["i_name","i_pdate","i_cost","i_serv","i_notes"].forEach(x=>{ if($(x)) $(x).value=""; });
+  if($("i_type")) $("i_type").value=""; if($("i_branch")) $("i_branch").value=""; if($("i_cond")) $("i_cond").value="Good";
+  if($("invFormTitle")) $("invFormTitle").textContent="Add an item";
+  if($("addInv")) $("addInv").textContent="Add item";
+  if($("invCancelBtn")) $("invCancelBtn").style.display="none";
+}
+async function delInvItem(id){
+  if(!confirm("Delete this item from inventory? This can't be undone.")) return;
+  const { error } = await db.from("inventory").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  state._inv=(state._inv||[]).filter(x=>x.id!==id); drawInventory();
 }
 
 async function genReceipt(invId){
@@ -802,7 +922,7 @@ async function loadTeachers(){
 function drawTeachers(){
   const data=state._teachers||[];
   if(!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
-  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini"><span class="rowbtn" onclick="editTeacher('${t.id}')">Edit</span></td></tr>`).join("")}</table>`;
+  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
 }
 function editTeacher(id){
   const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
