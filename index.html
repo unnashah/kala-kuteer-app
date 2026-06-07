@@ -1485,22 +1485,25 @@ function drawReviews(){
     const sid=s.id; let line="", act="";
     if(info.state==="scheduled"){ const r=info.review;
       line=`Scheduled for <b>${fmtDateTime(r.scheduled_at)}</b>${r.meeting_link?` · <a href="${esc(r.meeting_link)}" target="_blank" rel="noopener">link</a>`:""}`;
-      act=`<span class="rowbtn" onclick="togglePtmForm('${sid}','${info.cycle}')">Reschedule</span><span class="rowbtn edit" onclick="markPTMDone('${r.id}')">✓ Mark done</span><span class="rowbtn danger" onclick="cancelPTM('${r.id}')">Cancel</span>`;
+      act=`<span class="rowbtn" onclick="togglePtmForm('${sid}','${info.cycle}')">Reschedule</span><span class="rowbtn edit" onclick="completePtm('${r.id}','${sid}')">✓ Mark done</span><span class="rowbtn danger" onclick="cancelPTM('${r.id}')">Cancel</span>`;
     } else if(info.state==="overdue"){ line=`Was due around <b>${fmtNiceDate(info.cycle)}</b> — not yet scheduled`; act=`<span class="rowbtn edit" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule Guru Samvaad</span>`;
     } else if(info.state==="due"){ line=`Due around <b>${fmtNiceDate(info.cycle)}</b>`; act=`<span class="rowbtn edit" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule Guru Samvaad</span>`;
     } else { line=`Next session around <b>${fmtNiceDate(info.cycle)}</b>`; act=`<span class="rowbtn" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule early</span>`; }
+    const doneCount=reviews.filter(r=>r.student_id===sid && r.status==="completed").length;
     return `<div class="panel" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><b>${esc(s.full_name)}</b> <span class="mini">· ${esc(s.branches?.name||"—")}</span>
           <div class="mini" style="margin-top:3px">${line}</div></div>
         <span class="badge ${PTM_BADGE[info.state]}">${PTM_LABEL[info.state]}</span>
       </div>
-      <div id="ptmAct_${sid}" style="margin-top:10px">${act}</div></div>`;
+      <div id="ptmAct_${sid}" style="margin-top:10px">${act}</div>
+      ${doneCount?`<div style="margin-top:8px"><span class="rowbtn" onclick="viewPtmHistory('${sid}')">📖 Past Guru Samvaad (${doneCount})</span></div>`:""}
+      <div id="ptmHist_${sid}"></div></div>`;
   };
   M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad</h2><p>A quarterly one-on-one between student &amp; guru — feedback &amp; progress — timed from each student's joining date</p></div></div>
     <div style="background:#fff7e8;border-radius:10px;padding:13px 15px;margin-bottom:14px;line-height:1.6;font-size:13.5px">
       Who understands your progress better than your guru — the one who quietly watches you grow, day after day, as you find your voice on this journey? A <b>Guru Samvaad</b> is your moment to pause together and truly see how you're performing, where you're growing, and what to work on next.<br><br>
-      We warmly encourage every student to sit with their guru at least <b>once a quarter</b>. It's a small, honest conversation — but the kind that can shape the months ahead. Your guru sees you, and is always cheering you on. 💛
+      We warmly encourage every student to sit with their guru at least <b>once a quarter</b>. It's a small, honest conversation — but the kind that can shape the months ahead. And if you'd like a parent or family member to be part of this conversation, they are always most welcome. Your guru sees you, and is always cheering you on. 💛
     </div>
     ${dueCount?`<div class="cfgwarn" style="background:#fff7e8;border:0">🔔 <b>${dueCount}</b> student${dueCount===1?"":"s"} due for their Guru Samvaad this quarter — schedule below.</div>`:`<span class="ok-pill">✓ No sessions due right now</span>`}
     <p class="footnote" style="margin:8px 0 14px">Sessions are scheduled by the guru. An automated email/WhatsApp reminder can be switched on later once a messaging service is connected.</p>
@@ -1528,10 +1531,32 @@ async function savePTM(sid, cycleKey){
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; } return; }
   renderReviews();
 }
-async function markPTMDone(rid){
-  const { error } = await db.from("progress_reviews").update({ status:"completed" }).eq("id",rid);
-  if(error){ alert("Couldn't update — "+error.message); return; }
+function completePtm(rid, sid){
+  const A=$("ptmAct_"+sid); if(!A) return;
+  A.innerHTML=`<div class="kf"><label>Feedback shared in this Guru Samvaad *</label>
+      <textarea id="ptm_notes_${sid}" rows="5" placeholder="Write what was discussed — strengths, what's improved, areas to work on, goals for the coming quarter, and any guidance given. This becomes a permanent part of the student's journey record at Kala Kuteer."></textarea></div>
+    <div class="formmsg" id="ptmMsg_${sid}"></div>
+    <button class="kbtn teal" onclick="savePtmComplete('${rid}','${sid}')">✓ Save &amp; mark done</button>
+    <button class="kbtn ghost" style="margin-left:6px" onclick="drawReviews()">Cancel</button>`;
+}
+async function savePtmComplete(rid, sid){
+  const m=$("ptmMsg_"+sid); const notes=(($("ptm_notes_"+sid)||{}).value||"").trim();
+  if(notes.length<10){ if(m){ m.className="formmsg err"; m.textContent="Please write the feedback shared (at least a sentence) before marking this done — it's the record of the student's journey."; } return; }
+  if(m){ m.className="formmsg ok"; m.textContent="Saving…"; }
+  const { error } = await db.from("progress_reviews").update({ status:"completed", notes }).eq("id",rid);
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; } return; }
   renderReviews();
+}
+function viewPtmHistory(sid){
+  const P=$("ptmHist_"+sid); if(!P) return;
+  if(P.dataset.open==="1"){ P.innerHTML=""; P.dataset.open="0"; return; }
+  const done=(state._ptmReviews||[]).filter(r=>r.student_id===sid && r.status==="completed")
+    .sort((a,b)=>((b.scheduled_at||b.quarter_label)<(a.scheduled_at||a.quarter_label)?-1:1));
+  P.dataset.open="1";
+  P.innerHTML=done.length?`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+    ${done.map(r=>`<div style="margin-bottom:12px"><div class="mini"><b>${r.scheduled_at?fmtDateTime(r.scheduled_at):fmtNiceDate(r.quarter_label)}</b></div>
+      <div style="white-space:pre-wrap;font-size:13px;margin-top:3px;line-height:1.5">${esc(r.notes||"—")}</div></div>`).join("")}</div>`
+    :`<div class="mini" style="margin-top:8px;color:var(--muted)">No completed sessions recorded yet.</div>`;
 }
 async function cancelPTM(rid){
   if(!confirm("Cancel this scheduled meeting?")) return;
