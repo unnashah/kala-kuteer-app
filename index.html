@@ -546,6 +546,30 @@ async function recordPayment(invId, amount){
 
 /* ---------------- FINANCE & P&L ---------------- */
 function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||new Date().toISOString().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=new Date(y,m,0).toISOString().slice(0,10); const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
+const FREQ_LABEL={ weekly:"↻ Weekly", monthly:"↻ Monthly", yearly:"↻ Yearly" };
+function parseD(s){ const [y,m,d]=String(s).split("-").map(Number); return new Date(y,m-1,d); }
+// amount an expense contributes to the month described by P (cash basis: yearly counts fully in its anniversary month)
+function expenseMonthAmount(e,P){
+  const f=e.frequency||"one_time"; const amt=Number(e.amount||0); const start=e.spent_on; if(!start) return 0;
+  if(f==="one_time") return (start>=P.start && start<=P.end)?amt:0;
+  if(start>P.end) return 0;                                   // hasn't started yet
+  if(e.recur_until && e.recur_until<P.start) return 0;        // already ended
+  if(f==="monthly") return amt;
+  if(f==="yearly")  return start.slice(5,7)===P.start.slice(5,7)?amt:0;
+  if(f==="weekly"){
+    const wd=parseD(start).getDay();
+    let from=parseD(start)>parseD(P.start)?parseD(start):parseD(P.start);
+    let to=parseD(P.end); if(e.recur_until && parseD(e.recur_until)<to) to=parseD(e.recur_until);
+    let n=0; for(let d=new Date(from); d<=to; d.setDate(d.getDate()+1)) if(d.getDay()===wd) n++;
+    return amt*n;
+  }
+  return 0;
+}
+function onFreqChange(){
+  const f=$("x_freq")?$("x_freq").value:"one_time"; const rec=f!=="one_time";
+  if($("x_untilWrap")) $("x_untilWrap").style.display=rec?"":"none";
+  if($("x_recurHint")) $("x_recurHint").style.display=rec?"":"none";
+}
 async function renderFinance(){
   const M=$("mainArea"); state.refLoaded=false; await loadRef(); state._expEdit=null;
   const thisMonth=new Date().toISOString().slice(0,7);
@@ -561,7 +585,15 @@ async function renderFinance(){
         <div><div class="kf"><label>Amount (₹) *</label><input id="x_amt" type="number" min="0"></div>
           <div class="kf"><label>Branch (optional)</label><select id="x_branch"><option value="">— not branch-specific —</option>${branchOpts}</select></div></div>
       </div>
-      <div class="form2"><div class="kf"><label>Date</label><input id="x_date" type="date"></div><div class="kf"><label>Note (optional)</label><input id="x_note"></div></div>
+      <div class="form2">
+        <div class="kf"><label>Date / start date</label><input id="x_date" type="date"></div>
+        <div class="kf"><label>Frequency</label><select id="x_freq" onchange="onFreqChange()"><option value="one_time">One-time</option><option value="weekly">Every week</option><option value="monthly">Every month</option><option value="yearly">Every year</option></select></div>
+      </div>
+      <div class="form2">
+        <div class="kf" id="x_untilWrap" style="display:none"><label>Repeat until (optional)</label><input id="x_until" type="date"></div>
+        <div class="kf"><label>Note (optional)</label><input id="x_note"></div>
+      </div>
+      <p class="footnote" id="x_recurHint" style="display:none">↻ Recurring expenses are counted automatically in every month from the start date — enter once, no need to re-add. Leave "Repeat until" blank to keep it going.</p>
       <div class="formmsg" id="xMsg"></div>
       <button class="kbtn teal" id="addExpense">Add expense</button>
       <button class="kbtn ghost" id="expCancelBtn" style="display:none;margin-left:6px" onclick="cancelExpEdit()">Cancel</button>
@@ -575,7 +607,7 @@ async function loadFinance(){
   const P=finPeriod();
   $("finBody").innerHTML=`<div class="empty">Loading…</div>`;
   const { data:pays } = await db.from("payments").select("amount,paid_at,invoices(students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next);
-  const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note").gte("spent_on",P.start).lte("spent_on",P.end).order("spent_on",{ascending:false});
+  const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note,frequency,recur_until").lte("spent_on",P.end).order("spent_on",{ascending:false});
   if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._fin={ pays:pays||[], exps:exps||[], P }; drawFinance();
 }
@@ -585,7 +617,8 @@ function drawFinance(){
   let income=0; const incByBranch={};
   pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; });
   let expense=0; const expByBranch={}, expByCat={};
-  exps.forEach(e=>{ const a=Number(e.amount||0); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; const c=e.category||"Other"; expByCat[c]=(expByCat[c]||0)+a; });
+  const erows=[]; // {e, amt} contributing to this month
+  exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; const c=e.category||"Other"; expByCat[c]=(expByCat[c]||0)+a; });
   const net=income-expense;
   $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div></div>
     <div class="kpi"><div class="l">Expenses</div><div class="v" style="color:var(--warn)">${INR(expense)}</div></div>
@@ -594,7 +627,8 @@ function drawFinance(){
   const uEx=expByBranch["none"]||0, uIn=incByBranch["none"]||0;
   const catKeys=Object.keys(expByCat).sort();
   const catRows=catKeys.length?catKeys.map(c=>`<tr><td>${esc(c)}</td><td>${INR(expByCat[c])}</td></tr>`).join(""):`<tr><td colspan="2" class="mini">No expenses this month.</td></tr>`;
-  const expList=exps.length?exps.map(e=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(e.amount)}</td><td class="mini">${esc(e.note||"")}<br><span class="rowbtn edit" onclick="editExpense('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delExpense('${e.id}')">Delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
+  const fbadge=e=>{ const f=e.frequency||"one_time"; return f!=="one_time"?` <span class="badge b-teal">${FREQ_LABEL[f]||f}</span>`:""; };
+  const expList=erows.length?erows.map(({e,amt})=>`<tr><td>${e.spent_on}</td><td>${esc(e.category)}${e.subcategory?" · "+esc(e.subcategory):""}${fbadge(e)}</td><td>${esc(bname(e.branch_id))}</td><td>${INR(amt)}</td><td class="mini">${esc(e.note||"")}${e.frequency&&e.frequency!=="one_time"?`<br><span class="mini" style="color:var(--muted)">recurs from ${esc(e.spent_on)}${e.recur_until?" until "+esc(e.recur_until):""}</span>`:""}<br><span class="rowbtn edit" onclick="editExpense('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delExpense('${e.id}')">Delete</span></td></tr>`).join(""):`<tr><td colspan="5" class="empty">No expenses recorded for ${esc(P.label)}.</td></tr>`;
   $("finBody").innerHTML=`<div class="row2">
       <div class="panel"><h3>Profit / Loss per centre</h3>
         <table><tr><th>Branch</th><th>Income</th><th>Expenses</th><th>Net</th></tr>${branchRows}
@@ -609,8 +643,10 @@ async function addExpense(){
   if(!cat) return failMsg(m,"Enter a category.");
   if(!amt||amt<=0) return failMsg(m,"Enter a valid amount.");
   if(!date) return failMsg(m,"Pick a date.");
+  const freq=$("x_freq")?$("x_freq").value:"one_time";
+  const until=($("x_until")&&$("x_until").value)||null;
   m.className="formmsg ok"; m.textContent="Saving…"; $("addExpense").disabled=true;
-  const rec={ category:cat, subcategory:sub||null, amount:amt, branch_id:branch||null, spent_on:date, note:note||null };
+  const rec={ category:cat, subcategory:sub||null, amount:amt, branch_id:branch||null, spent_on:date, note:note||null, frequency:freq, recur_until: freq==="one_time"?null:until };
   let error;
   if(state._expEdit){ ({ error } = await db.from("expenses").update(rec).eq("id",state._expEdit)); }
   else { ({ error } = await db.from("expenses").insert(rec)); }
@@ -626,6 +662,9 @@ function editExpense(id){
   $("x_cat").value=e.category||""; $("x_sub").value=e.subcategory||"";
   $("x_amt").value=e.amount||""; $("x_branch").value=e.branch_id||"";
   $("x_date").value=e.spent_on||""; $("x_note").value=e.note||"";
+  if($("x_freq")) $("x_freq").value=e.frequency||"one_time";
+  if($("x_until")) $("x_until").value=e.recur_until||"";
+  onFreqChange();
   $("expFormTitle").textContent="Edit expense";
   $("addExpense").textContent="Save changes"; $("expCancelBtn").style.display="inline-block";
   window.scrollTo({top:0,behavior:"smooth"});
@@ -634,6 +673,7 @@ function cancelExpEdit(){
   state._expEdit=null;
   ["x_cat","x_sub","x_amt","x_note"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("x_branch")) $("x_branch").value="";
   if($("x_date")) $("x_date").value=new Date().toISOString().slice(0,10);
+  if($("x_freq")) $("x_freq").value="one_time"; if($("x_until")) $("x_until").value=""; onFreqChange();
   if($("expFormTitle")) $("expFormTitle").textContent="Record an expense";
   if($("addExpense")) $("addExpense").textContent="Add expense";
   if($("expCancelBtn")) $("expCancelBtn").style.display="none";
