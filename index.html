@@ -1433,13 +1433,15 @@ async function viewClassRoster(id){
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
 function renderSubmitFeedback(){
   const M=$("mainArea");
-  const cats=["Facilities","Classes","Teachers","Events","Fees","Other"];
   M.innerHTML=`<div class="ph"><div><h2>Suggestion Box</h2><p>Share feedback or an idea — it's completely anonymous</p></div></div>
     <div class="panel" style="max-width:580px">
       <div id="fbForm">
-        <p class="mini" style="margin:0 0 14px;color:var(--muted)">🔒 This is anonymous. Your name is never attached and the school cannot see who sent it — so please be open and honest.</p>
-        <div class="kf"><label>What is this about?</label><select id="fb_cat">${cats.map(c=>`<option>${c}</option>`).join("")}</select></div>
-        <div class="kf"><label>Your feedback or suggestion *</label><textarea id="fb_body" rows="5" placeholder="Tell us what's on your mind — what's working, what could be better, or an idea you'd love to see…"></textarea></div>
+        <div style="background:#fff7e8;border-radius:10px;padding:13px 15px;margin-bottom:14px;line-height:1.6;font-size:13.5px">
+          Kala Kuteer is still a small school, and our whole heart goes into giving every student the best experience we can — something we strive for every single day. We're a very small team, so if you ever feel there's something we could improve, or anything that would make your journey with us more joyful and successful, we would love to hear it.<br><br>
+          Please feel free to share it here, anonymously. And if you'd ever rather talk it through, you can always schedule a one-on-one with your guru — we'll be glad to create a safe, warm space for you. 💛
+        </div>
+        <p class="mini" style="margin:0 0 14px;color:var(--muted)">🔒 This is completely anonymous. Your name is never attached and the school cannot see who sent it — so please be open and honest.</p>
+        <div class="kf"><label>Your feedback or suggestion *</label><textarea id="fb_body" rows="6" placeholder="Tell us what's on your mind — anything at all…"></textarea></div>
         <div class="formmsg" id="fbMsg"></div>
         <button class="kbtn teal" id="fbSubmit" onclick="submitFeedback()">Submit anonymously</button>
       </div>
@@ -1450,7 +1452,7 @@ async function submitFeedback(){
   if(!body){ m.className="formmsg err"; m.textContent="Please write your feedback first."; return; }
   const role=(state.role==="teacher")?"teacher":(state.role==="student"?"student":null);
   m.className="formmsg ok"; m.textContent="Sending…"; $("fbSubmit").disabled=true;
-  const { error } = await db.from("suggestions").insert({ body, category:$("fb_cat").value||null, from_role:role });
+  const { error } = await db.from("suggestions").insert({ body, category:null, from_role:role });
   if(error){ $("fbSubmit").disabled=false; m.className="formmsg err"; m.textContent="Couldn't send — "+error.message; return; }
   $("fbForm").innerHTML=`<div style="text-align:center;padding:20px 6px">
       <div style="font-size:44px">🙏</div>
