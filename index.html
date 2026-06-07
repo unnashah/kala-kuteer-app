@@ -164,9 +164,9 @@ const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["🎼","My Classes","myclasses"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
+  teacher:[["🎼","My Classes","myclasses"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
@@ -268,6 +268,7 @@ function navigate(key, name, warn){
   if(key==="suggestions") return renderSuggestions();
   if(key==="feedback")  return renderSubmitFeedback();
   if(key==="myclasses") return renderMyClasses();
+  if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
   if(key==="classdetail") return; // handled directly
@@ -1428,6 +1429,115 @@ async function viewClassRoster(id){
   if(error){ P.innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   P.dataset.open="1";
   P.innerHTML=(data&&data.length)?`<table style="margin-top:8px"><tr><th>Student</th></tr>${data.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
+}
+
+/* ---------------- GURU SAMVAAD (quarterly 1:1 student–guru feedback session) ---------------- */
+function addMonths(d,m){ return new Date(d.getFullYear(), d.getMonth()+m, d.getDate()); }
+function isoLocal(d){ return `${d.getFullYear()}-${PAD(d.getMonth()+1)}-${PAD(d.getDate())}`; }
+function fmtNiceDate(s){ const [y,m,dd]=String(s).slice(0,10).split("-").map(Number); return `${dd} ${MONS[m-1]} ${y}`; }
+function fmtDateTime(s){ const d=new Date(s); return `${d.getDate()} ${MONS[d.getMonth()]} ${d.getFullYear()}, ${(d.getHours()%12||12)}:${PAD(d.getMinutes())} ${d.getHours()<12?"AM":"PM"}`; }
+// quarterly from join date → which cycle is actionable + its state
+function ptmStatus(joinDate, today, srv){
+  const j=parseD(joinDate);
+  let months=(today.getFullYear()-j.getFullYear())*12+(today.getMonth()-j.getMonth());
+  if(today.getDate()<j.getDate()) months--;
+  const n=Math.max(0,Math.floor(months/3));
+  const pastB=addMonths(j,n*3), nextB=addMonths(j,(n+1)*3);
+  const keyPast=isoLocal(pastB), keyNext=isoLocal(nextB);
+  const rPast=srv.find(r=>r.quarter_label===keyPast), rNext=srv.find(r=>r.quarter_label===keyNext);
+  const daysSincePast=Math.round((today-pastB)/864e5), daysToNext=Math.round((nextB-today)/864e5);
+  if(rNext && rNext.status==="scheduled") return { state:"scheduled", cycle:keyNext, review:rNext };
+  if(rPast && rPast.status==="scheduled") return { state:"scheduled", cycle:keyPast, review:rPast };
+  if(rPast && rPast.status==="completed"){ return (daysToNext<=30)?{ state:"due", cycle:keyNext }:{ state:"upcoming", cycle:keyNext }; }
+  if(n>=1){ return (daysSincePast>14)?{ state:"overdue", cycle:keyPast }:{ state:"due", cycle:keyPast }; }
+  return (daysToNext<=30)?{ state:"due", cycle:keyNext }:{ state:"upcoming", cycle:keyNext };
+}
+const PTM_BADGE={ overdue:"b-red", due:"b-amber", scheduled:"b-teal", upcoming:"b-grey", done:"b-green" };
+const PTM_LABEL={ overdue:"Overdue", due:"Due now", scheduled:"Scheduled", upcoming:"Upcoming", done:"Done" };
+async function renderReviews(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading reviews…</div>`;
+  const role=state.role; let students=[]; let tid=null;
+  if(role==="teacher"){
+    tid=await myTeacherId();
+    if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
+    const { data:batches } = await db.from("batches").select("id").eq("teacher_id",tid);
+    const bids=(batches||[]).map(b=>b.id); const seen=new Set();
+    if(bids.length){ const { data:enr } = await db.from("enrollments").select("students(id,full_name,join_date,branches(name))").eq("status","confirmed").in("batch_id",bids);
+      (enr||[]).forEach(e=>{ const s=e.students; if(s && !seen.has(s.id)){ seen.add(s.id); students.push(s); } }); }
+  } else {
+    const { data } = await db.from("students").select("id,full_name,join_date,branches(name)").eq("status","active").order("full_name");
+    students=data||[];
+  }
+  state._ptmTid=tid; state._ptmStudents=students;
+  const ids=students.map(s=>s.id); let reviews=[];
+  if(ids.length){ const { data:rv } = await db.from("progress_reviews").select("id,student_id,quarter_label,scheduled_at,meeting_link,status,teacher_id").in("student_id",ids); reviews=rv||[]; }
+  state._ptmReviews=reviews; drawReviews();
+}
+function drawReviews(){
+  const students=state._ptmStudents||[]; const reviews=state._ptmReviews||[];
+  const M=$("mainArea"); const today=new Date(); today.setHours(0,0,0,0);
+  const rows=students.filter(s=>s.join_date).map(s=>({ s, info:ptmStatus(s.join_date,today,reviews.filter(r=>r.student_id===s.id)) }));
+  const order={overdue:0,due:1,scheduled:2,upcoming:3,done:4};
+  rows.sort((a,b)=>(order[a.info.state]-order[b.info.state]) || (a.info.cycle<b.info.cycle?-1:1));
+  const dueCount=rows.filter(r=>r.info.state==="overdue"||r.info.state==="due").length;
+  const noJoin=students.filter(s=>!s.join_date).length;
+  const card=({s,info})=>{
+    const sid=s.id; let line="", act="";
+    if(info.state==="scheduled"){ const r=info.review;
+      line=`Scheduled for <b>${fmtDateTime(r.scheduled_at)}</b>${r.meeting_link?` · <a href="${esc(r.meeting_link)}" target="_blank" rel="noopener">link</a>`:""}`;
+      act=`<span class="rowbtn" onclick="togglePtmForm('${sid}','${info.cycle}')">Reschedule</span><span class="rowbtn edit" onclick="markPTMDone('${r.id}')">✓ Mark done</span><span class="rowbtn danger" onclick="cancelPTM('${r.id}')">Cancel</span>`;
+    } else if(info.state==="overdue"){ line=`Was due around <b>${fmtNiceDate(info.cycle)}</b> — not yet scheduled`; act=`<span class="rowbtn edit" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule Guru Samvaad</span>`;
+    } else if(info.state==="due"){ line=`Due around <b>${fmtNiceDate(info.cycle)}</b>`; act=`<span class="rowbtn edit" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule Guru Samvaad</span>`;
+    } else { line=`Next session around <b>${fmtNiceDate(info.cycle)}</b>`; act=`<span class="rowbtn" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule early</span>`; }
+    return `<div class="panel" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><b>${esc(s.full_name)}</b> <span class="mini">· ${esc(s.branches?.name||"—")}</span>
+          <div class="mini" style="margin-top:3px">${line}</div></div>
+        <span class="badge ${PTM_BADGE[info.state]}">${PTM_LABEL[info.state]}</span>
+      </div>
+      <div id="ptmAct_${sid}" style="margin-top:10px">${act}</div></div>`;
+  };
+  M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad</h2><p>A quarterly one-on-one between student &amp; guru — feedback &amp; progress — timed from each student's joining date</p></div></div>
+    <div style="background:#fff7e8;border-radius:10px;padding:13px 15px;margin-bottom:14px;line-height:1.6;font-size:13.5px">
+      Who understands your progress better than your guru — the one who quietly watches you grow, day after day, as you find your voice on this journey? A <b>Guru Samvaad</b> is your moment to pause together and truly see how you're performing, where you're growing, and what to work on next.<br><br>
+      We warmly encourage every student to sit with their guru at least <b>once a quarter</b>. It's a small, honest conversation — but the kind that can shape the months ahead. Your guru sees you, and is always cheering you on. 💛
+    </div>
+    ${dueCount?`<div class="cfgwarn" style="background:#fff7e8;border:0">🔔 <b>${dueCount}</b> student${dueCount===1?"":"s"} due for their Guru Samvaad this quarter — schedule below.</div>`:`<span class="ok-pill">✓ No sessions due right now</span>`}
+    <p class="footnote" style="margin:8px 0 14px">Sessions are scheduled by the guru. An automated email/WhatsApp reminder can be switched on later once a messaging service is connected.</p>
+    ${rows.length?rows.map(card).join(""):`<div class="empty">No students to review yet.</div>`}
+    ${noJoin?`<p class="footnote">${noJoin} student(s) have no joining date set, so their cycle can't be calculated — add it on their profile.</p>`:""}`;
+}
+function togglePtmForm(sid, cycleKey){
+  const A=$("ptmAct_"+sid); if(!A) return;
+  const def=cycleKey+"T17:00";
+  A.innerHTML=`<div class="form2"><div class="kf"><label>Date &amp; time</label><input type="datetime-local" id="ptm_dt_${sid}" value="${def}"></div>
+      <div class="kf"><label>Meeting link (optional)</label><input id="ptm_link_${sid}" placeholder="Zoom link if online"></div></div>
+    <div class="formmsg" id="ptmMsg_${sid}"></div>
+    <button class="kbtn teal" onclick="savePTM('${sid}','${cycleKey}')">Save</button>
+    <button class="kbtn ghost" style="margin-left:6px" onclick="drawReviews()">Cancel</button>`;
+}
+async function savePTM(sid, cycleKey){
+  const m=$("ptmMsg_"+sid); const dt=$("ptm_dt_"+sid).value; const link=($("ptm_link_"+sid).value||"").trim();
+  if(!dt){ if(m){ m.className="formmsg err"; m.textContent="Pick a date & time."; } return; }
+  const rec={ student_id:sid, quarter_label:cycleKey, scheduled_at:new Date(dt).toISOString(), meeting_link:link||null, status:"scheduled", teacher_id: state._ptmTid||null };
+  if(m){ m.className="formmsg ok"; m.textContent="Saving…"; }
+  const existing=(state._ptmReviews||[]).find(r=>r.student_id===sid && r.quarter_label===cycleKey);
+  let error;
+  if(existing){ ({ error } = await db.from("progress_reviews").update(rec).eq("id",existing.id)); }
+  else { ({ error } = await db.from("progress_reviews").insert(rec)); }
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; } return; }
+  renderReviews();
+}
+async function markPTMDone(rid){
+  const { error } = await db.from("progress_reviews").update({ status:"completed" }).eq("id",rid);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  renderReviews();
+}
+async function cancelPTM(rid){
+  if(!confirm("Cancel this scheduled meeting?")) return;
+  const { error } = await db.from("progress_reviews").delete().eq("id",rid);
+  if(error){ alert("Couldn't cancel — "+error.message); return; }
+  renderReviews();
 }
 
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
