@@ -166,7 +166,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
+  teacher:[["🎼","My Classes","myclasses"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
@@ -267,6 +267,7 @@ function navigate(key, name, warn){
   if(key==="news")      return renderNews();
   if(key==="suggestions") return renderSuggestions();
   if(key==="feedback")  return renderSubmitFeedback();
+  if(key==="myclasses") return renderMyClasses();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
   if(key==="classdetail") return; // handled directly
@@ -1389,6 +1390,44 @@ async function removeEnrollment(eid){
   const { error } = await db.from("enrollments").delete().eq("id",eid);
   if(error){ alert("Couldn't remove — "+error.message); return; }
   manageClass(state._mc.id);
+}
+
+/* ---------------- TEACHER: MY CLASSES ---------------- */
+async function myTeacherId(){
+  if(state._myTeacherId) return state._myTeacherId;
+  const { data:{ user } } = await db.auth.getUser();
+  if(!user) return null;
+  const { data:tp } = await db.from("teachers").select("id").eq("profile_id",user.id).maybeSingle();
+  state._myTeacherId = tp?tp.id:null;
+  return state._myTeacherId;
+}
+async function renderMyClasses(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading your classes…</div>`;
+  const tid=await myTeacherId();
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Classes</h2></div></div><div class="cfgwarn">Your teacher profile isn't fully set up yet. Please ask the admin to check your account.</div>`; return; }
+  const { data:cls, error } = await db.from("batches").select("id,name,mode,day_of_week,start_time,zoom_link,capacity,courses(name),branches(name)").eq("teacher_id",tid).order("day_of_week");
+  if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const ids=(cls||[]).map(c=>c.id); const counts={};
+  if(ids.length){ const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed").in("batch_id",ids); (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1); }
+  M.innerHTML=`<div class="ph"><div><h2>My Classes</h2><p>Your assigned classes &amp; students</p></div></div>
+    ${(cls&&cls.length)?cls.map(c=>`<div class="panel" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div><b style="font-size:15px">${esc(c.name)}</b>${c.courses?.name?` <span class="mini">· ${esc(c.courses.name)}</span>`:""}
+            <div class="mini" style="margin-top:3px">${esc(classSchedule(c))} · ${esc(c.branches?.name||"—")}${c.mode&&c.mode!=="in_person"?` · <span class="badge b-teal">${esc(c.mode)}</span>`:""}</div></div>
+          <span class="badge b-green">${counts[c.id]||0} student${(counts[c.id]||0)===1?"":"s"}</span>
+        </div>
+        <div style="margin-top:10px"><span class="rowbtn" onclick="viewClassRoster('${c.id}')">👥 View students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(c.zoom_link)}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
+        <div id="roster_${c.id}"></div>
+      </div>`).join(""):`<div class="empty">No classes assigned to you yet. The admin can assign you a class from the <b>Classes</b> screen.</div>`}`;
+}
+async function viewClassRoster(id){
+  const P=$("roster_"+id); if(!P) return;
+  if(P.dataset.open==="1"){ P.innerHTML=""; P.dataset.open="0"; return; }
+  P.innerHTML=`<div class="mini" style="margin-top:8px">Loading…</div>`;
+  const { data, error } = await db.from("enrollments").select("students(full_name)").eq("batch_id",id).eq("status","confirmed");
+  if(error){ P.innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
+  P.dataset.open="1";
+  P.innerHTML=(data&&data.length)?`<table style="margin-top:8px"><tr><th>Student</th></tr>${data.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
 }
 
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
