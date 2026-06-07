@@ -85,6 +85,13 @@
   .rowbtn{font-size:11px;font-weight:700;padding:5px 11px;border-radius:20px;border:1px solid var(--teal);color:var(--teal);background:#fff;cursor:pointer;display:inline-block;margin:2px 3px 2px 0}
   .rowbtn.edit{background:var(--teal);color:#fff;border-color:var(--teal)}
   .rowbtn.danger{border-color:var(--warn);color:var(--warn)}
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .calhd{font-size:11px;font-weight:700;color:var(--muted);text-align:center;padding:4px 0}
+  .calcell{min-height:80px;border:1px solid var(--line);border-radius:8px;background:#fffdf8;padding:4px 5px;overflow:hidden}
+  .calcell.blank{background:transparent;border:0}
+  .calcell.today{border-color:var(--teal);box-shadow:0 0 0 1px var(--teal)}
+  .caldate{font-size:11px;color:var(--muted);font-weight:700;margin-bottom:2px}
+  .calev{font-size:10.5px;background:var(--teal);color:#fff;border-radius:5px;padding:2px 5px;margin-bottom:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .searchbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
   .searchbar input{flex:1;min-width:200px;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;background:#fffdf8}
   .empty{text-align:center;color:var(--muted);padding:40px 10px;font-size:14px}
@@ -159,10 +166,10 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
-  student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
+  teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
+  student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","feedback"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -258,6 +265,9 @@ function navigate(key, name, warn){
   if(key==="enquiries") return renderEnquiries();
   if(key==="inventory") return renderInventory();
   if(key==="news")      return renderNews();
+  if(key==="suggestions") return renderSuggestions();
+  if(key==="feedback")  return renderSubmitFeedback();
+  if(key==="calendar")  return renderCalendar();
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
   if(!isAdmin()){
@@ -998,9 +1008,9 @@ function onNewsFile(){
   if(!f){ p.innerHTML=""; return; }
   p.innerHTML=`<img src="${URL.createObjectURL(f)}" style="max-width:240px;max-height:160px;border-radius:8px;border:1px solid var(--line)"><div class="mini" style="color:var(--muted)">${esc(f.name)}</div>`;
 }
-async function uploadImage(file){
+async function uploadImage(file, folder){
   const safe=file.name.replace(/[^a-zA-Z0-9.\-_]/g,"_");
-  const path=`news/${Date.now()}-${safe}`;
+  const path=`${folder||"news"}/${Date.now()}-${safe}`;
   const { error } = await db.storage.from("uploads").upload(path,file,{ upsert:false });
   if(error) throw error;
   const { data:pub } = db.storage.from("uploads").getPublicUrl(path);
@@ -1052,6 +1062,197 @@ async function delNewsPost(id){
   const { error } = await db.from("news_posts").delete().eq("id",id);
   if(error){ alert("Couldn't delete — "+error.message); return; }
   state._news=(state._news||[]).filter(x=>x.id!==id); drawNews();
+}
+
+/* ---------------- SUGGESTIONS (anonymous inbox) ---------------- */
+const SUGG_STAGES=[["new","New"],["reviewed","Reviewed"],["actioned","Actioned"]];
+const SUGG_BADGE={ new:"b-amber", reviewed:"b-teal", actioned:"b-green" };
+async function renderSuggestions(){
+  const M=$("mainArea");
+  M.innerHTML=`<div class="ph"><div><h2>Suggestions</h2><p>Anonymous suggestions from students &amp; teachers — no names are stored</p></div></div>
+    <div class="kpis" id="sugKpis" style="margin-bottom:12px"></div>
+    <div class="searchbar"><input id="sugSearch" placeholder="🔍 Search text…" style="flex:1">
+      <select id="sugFilter" style="max-width:170px;flex:none"><option value="open">To review (New + Reviewed)</option><option value="">All</option>${SUGG_STAGES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}</select></div>
+    <div id="sugList"><div class="empty">Loading…</div></div>`;
+  $("sugSearch").oninput=drawSuggestions; $("sugFilter").onchange=drawSuggestions;
+  loadSuggestions();
+}
+async function loadSuggestions(){
+  const { data, error } = await db.from("suggestions").select("id,body,category,from_role,status,created_at").order("created_at",{ascending:false});
+  if(error){ $("sugList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._sug=data||[]; drawSuggestions();
+}
+function drawSuggestions(){
+  const all=state._sug||[];
+  const c={ new:0, reviewed:0, actioned:0 };
+  all.forEach(s=>{ if(c[s.status]!=null) c[s.status]++; });
+  $("sugKpis").innerHTML=`<div class="kpi"><div class="l">New</div><div class="v" style="color:var(--warn)">${c.new}</div></div>
+    <div class="kpi"><div class="l">Reviewed</div><div class="v">${c.reviewed}</div></div>
+    <div class="kpi"><div class="l">Actioned</div><div class="v" style="color:var(--good)">${c.actioned}</div></div>`;
+  const q=(($("sugSearch")&&$("sugSearch").value)||"").toLowerCase().trim();
+  const f=($("sugFilter")&&$("sugFilter").value)||"";
+  let list=all.filter(s=>{
+    if(f==="open"){ if(s.status==="actioned") return false; }
+    else if(f && s.status!==f) return false;
+    if(q && !((s.body||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+  if(!list.length){ $("sugList").innerHTML=`<div class="empty">No suggestions${f||q?" match this filter":" yet. These arrive once students & teachers can submit from their app."}.</div>`; return; }
+  const stageSel=s=>`<select class="rowbtn" style="padding:5px 8px" onchange="setSuggStatus('${s.id}',this.value)">${SUGG_STAGES.map(x=>`<option value="${x[0]}"${s.status===x[0]?" selected":""}>${x[1]}</option>`).join("")}</select>`;
+  $("sugList").innerHTML=list.map(s=>`<div class="panel" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div class="mini"><span class="badge ${SUGG_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>
+          ${s.category?` · ${esc(s.category)}`:""}${s.from_role?` · from a ${esc(s.from_role)}`:""} · ${String(s.created_at).slice(0,10)}</div>
+        <div style="white-space:nowrap">${stageSel(s)} <span class="rowbtn danger" onclick="delSuggestion('${s.id}')">Delete</span></div>
+      </div>
+      <p style="margin:10px 0 0;white-space:pre-wrap">${esc(s.body)}</p>
+    </div>`).join("");
+}
+async function setSuggStatus(id,status){
+  const { error } = await db.from("suggestions").update({ status }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  const s=(state._sug||[]).find(x=>x.id===id); if(s) s.status=status; drawSuggestions();
+}
+async function delSuggestion(id){
+  if(!confirm("Delete this suggestion?")) return;
+  const { error } = await db.from("suggestions").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  state._sug=(state._sug||[]).filter(x=>x.id!==id); drawSuggestions();
+}
+/* ---------------- CALENDAR (school events) ---------------- */
+const EV_TYPES=["Competition","Annual Day","Celebration","Workshop","Exam","Holiday","Other"];
+async function renderCalendar(){
+  const M=$("mainArea"); await loadRef(); state._calEdit=null;
+  state._calMonth = state._calMonth || new Date().toISOString().slice(0,7);
+  M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Competitions, celebrations, workshops, exams &amp; holidays</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="evFormTitle">Add an event</h3>
+      <div class="form2">
+        <div class="kf"><label>Event title *</label><input id="ev_title" placeholder="e.g. Annual Day"></div>
+        <div class="kf"><label>Type</label><select id="ev_type">${EV_TYPES.map(t=>`<option>${t}</option>`).join("")}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Date *</label><input id="ev_date" type="date"></div>
+        <div class="kf"><label>Poster (optional)</label><input id="ev_file" type="file" accept="image/*" style="font-size:12.5px"></div>
+      </div>
+      <div class="kf"><label>Details (optional)</label><textarea id="ev_desc" rows="2" placeholder="Time, venue, what students should know…"></textarea></div>
+      <div class="formmsg" id="evMsg"></div>
+      <button class="kbtn teal" id="addEv" onclick="saveEvent()">Add event</button>
+      <button class="kbtn ghost" id="evCancelBtn" style="display:none;margin-left:6px" onclick="cancelEvEdit()">Cancel</button>
+    </div>
+    <div class="searchbar" style="justify-content:space-between">
+      <div><button class="kbtn ghost" onclick="calShift(-1)">‹ Prev</button>
+        <b id="calLabel" style="margin:0 12px"></b>
+        <button class="kbtn ghost" onclick="calShift(1)">Next ›</button></div>
+      <button class="kbtn ghost" onclick="calToday()">Today</button>
+    </div>
+    <div id="calGrid"><div class="empty">Loading…</div></div>
+    <div id="calList"></div>`;
+  $("ev_date").value=new Date().toISOString().slice(0,10);
+  loadCalendar();
+}
+async function loadCalendar(){
+  const [y,mo]=state._calMonth.split("-").map(Number);
+  const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
+  const { data, error } = await db.from("events").select("id,title,event_type,event_date,description,poster_url").gte("event_date",start).lte("event_date",end).order("event_date");
+  if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._events=data||[]; drawCalendar();
+}
+function drawCalendar(){
+  const [y,mo]=state._calMonth.split("-").map(Number);
+  if($("calLabel")) $("calLabel").textContent=MONS[mo-1]+" "+y;
+  const first=new Date(y,mo-1,1).getDay(); const dim=new Date(y,mo,0).getDate();
+  const todayS=new Date().toISOString().slice(0,10);
+  const byDay={}; (state._events||[]).forEach(e=>{ const d=Number(String(e.event_date).slice(8,10)); (byDay[d]=byDay[d]||[]).push(e); });
+  const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
+  let cells="";
+  for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
+  for(let d=1;d<=dim;d++){
+    const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
+    const evs=(byDay[d]||[]).map(e=>`<div class="calev" onclick="editEvent('${e.id}')" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
+    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${evs}</div>`;
+  }
+  $("calGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>`;
+  const list=state._events||[];
+  $("calList").innerHTML=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
+    <table><tr><th>Date</th><th>Event</th><th>Type</th><th></th></tr>${list.map(e=>`<tr>
+      <td>${esc(e.event_date)}</td>
+      <td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}${e.poster_url?` <span class="mini">📎 poster</span>`:""}</td>
+      <td>${esc(e.event_type||"—")}</td>
+      <td class="mini"><span class="rowbtn edit" onclick="editEvent('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delEvent('${e.id}')">Delete</span></td>
+    </tr>`).join("")}</table></div>`:`<div class="empty">No events in ${MONS[mo-1]} ${y} — add one above.</div>`;
+}
+function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); state._calMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); state._calEdit=null; loadCalendar(); }
+function calToday(){ state._calMonth=new Date().toISOString().slice(0,7); loadCalendar(); }
+async function saveEvent(){
+  const m=$("evMsg"); const title=$("ev_title").value.trim(), date=$("ev_date").value;
+  if(!title) return failMsg(m,"Enter an event title.");
+  if(!date) return failMsg(m,"Pick a date.");
+  const rec={ title, event_type:$("ev_type").value||null, event_date:date, description:$("ev_desc").value.trim()||null };
+  const file=$("ev_file")&&$("ev_file").files[0];
+  m.className="formmsg ok"; m.textContent=file?"Uploading poster…":"Saving…"; $("addEv").disabled=true;
+  if(file){ try{ rec.poster_url=await uploadImage(file,"events"); }catch(err){ $("addEv").disabled=false; return failMsg(m,"Poster upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); } }
+  let error;
+  if(state._calEdit){ ({ error } = await db.from("events").update(rec).eq("id",state._calEdit)); }
+  else { ({ error } = await db.from("events").insert(rec)); }
+  $("addEv").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent=state._calEdit?"✓ Event updated.":"✓ Event added.";
+  // jump the calendar to the event's month so the user sees it
+  state._calMonth=date.slice(0,7); cancelEvEdit(); loadCalendar();
+}
+function editEvent(id){
+  const e=(state._events||[]).find(x=>x.id===id); if(!e) return;
+  state._calEdit=id;
+  $("ev_title").value=e.title||""; $("ev_type").value=e.event_type||"Other"; $("ev_date").value=e.event_date||""; $("ev_desc").value=e.description||"";
+  if($("ev_file")) $("ev_file").value="";
+  $("evFormTitle").textContent="Edit event"+(e.poster_url?" (leave poster empty to keep the current one)":"");
+  $("addEv").textContent="Save changes"; $("evCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelEvEdit(){
+  state._calEdit=null;
+  ["ev_title","ev_desc"].forEach(x=>{ if($(x)) $(x).value=""; });
+  if($("ev_file")) $("ev_file").value=""; if($("ev_type")) $("ev_type").value="Competition";
+  if($("ev_date")) $("ev_date").value=new Date().toISOString().slice(0,10);
+  if($("evFormTitle")) $("evFormTitle").textContent="Add an event";
+  if($("addEv")) $("addEv").textContent="Add event";
+  if($("evCancelBtn")) $("evCancelBtn").style.display="none";
+}
+async function delEvent(id){
+  if(!confirm("Delete this event?")) return;
+  const { error } = await db.from("events").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  loadCalendar();
+}
+
+/* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
+function renderSubmitFeedback(){
+  const M=$("mainArea");
+  const cats=["Facilities","Classes","Teachers","Events","Fees","Other"];
+  M.innerHTML=`<div class="ph"><div><h2>Suggestion Box</h2><p>Share feedback or an idea — it's completely anonymous</p></div></div>
+    <div class="panel" style="max-width:580px">
+      <div id="fbForm">
+        <p class="mini" style="margin:0 0 14px;color:var(--muted)">🔒 This is anonymous. Your name is never attached and the school cannot see who sent it — so please be open and honest.</p>
+        <div class="kf"><label>What is this about?</label><select id="fb_cat">${cats.map(c=>`<option>${c}</option>`).join("")}</select></div>
+        <div class="kf"><label>Your feedback or suggestion *</label><textarea id="fb_body" rows="5" placeholder="Tell us what's on your mind — what's working, what could be better, or an idea you'd love to see…"></textarea></div>
+        <div class="formmsg" id="fbMsg"></div>
+        <button class="kbtn teal" id="fbSubmit" onclick="submitFeedback()">Submit anonymously</button>
+      </div>
+    </div>`;
+}
+async function submitFeedback(){
+  const m=$("fbMsg"); const body=($("fb_body").value||"").trim();
+  if(!body){ m.className="formmsg err"; m.textContent="Please write your feedback first."; return; }
+  const role=(state.role==="teacher")?"teacher":(state.role==="student"?"student":null);
+  m.className="formmsg ok"; m.textContent="Sending…"; $("fbSubmit").disabled=true;
+  const { error } = await db.from("suggestions").insert({ body, category:$("fb_cat").value||null, from_role:role });
+  if(error){ $("fbSubmit").disabled=false; m.className="formmsg err"; m.textContent="Couldn't send — "+error.message; return; }
+  $("fbForm").innerHTML=`<div style="text-align:center;padding:20px 6px">
+      <div style="font-size:44px">🙏</div>
+      <h3 style="margin:10px 0 6px">Thank you!</h3>
+      <p style="color:var(--muted);max-width:400px;margin:0 auto;line-height:1.5">Kala Kuteer has received your feedback. We read every suggestion and use them to make the school better for everyone. 💛</p>
+      <button class="kbtn ghost" style="margin-top:18px" onclick="renderSubmitFeedback()">Share another</button>
+    </div>`;
 }
 
 async function genReceipt(invId){
