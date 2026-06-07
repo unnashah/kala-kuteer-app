@@ -162,7 +162,7 @@ const NAV = {
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","soon"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -257,6 +257,7 @@ function navigate(key, name, warn){
   if(key==="intake")    return renderIntake();
   if(key==="enquiries") return renderEnquiries();
   if(key==="inventory") return renderInventory();
+  if(key==="news")      return renderNews();
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
   if(!isAdmin()){
@@ -347,6 +348,7 @@ async function renderAttendance(){
   await loadRef();
   const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   M.innerHTML = `<div class="ph"><div><h2>Attendance</h2><p>Mark who attended on a given day</p></div></div>
+    <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button></div>
     <div class="searchbar">
       <span class="mini">Date</span><input id="attDate" type="date" style="max-width:170px;flex:none">
       <span class="mini">Branch</span><select id="attBranch" style="max-width:170px;flex:none"><option value="">All</option>${branchOpts}</select>
@@ -408,6 +410,55 @@ async function saveAttendance(){
   const { error } = await db.from("attendance").upsert(rows,{ onConflict:"student_id,class_date" });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Saved attendance for "+date+" ("+rows.length+" students).";
+}
+/* ----- Attendance: student-wise report ----- */
+async function renderAttendanceByStudent(){
+  const M=$("mainArea"); await loadRef();
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Each student's attendance record</p></div></div>
+    <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn teal" style="margin-left:6px" disabled>📊 By student</button></div>
+    <div class="searchbar"><input id="absSearch" placeholder="🔍 Search student…" style="flex:1">
+      <select id="absBranch" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
+    <div id="absList"><div class="empty">Loading…</div></div>
+    <div id="absDays"></div>`;
+  const [{ data:studs, error:se }, { data:marks, error:me }] = await Promise.all([
+    db.from("students").select("id,full_name,status,branch_id,branches(name),courses(name)").order("full_name"),
+    db.from("attendance").select("student_id,status")
+  ]);
+  if(se||me){ $("absList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc((se||me).message)}</div>`; return; }
+  const agg={};
+  (marks||[]).forEach(r=>{ const a=agg[r.student_id]||(agg[r.student_id]={p:0,a:0,e:0,t:0}); a.t++; if(r.status==="present")a.p++; else if(r.status==="absent")a.a++; else if(r.status==="excused")a.e++; });
+  state._abs={ studs:studs||[], agg };
+  $("absSearch").oninput=drawAttByStudent; $("absBranch").onchange=drawAttByStudent;
+  drawAttByStudent();
+}
+function drawAttByStudent(){
+  const { studs, agg } = state._abs||{ studs:[], agg:{} };
+  const q=(($("absSearch")&&$("absSearch").value)||"").toLowerCase().trim();
+  const bf=($("absBranch")&&$("absBranch").value)||"";
+  let list=studs.filter(s=>{ if(bf&&s.branch_id!==bf) return false; if(q&&!(s.full_name||"").toLowerCase().includes(q)) return false; return true; });
+  if(!list.length){ $("absList").innerHTML=`<div class="empty">No students match.</div>`; return; }
+  $("absList").innerHTML=`<table><tr><th>Student</th><th>Course · Branch</th><th>Present</th><th>Absent</th><th>Excused</th><th>Total</th><th>%</th><th></th></tr>
+    ${list.map(s=>{ const a=agg[s.id]||{p:0,a:0,e:0,t:0}; const pct=a.t?Math.round(a.p/a.t*100):null;
+      const pcol=pct==null?"var(--muted)":(pct>=75?"var(--good)":(pct>=50?"var(--saffron-deep)":"var(--warn)"));
+      return `<tr>
+        <td><b>${esc(s.full_name)}</b>${s.status&&s.status!=="active"?` <span class="badge b-grey">${esc(s.status.replace("_"," "))}</span>`:""}</td>
+        <td class="mini">${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")}</td>
+        <td>${a.p}</td><td>${a.a}</td><td>${a.e}</td><td>${a.t}</td>
+        <td><b style="color:${pcol}">${pct==null?"—":pct+"%"}</b></td>
+        <td class="mini"><span class="rowbtn" onclick="attStudentDays('${s.id}','${esc((s.full_name||'').replace(/'/g,''))}')">View days</span></td>
+      </tr>`; }).join("")}</table>
+    <p class="footnote">% is days present out of days marked. Click <b>View days</b> for a date-by-date record.</p>`;
+}
+async function attStudentDays(id,name){
+  const P=$("absDays"); P.innerHTML=`<div class="panel" style="margin-top:14px"><div class="empty">Loading ${esc(name)}'s record…</div></div>`;
+  const { data, error } = await db.from("attendance").select("class_date,status").eq("student_id",id).order("class_date",{ascending:false});
+  if(error){ P.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const bcol={ present:"b-green", absent:"b-red", excused:"b-teal" };
+  const rows=(data||[]).length?(data.map(d=>`<tr><td>${esc(d.class_date)}</td><td><span class="badge ${bcol[d.status]||"b-grey"}">${esc(d.status)}</span></td></tr>`).join("")):`<tr><td colspan="2" class="empty">No attendance recorded yet.</td></tr>`;
+  P.innerHTML=`<div class="panel" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center"><h3>${esc(name)} — attendance by day</h3><span class="rowbtn" onclick="document.getElementById('absDays').innerHTML=''">✕ Close</span></div>
+    <table><tr><th>Date</th><th>Status</th></tr>${rows}</table></div>`;
+  P.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
 /* ---------------- FEES & INVOICES ---------------- */
@@ -851,6 +902,92 @@ async function delInvItem(id){
   state._inv=(state._inv||[]).filter(x=>x.id!==id); drawInventory();
 }
 
+/* ---------------- NEWS BOARD ---------------- */
+function audienceLabel(a){
+  if(!a||a==="all") return "Everyone";
+  if(a.startsWith("branch:")){ const b=state.branches.find(x=>x.id===a.slice(7)); return "Branch · "+(b?b.name:"—"); }
+  if(a.startsWith("course:")){ const c=state.courses.find(x=>x.id===a.slice(7)); return "Course · "+(c?c.name:"—"); }
+  return a;
+}
+async function renderNews(){
+  const M=$("mainArea"); await loadRef(); state._newsEdit=null;
+  const audOpts=`<option value="all">Everyone</option>`
+    + state.branches.map(b=>`<option value="branch:${b.id}">Branch · ${esc(b.name)}</option>`).join("")
+    + state.courses.map(c=>`<option value="course:${c.id}">Course · ${esc(c.name)}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>News Board</h2><p>Announcements, notices &amp; competition news for students &amp; parents</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="newsFormTitle">Post an announcement</h3>
+      <div class="kf"><label>Title *</label><input id="n_title" placeholder="e.g. Annual Day — 15 Aug"></div>
+      <div class="kf"><label>Message</label><textarea id="n_body" rows="3" placeholder="Write the details students &amp; parents should see…"></textarea></div>
+      <div class="form2">
+        <div class="kf"><label>Who should see this?</label><select id="n_aud">${audOpts}</select></div>
+        <div class="kf"><label>Image / poster link (optional)</label><input id="n_media" placeholder="paste an image or video URL"></div>
+      </div>
+      <div class="formmsg" id="nMsg"></div>
+      <button class="kbtn teal" id="postNews">Post announcement</button>
+      <button class="kbtn ghost" id="newsCancelBtn" style="display:none;margin-left:6px" onclick="cancelNewsEdit()">Cancel</button>
+    </div>
+    <div id="newsList"><div class="empty">Loading…</div></div>`;
+  $("postNews").onclick=saveNewsPost;
+  loadNews();
+}
+async function loadNews(){
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,created_at").order("created_at",{ascending:false});
+  if(error){ $("newsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._news=data||[]; drawNews();
+}
+function drawNews(){
+  const list=state._news||[];
+  if(!list.length){ $("newsList").innerHTML=`<div class="empty">No announcements yet — post your first above.</div>`; return; }
+  $("newsList").innerHTML=list.map(n=>`<div class="panel" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><b style="font-size:15px">${esc(n.title)}</b>
+          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}</div></div>
+        <div style="white-space:nowrap"><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
+      </div>
+      ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
+      ${n.media_url?`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`:""}
+    </div>`).join("");
+}
+async function saveNewsPost(){
+  const m=$("nMsg"); const title=$("n_title").value.trim();
+  if(!title) return failMsg(m,"Enter a title.");
+  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:$("n_media").value.trim()||null };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("postNews").disabled=true;
+  let error;
+  if(state._newsEdit){ ({ error } = await db.from("news_posts").update(rec).eq("id",state._newsEdit)); }
+  else {
+    try{ const { data:{ user } } = await db.auth.getUser(); if(user) rec.created_by=user.id; }catch(e){}
+    ({ error } = await db.from("news_posts").insert(rec));
+  }
+  $("postNews").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent=state._newsEdit?"✓ Announcement updated.":"✓ Posted.";
+  cancelNewsEdit(); loadNews();
+}
+function editNewsPost(id){
+  const n=(state._news||[]).find(x=>x.id===id); if(!n) return;
+  state._newsEdit=id;
+  $("n_title").value=n.title||""; $("n_body").value=n.body||"";
+  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||"";
+  $("newsFormTitle").textContent="Edit announcement";
+  $("postNews").textContent="Save changes"; $("newsCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelNewsEdit(){
+  state._newsEdit=null;
+  ["n_title","n_body","n_media"].forEach(x=>{ if($(x)) $(x).value=""; });
+  if($("n_aud")) $("n_aud").value="all";
+  if($("newsFormTitle")) $("newsFormTitle").textContent="Post an announcement";
+  if($("postNews")) $("postNews").textContent="Post announcement";
+  if($("newsCancelBtn")) $("newsCancelBtn").style.display="none";
+}
+async function delNewsPost(id){
+  if(!confirm("Delete this announcement?")) return;
+  const { error } = await db.from("news_posts").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  state._news=(state._news||[]).filter(x=>x.id!==id); drawNews();
+}
+
 async function genReceipt(invId){
   const { data:i, error } = await db.from("invoices").select("id,period_label,amount,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
   if(error||!i){ alert("Couldn't load the receipt — "+(error?.message||"")); return; }
@@ -1206,7 +1343,8 @@ async function renderIntake(){
       <div class="notice"><b>IMPORTANT NOTICE</b><br>
         <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
         <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
-        <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.</div>
+        <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
+        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your teacher and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.</div>
       <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer"></div>
       <div class="formmsg" id="intakeMsg"></div>
