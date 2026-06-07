@@ -960,8 +960,13 @@ async function renderNews(){
       <div class="kf"><label>Message</label><textarea id="n_body" rows="3" placeholder="Write the details students &amp; parents should see…"></textarea></div>
       <div class="form2">
         <div class="kf"><label>Who should see this?</label><select id="n_aud">${audOpts}</select></div>
-        <div class="kf"><label>Image / poster link (optional)</label><input id="n_media" placeholder="paste an image or video URL"></div>
+        <div class="kf"><label>Image / poster (optional)</label>
+          <input id="n_file" type="file" accept="image/*" onchange="onNewsFile()" style="font-size:12.5px">
+          <div class="mini" id="n_filehint" style="margin-top:4px;color:var(--muted)">Pick a photo or poster from your device — or paste a link below.</div>
+          <input id="n_media" placeholder="…or paste an image/video URL" style="margin-top:6px">
+        </div>
       </div>
+      <div id="n_preview" style="margin:4px 0 0"></div>
       <div class="formmsg" id="nMsg"></div>
       <button class="kbtn teal" id="postNews">Post announcement</button>
       <button class="kbtn ghost" id="newsCancelBtn" style="display:none;margin-left:6px" onclick="cancelNewsEdit()">Cancel</button>
@@ -985,14 +990,33 @@ function drawNews(){
         <div style="white-space:nowrap"><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
       </div>
       ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-      ${n.media_url?`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`:""}
+      ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
     </div>`).join("");
+}
+function onNewsFile(){
+  const f=$("n_file")&&$("n_file").files[0]; const p=$("n_preview"); if(!p) return;
+  if(!f){ p.innerHTML=""; return; }
+  p.innerHTML=`<img src="${URL.createObjectURL(f)}" style="max-width:240px;max-height:160px;border-radius:8px;border:1px solid var(--line)"><div class="mini" style="color:var(--muted)">${esc(f.name)}</div>`;
+}
+async function uploadImage(file){
+  const safe=file.name.replace(/[^a-zA-Z0-9.\-_]/g,"_");
+  const path=`news/${Date.now()}-${safe}`;
+  const { error } = await db.storage.from("uploads").upload(path,file,{ upsert:false });
+  if(error) throw error;
+  const { data:pub } = db.storage.from("uploads").getPublicUrl(path);
+  return pub.publicUrl;
 }
 async function saveNewsPost(){
   const m=$("nMsg"); const title=$("n_title").value.trim();
   if(!title) return failMsg(m,"Enter a title.");
-  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:$("n_media").value.trim()||null };
-  m.className="formmsg ok"; m.textContent="Saving…"; $("postNews").disabled=true;
+  let media=$("n_media").value.trim()||null;
+  const file=$("n_file")&&$("n_file").files[0];
+  m.className="formmsg ok"; m.textContent=file?"Uploading image…":"Saving…"; $("postNews").disabled=true;
+  if(file){
+    try{ media=await uploadImage(file); }
+    catch(err){ $("postNews").disabled=false; return failMsg(m,"Image upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); }
+  }
+  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media };
   let error;
   if(state._newsEdit){ ({ error } = await db.from("news_posts").update(rec).eq("id",state._newsEdit)); }
   else {
@@ -1009,6 +1033,7 @@ function editNewsPost(id){
   state._newsEdit=id;
   $("n_title").value=n.title||""; $("n_body").value=n.body||"";
   $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||"";
+  if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
   $("newsFormTitle").textContent="Edit announcement";
   $("postNews").textContent="Save changes"; $("newsCancelBtn").style.display="inline-block";
   window.scrollTo({top:0,behavior:"smooth"});
@@ -1016,6 +1041,7 @@ function editNewsPost(id){
 function cancelNewsEdit(){
   state._newsEdit=null;
   ["n_title","n_body","n_media"].forEach(x=>{ if($(x)) $(x).value=""; });
+  if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
   if($("n_aud")) $("n_aud").value="all";
   if($("newsFormTitle")) $("newsFormTitle").textContent="Post an announcement";
   if($("postNews")) $("postNews").textContent="Post announcement";
