@@ -164,12 +164,12 @@ const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
   teacher:[["🎼","My Batches","soon"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","feedback"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -268,6 +268,8 @@ function navigate(key, name, warn){
   if(key==="suggestions") return renderSuggestions();
   if(key==="feedback")  return renderSubmitFeedback();
   if(key==="calendar")  return renderCalendar();
+  if(key==="classes")   return renderClasses();
+  if(key==="classdetail") return; // handled directly
   if(key==="studentdetail") return; // handled directly
   // not-yet-built or non-admin shells
   if(!isAdmin()){
@@ -1233,6 +1235,160 @@ async function delEvent(id){
   const { error } = await db.from("events").delete().eq("id",id);
   if(error){ alert("Couldn't delete — "+error.message); return; }
   loadCalendar();
+}
+
+/* ---------------- CLASSES (batches) ---------------- */
+const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function fmtTime(t){ if(!t) return ""; const [h,mi]=t.split(":"); let H=Number(h); const ap=H<12?"AM":"PM"; H=H%12||12; return `${H}:${mi} ${ap}`; }
+function classSchedule(b){ const d=(b.day_of_week!=null)?DOW[b.day_of_week]:null; const t=b.start_time?fmtTime(b.start_time.slice(0,5)):""; return d?`${d}${t?" · "+t:""}`:(t||"—"); }
+async function loadClassRefs(){
+  const { data:t } = await db.from("teachers").select("id,profiles(full_name)").eq("is_active",true);
+  state._classTeachers=(t||[]).map(x=>({ id:x.id, name:x.profiles?.full_name||"(unnamed)" }));
+}
+function teacherName(id){ const t=(state._classTeachers||[]).find(x=>x.id===id); return t?t.name:"—"; }
+async function renderClasses(){
+  const M=$("mainArea"); await loadRef(); await loadClassRefs(); state._clsEdit=null;
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>Classes</h2><p>Set up each class, assign a teacher &amp; enrol students</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="clsFormTitle">Add a class</h3>
+      <div class="form2">
+        <div class="kf"><label>Class name *</label><input id="cl_name" placeholder="e.g. Tabla — Beginners"></div>
+        <div class="kf"><label>Course</label><select id="cl_course"><option value="">—</option>${courseOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Teacher</label><select id="cl_teacher"><option value="">— unassigned —</option>${teachOpts}</select></div>
+        <div class="kf"><label>Branch</label><select id="cl_branch"><option value="">—</option>${branchOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Day</label><select id="cl_dow"><option value="">—</option>${dowOpts}</select></div>
+        <div class="kf"><label>Start time</label><input id="cl_time" type="time"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Mode</label><select id="cl_mode" onchange="onClassMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
+        <div class="kf"><label>Capacity</label><input id="cl_cap" type="number" min="1" value="8"></div>
+      </div>
+      <div class="kf" id="cl_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cl_zoom" placeholder="https://…"></div>
+      <p class="footnote">One class = one weekly slot. For a class that meets twice a week (e.g. Mon &amp; Thu), add two classes for now.</p>
+      <div class="formmsg" id="clMsg"></div>
+      <button class="kbtn teal" id="addCls" onclick="saveClass()">Add class</button>
+      <button class="kbtn ghost" id="clsCancelBtn" style="display:none;margin-left:6px" onclick="cancelClsEdit()">Cancel</button>
+    </div>
+    <div class="searchbar"><input id="clsSearch" placeholder="🔍 Search class or teacher…" style="flex:1">
+      <select id="clsBranchF" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
+    <div id="clsList"><div class="empty">Loading…</div></div>`;
+  $("clsSearch").oninput=drawClasses; $("clsBranchF").onchange=drawClasses;
+  loadClasses();
+}
+function onClassMode(){ const m=$("cl_mode")?$("cl_mode").value:"in_person"; if($("cl_zoomWrap")) $("cl_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
+async function loadClasses(){
+  const { data, error } = await db.from("batches").select("id,name,course_id,teacher_id,branch_id,mode,day_of_week,start_time,capacity,zoom_link,is_active,courses(name),branches(name)").order("name");
+  if(error){ $("clsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed");
+  const counts={}; (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1);
+  state._classes=data||[]; state._enrollCounts=counts; drawClasses();
+}
+function drawClasses(){
+  const all=state._classes||[]; const counts=state._enrollCounts||{};
+  const q=(($("clsSearch")&&$("clsSearch").value)||"").toLowerCase().trim();
+  const bf=($("clsBranchF")&&$("clsBranchF").value)||"";
+  let list=all.filter(b=>{
+    if(bf && b.branch_id!==bf) return false;
+    if(q){ const hay=((b.name||"")+" "+teacherName(b.teacher_id)).toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  });
+  if(!list.length){ $("clsList").innerHTML=`<div class="empty">No classes${q||bf?" match":" yet — add your first above"}.</div>`; return; }
+  $("clsList").innerHTML=`<table><tr><th>Class</th><th>Teacher</th><th>Branch</th><th>Schedule</th><th>Enrolled</th><th></th></tr>
+    ${list.map(b=>`<tr>
+      <td><b>${esc(b.name)}</b>${b.courses?.name?`<br><span class="mini">${esc(b.courses.name)}</span>`:""}${b.mode&&b.mode!=="in_person"?` <span class="badge b-teal">${esc(b.mode)}</span>`:""}</td>
+      <td>${esc(teacherName(b.teacher_id))}</td>
+      <td>${esc(b.branches?.name||"—")}</td>
+      <td class="mini">${esc(classSchedule(b))}</td>
+      <td>${counts[b.id]||0}${b.capacity?` / ${b.capacity}`:""}</td>
+      <td class="mini"><span class="rowbtn edit" onclick="manageClass('${b.id}')">👥 Students</span><span class="rowbtn" onclick="editClass('${b.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delClass('${b.id}')">Delete</span></td>
+    </tr>`).join("")}</table>`;
+}
+async function saveClass(){
+  const m=$("clMsg"); const name=$("cl_name").value.trim();
+  if(!name) return failMsg(m,"Enter a class name.");
+  const dow=$("cl_dow").value; const mode=$("cl_mode").value||"in_person";
+  const rec={ name, course_id:$("cl_course").value||null, teacher_id:$("cl_teacher").value||null, branch_id:$("cl_branch").value||null,
+    mode, day_of_week: dow===""?null:Number(dow), start_time:$("cl_time").value||null,
+    capacity:Number($("cl_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("cl_zoom").value.trim())||null };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("addCls").disabled=true;
+  let error;
+  if(state._clsEdit){ ({ error } = await db.from("batches").update(rec).eq("id",state._clsEdit)); }
+  else { ({ error } = await db.from("batches").insert(rec)); }
+  $("addCls").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent=state._clsEdit?"✓ Class updated.":"✓ Class added.";
+  cancelClsEdit(); loadClasses();
+}
+function editClass(id){
+  const b=(state._classes||[]).find(x=>x.id===id); if(!b) return;
+  state._clsEdit=id;
+  $("cl_name").value=b.name||""; $("cl_course").value=b.course_id||""; $("cl_teacher").value=b.teacher_id||"";
+  $("cl_branch").value=b.branch_id||""; $("cl_dow").value=(b.day_of_week!=null)?b.day_of_week:""; $("cl_time").value=b.start_time?b.start_time.slice(0,5):"";
+  $("cl_mode").value=b.mode||"in_person"; $("cl_cap").value=b.capacity||8; if($("cl_zoom")) $("cl_zoom").value=b.zoom_link||"";
+  onClassMode();
+  $("clsFormTitle").textContent="Edit class"; $("addCls").textContent="Save changes"; $("clsCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelClsEdit(){
+  state._clsEdit=null;
+  ["cl_name","cl_time","cl_zoom"].forEach(x=>{ if($(x)) $(x).value=""; });
+  ["cl_course","cl_teacher","cl_branch","cl_dow"].forEach(x=>{ if($(x)) $(x).value=""; });
+  if($("cl_mode")) $("cl_mode").value="in_person"; if($("cl_cap")) $("cl_cap").value=8; onClassMode();
+  if($("clsFormTitle")) $("clsFormTitle").textContent="Add a class";
+  if($("addCls")) $("addCls").textContent="Add class";
+  if($("clsCancelBtn")) $("clsCancelBtn").style.display="none";
+}
+async function delClass(id){
+  if(!confirm("Delete this class? Enrolments and its attendance will also be removed. This can't be undone.")) return;
+  const { error } = await db.from("batches").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  loadClasses();
+}
+/* ----- enrol / remove students in a class ----- */
+async function manageClass(id){
+  const M=$("mainArea");
+  const b=(state._classes||[]).find(x=>x.id===id);
+  M.innerHTML=`<div class="empty">Loading…</div>`;
+  await loadClassRefs();
+  const { data:enr } = await db.from("enrollments").select("id,student_id,status,students(full_name,branches(name))").eq("batch_id",id).order("created_at");
+  state._mc={ id, b, enr:enr||[] };
+  const { data:studs } = await db.from("students").select("id,full_name,branches(name)").eq("status","active").order("full_name");
+  const enrolledIds=new Set((enr||[]).map(e=>e.student_id));
+  state._mcStuds=(studs||[]).filter(s=>!enrolledIds.has(s.id));
+  drawManageClass();
+}
+function drawManageClass(){
+  const { id, b, enr } = state._mc;
+  const M=$("mainArea");
+  const enrolled=enr.length?`<table><tr><th>Student</th><th>Branch</th><th></th></tr>${enr.map(e=>`<tr><td><b>${esc(e.students?.full_name||"—")}</b></td><td class="mini">${esc(e.students?.branches?.name||"—")}</td><td class="mini"><span class="rowbtn danger" onclick="removeEnrollment('${e.id}')">Remove</span></td></tr>`).join("")}</table>`:`<div class="empty">No students enrolled yet.</div>`;
+  const addOpts=(state._mcStuds||[]).map(s=>`<option value="${s.id}">${esc(s.full_name)}${s.branches?.name?" · "+esc(s.branches.name):""}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>${esc(b?b.name:"Class")} — students</h2><p>${esc(teacherName(b&&b.teacher_id))} · ${esc(b?classSchedule(b):"")} · ${enr.length} enrolled</p></div>
+      <button class="kbtn ghost" onclick="gotoNav('classes')">← Back to classes</button></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Enrol a student</h3>
+      <div class="searchbar"><select id="mc_student" style="flex:1">${addOpts?`<option value="">Select a student…</option>${addOpts}`:`<option value="">No more active students to add</option>`}</select>
+        <button class="kbtn teal" onclick="addEnrollment()">Enrol</button></div>
+      <div class="formmsg" id="mcMsg"></div></div>
+    <div class="panel"><h3>Enrolled students</h3>${enrolled}</div>`;
+}
+async function addEnrollment(){
+  const m=$("mcMsg"); const sid=$("mc_student").value; if(!sid){ m.className="formmsg err"; m.textContent="Pick a student first."; return; }
+  m.className="formmsg ok"; m.textContent="Enrolling…";
+  const { error } = await db.from("enrollments").insert({ student_id:sid, batch_id:state._mc.id, status:"confirmed", confirmed_at:new Date().toISOString() });
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't enrol — "+error.message; return; }
+  manageClass(state._mc.id);
+}
+async function removeEnrollment(eid){
+  if(!confirm("Remove this student from the class?")) return;
+  const { error } = await db.from("enrollments").delete().eq("id",eid);
+  if(error){ alert("Couldn't remove — "+error.message); return; }
+  manageClass(state._mc.id);
 }
 
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
