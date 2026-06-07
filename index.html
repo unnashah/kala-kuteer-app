@@ -1120,7 +1120,7 @@ async function delSuggestion(id){
   state._sug=(state._sug||[]).filter(x=>x.id!==id); drawSuggestions();
 }
 /* ---------------- CALENDAR (school events) ---------------- */
-const EV_TYPES=["Competition","Annual Day","Celebration","Workshop","Exam","Holiday","Other"];
+const EV_TYPES=["Chirag-e-Mehfil","Competition","Annual Day","Celebration","Workshop","Exam","Holiday","Other"];
 async function renderCalendar(){
   const M=$("mainArea"); await loadRef(); state._calEdit=null;
   state._calMonth = state._calMonth || new Date().toISOString().slice(0,7);
