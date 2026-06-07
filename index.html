@@ -1131,9 +1131,10 @@ async function renderCalendar(){
         <div class="kf"><label>Type</label><select id="ev_type">${EV_TYPES.map(t=>`<option>${t}</option>`).join("")}</select></div>
       </div>
       <div class="form2">
-        <div class="kf"><label>Date *</label><input id="ev_date" type="date"></div>
-        <div class="kf"><label>Poster (optional)</label><input id="ev_file" type="file" accept="image/*" style="font-size:12.5px"></div>
+        <div class="kf"><label>Start date *</label><input id="ev_date" type="date"></div>
+        <div class="kf"><label>End date (optional)</label><input id="ev_end" type="date"><div class="mini" style="margin-top:4px;color:var(--muted)">For multi-day events (e.g. a 3-day competition). Leave blank for a single day.</div></div>
       </div>
+      <div class="kf"><label>Poster (optional)</label><input id="ev_file" type="file" accept="image/*" style="font-size:12.5px"></div>
       <div class="kf"><label>Details (optional)</label><textarea id="ev_desc" rows="2" placeholder="Time, venue, what students should know…"></textarea></div>
       <div class="formmsg" id="evMsg"></div>
       <button class="kbtn teal" id="addEv" onclick="saveEvent()">Add event</button>
@@ -1153,7 +1154,7 @@ async function renderCalendar(){
 async function loadCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
-  const { data, error } = await db.from("events").select("id,title,event_type,event_date,description,poster_url").gte("event_date",start).lte("event_date",end).order("event_date");
+  const { data, error } = await db.from("events").select("id,title,event_type,event_date,end_date,description,poster_url").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._events=data||[]; drawCalendar();
 }
@@ -1162,7 +1163,13 @@ function drawCalendar(){
   if($("calLabel")) $("calLabel").textContent=MONS[mo-1]+" "+y;
   const first=new Date(y,mo-1,1).getDay(); const dim=new Date(y,mo,0).getDate();
   const todayS=new Date().toISOString().slice(0,10);
-  const byDay={}; (state._events||[]).forEach(e=>{ const d=Number(String(e.event_date).slice(8,10)); (byDay[d]=byDay[d]||[]).push(e); });
+  const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0);
+  const byDay={}; (state._events||[]).forEach(e=>{
+    const s=parseD(String(e.event_date).slice(0,10));
+    const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s;
+    let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd));
+    for(; d<=last; d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); }
+  });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
@@ -1175,7 +1182,7 @@ function drawCalendar(){
   const list=state._events||[];
   $("calList").innerHTML=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
     <table><tr><th>Date</th><th>Event</th><th>Type</th><th></th></tr>${list.map(e=>`<tr>
-      <td>${esc(e.event_date)}</td>
+      <td>${esc(e.event_date)}${e.end_date&&e.end_date!==e.event_date?`<br><span class="mini">to ${esc(e.end_date)}</span>`:""}</td>
       <td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}${e.poster_url?` <span class="mini">📎 poster</span>`:""}</td>
       <td>${esc(e.event_type||"—")}</td>
       <td class="mini"><span class="rowbtn edit" onclick="editEvent('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delEvent('${e.id}')">Delete</span></td>
@@ -1186,8 +1193,10 @@ function calToday(){ state._calMonth=new Date().toISOString().slice(0,7); loadCa
 async function saveEvent(){
   const m=$("evMsg"); const title=$("ev_title").value.trim(), date=$("ev_date").value;
   if(!title) return failMsg(m,"Enter an event title.");
-  if(!date) return failMsg(m,"Pick a date.");
-  const rec={ title, event_type:$("ev_type").value||null, event_date:date, description:$("ev_desc").value.trim()||null };
+  if(!date) return failMsg(m,"Pick a start date.");
+  const end=$("ev_end").value||null;
+  if(end && end<date) return failMsg(m,"End date can't be before the start date.");
+  const rec={ title, event_type:$("ev_type").value||null, event_date:date, end_date:end, description:$("ev_desc").value.trim()||null };
   const file=$("ev_file")&&$("ev_file").files[0];
   m.className="formmsg ok"; m.textContent=file?"Uploading poster…":"Saving…"; $("addEv").disabled=true;
   if(file){ try{ rec.poster_url=await uploadImage(file,"events"); }catch(err){ $("addEv").disabled=false; return failMsg(m,"Poster upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); } }
@@ -1204,6 +1213,7 @@ function editEvent(id){
   const e=(state._events||[]).find(x=>x.id===id); if(!e) return;
   state._calEdit=id;
   $("ev_title").value=e.title||""; $("ev_type").value=e.event_type||"Other"; $("ev_date").value=e.event_date||""; $("ev_desc").value=e.description||"";
+  if($("ev_end")) $("ev_end").value=e.end_date||"";
   if($("ev_file")) $("ev_file").value="";
   $("evFormTitle").textContent="Edit event"+(e.poster_url?" (leave poster empty to keep the current one)":"");
   $("addEv").textContent="Save changes"; $("evCancelBtn").style.display="inline-block";
@@ -1211,7 +1221,7 @@ function editEvent(id){
 }
 function cancelEvEdit(){
   state._calEdit=null;
-  ["ev_title","ev_desc"].forEach(x=>{ if($(x)) $(x).value=""; });
+  ["ev_title","ev_desc","ev_end"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("ev_file")) $("ev_file").value=""; if($("ev_type")) $("ev_type").value="Competition";
   if($("ev_date")) $("ev_date").value=new Date().toISOString().slice(0,10);
   if($("evFormTitle")) $("evFormTitle").textContent="Add an event";
