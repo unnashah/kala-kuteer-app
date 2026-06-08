@@ -1465,6 +1465,8 @@ async function renderMyClasses(){
   if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const ids=(cls||[]).map(c=>c.id); const counts={};
   if(ids.length){ const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed").in("batch_id",ids); (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1); }
+  const { data:myStu } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
+  state._myStuForEnrol=myStu||[];
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
@@ -1496,7 +1498,7 @@ async function renderMyClasses(){
             <div class="mini" style="margin-top:3px">${esc(classSchedule(c))} · ${esc(c.branches?.name||"—")}${c.mode&&c.mode!=="in_person"?` · <span class="badge b-teal">${esc(c.mode)}</span>`:""}</div></div>
           <span class="badge b-green">${counts[c.id]||0} student${(counts[c.id]||0)===1?"":"s"}</span>
         </div>
-        <div style="margin-top:10px"><span class="rowbtn" onclick="viewClassRoster('${c.id}')">👥 View students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(c.zoom_link)}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
+        <div style="margin-top:10px"><span class="rowbtn edit" onclick="manageMyClass('${c.id}')">👥 Students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(c.zoom_link)}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
         <div id="roster_${c.id}"></div>
       </div>`).join(""):`<div class="empty">You don't have any classes yet. Schedule one above, or the admin can assign you a class.</div>`}`;
 }
@@ -1517,14 +1519,37 @@ async function submitProposedClass(){
   m.className="formmsg ok"; m.textContent="✓ Your class is active now and has been sent to the super admin to review.";
   renderMyClasses();
 }
-async function viewClassRoster(id){
+async function manageMyClass(id){
   const P=$("roster_"+id); if(!P) return;
   if(P.dataset.open==="1"){ P.innerHTML=""; P.dataset.open="0"; return; }
-  P.innerHTML=`<div class="mini" style="margin-top:8px">Loading…</div>`;
-  const { data, error } = await db.from("enrollments").select("students(full_name)").eq("batch_id",id).eq("status","confirmed");
+  P.dataset.open="1"; P.innerHTML=`<div class="mini" style="margin-top:8px">Loading…</div>`;
+  const { data:enr, error } = await db.from("enrollments").select("id,student_id,students(full_name)").eq("batch_id",id).eq("status","confirmed").order("created_at");
   if(error){ P.innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
-  P.dataset.open="1";
-  P.innerHTML=(data&&data.length)?`<table style="margin-top:8px"><tr><th>Student</th></tr>${data.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
+  const enrolledIds=new Set((enr||[]).map(e=>e.student_id));
+  const avail=(state._myStuForEnrol||[]).filter(s=>!enrolledIds.has(s.id));
+  const roster=(enr&&enr.length)?`<table style="margin-top:8px"><tr><th>Student</th><th></th></tr>${enr.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td><td class="mini"><span class="rowbtn danger" onclick="removeMyEnrol('${e.id}','${id}')">Remove</span></td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
+  P.innerHTML=`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="searchbar" style="margin-bottom:8px"><select id="mcEnrol_${id}" style="flex:1">${avail.length?`<option value="">Add a student…</option>${avail.map(s=>`<option value="${s.id}">${esc(s.full_name)}</option>`).join("")}`:`<option value="">No more of your students to add</option>`}</select>
+      <button class="kbtn teal" onclick="enrolMyClass('${id}')">Enrol</button></div>
+    <div class="formmsg" id="mcEnrolMsg_${id}"></div>
+    ${roster}
+    <p class="footnote">You can add students who are assigned to you (your primary guru students). To add anyone else, ask the admin.</p></div>`;
+}
+async function enrolMyClass(id){
+  const m=$("mcEnrolMsg_"+id); const sid=$("mcEnrol_"+id)?$("mcEnrol_"+id).value:"";
+  if(!sid){ if(m){ m.className="formmsg err"; m.textContent="Pick a student first."; } return; }
+  const tid=await myTeacherId();
+  if(m){ m.className="formmsg ok"; m.textContent="Enrolling…"; }
+  const { error } = await db.from("enrollments").insert({ student_id:sid, batch_id:id, status:"confirmed", confirmed_by:tid, confirmed_at:new Date().toISOString() });
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't enrol — "+error.message; } return; }
+  $("roster_"+id).dataset.open="0"; manageMyClass(id);
+  renderMyClasses();
+}
+async function removeMyEnrol(eid, classId){
+  if(!confirm("Remove this student from the class?")) return;
+  const { error } = await db.from("enrollments").delete().eq("id",eid);
+  if(error){ alert("Couldn't remove — "+error.message); return; }
+  $("roster_"+classId).dataset.open="0"; manageMyClass(classId);
 }
 
 /* ---------------- TEACHER: MY STUDENTS (primary guru) ---------------- */
