@@ -169,7 +169,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["▦","Dashboard","dashboard"],["🎼","My Classes","myclasses"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["📨","Slot Requests","slotreq"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  teacher:[["▦","Dashboard","dashboard"],["🎼","My Classes","myclasses"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["📨","Slot Requests","slotreq"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
@@ -271,6 +271,7 @@ function navigate(key, name, warn){
   if(key==="suggestions") return renderSuggestions();
   if(key==="feedback")  return renderSubmitFeedback();
   if(key==="myclasses") return renderMyClasses();
+  if(key==="mystudents") return renderMyStudents();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
@@ -317,6 +318,7 @@ const MODDESC={
   settings:"Fee structure, roles & staff access",
   feedback:"Share anonymous feedback & suggestions",
   myclasses:"Your classes, students & class scheduling",
+  mystudents:"Students assigned to you as their primary guru",
   mycalendar:"Your class schedule & school events",
   slotreq:"Approve student slot bookings",
   myattendance:"Mark attendance for your classes",
@@ -1519,6 +1521,56 @@ async function viewClassRoster(id){
   P.innerHTML=(data&&data.length)?`<table style="margin-top:8px"><tr><th>Student</th></tr>${data.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
 }
 
+/* ---------------- TEACHER: MY STUDENTS (primary guru) ---------------- */
+async function renderMyStudents(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading your students…</div>`;
+  const tid=await myTeacherId();
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Students</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
+  const { data, error } = await db.from("students").select("id,full_name,level,status,join_date,courses(name),branches(name)").eq("primary_teacher_id",tid).order("full_name");
+  if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  state._myStu=data||[];
+  M.innerHTML=`<div class="ph"><div><h2>My Students</h2><p>Students assigned to you as their primary guru</p></div></div>
+    <div class="searchbar"><input id="msSearch" placeholder="🔍 Search by name…" style="flex:1"></div>
+    <div id="msList"></div>`;
+  $("msSearch").oninput=drawMyStudents; drawMyStudents();
+}
+function drawMyStudents(){
+  const all=state._myStu||[]; const q=(($("msSearch")&&$("msSearch").value)||"").toLowerCase().trim();
+  const list=all.filter(s=>!q||(s.full_name||"").toLowerCase().includes(q));
+  if(!list.length){ $("msList").innerHTML=`<div class="empty">${all.length?"No students match.":"No students are assigned to you yet. The admin sets a student's primary guru on their profile."}</div>`; return; }
+  $("msList").innerHTML=`<table><tr><th>Name</th><th>Course</th><th>Branch</th><th>Level</th><th>Status</th><th></th></tr>
+    ${list.map(s=>`<tr>
+      <td><b>${esc(s.full_name)}</b></td>
+      <td>${esc(s.courses?.name||"—")}</td>
+      <td>${esc(s.branches?.name||"—")}</td>
+      <td>${esc(s.level||"—")}</td>
+      <td><span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></td>
+      <td class="mini"><span class="rowbtn" onclick="viewMyStudent('${s.id}')">View →</span></td>
+    </tr>`).join("")}</table>`;
+}
+async function viewMyStudent(id){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const { data:s, error } = await db.from("students").select("id,full_name,date_of_birth,level,status,join_date,goal,phone,whatsapp,email,parent_name,parent_phone,is_minor,courses(name),branches(name)").eq("id",id).single();
+  if(error||!s){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc((error&&error.message)||"")}</div>`; return; }
+  const age=s.date_of_birth?ageFromDOB(s.date_of_birth):null;
+  const { data:rv } = await db.from("progress_reviews").select("quarter_label,scheduled_at,status,notes").eq("student_id",id).eq("status","completed").order("scheduled_at",{ascending:false});
+  const journey=(rv&&rv.length)?rv.map(r=>`<div style="margin-bottom:10px"><div class="mini"><b>${r.scheduled_at?fmtDateTime(r.scheduled_at):fmtNiceDate(r.quarter_label)}</b></div><div style="white-space:pre-wrap;font-size:13px;margin-top:2px;line-height:1.5">${esc(r.notes||"—")}</div></div>`).join(""):`<div class="mini" style="color:var(--muted)">No Guru Samvaad notes yet.</div>`;
+  M.innerHTML=`<div class="ph"><div><h2>${esc(s.full_name)}</h2>
+      <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.join_date||"—")} · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></p></div>
+      <button class="kbtn ghost" onclick="gotoNav('mystudents')">← Back</button></div>
+    <div class="form2">
+      <div class="panel"><h3>About</h3>
+        <div class="dl"><span class="k">Date of birth / age</span><span>${esc(s.date_of_birth||"—")}${age!=null?" · "+age:""}</span></div>
+        <div class="dl"><span class="k">Level</span><span>${esc(s.level||"—")}</span></div>
+        <div class="dl"><span class="k">Goal</span><span>${esc(s.goal||"—")}</span></div>
+        ${s.is_minor?`<div class="dl"><span class="k">Parent / guardian</span><span>${esc(s.parent_name||"—")}</span></div>
+        <div class="dl"><span class="k">Parent's phone</span><span>${esc(s.parent_phone||"—")}</span></div>`:`<div class="dl"><span class="k">Phone</span><span>${esc(s.phone||"—")}</span></div>
+        <div class="dl"><span class="k">Email</span><span>${esc(s.email||"—")}</span></div>`}
+      </div>
+      <div class="panel"><h3>Guru Samvaad journey</h3>${journey}</div>
+    </div>`;
+}
+
 /* ---------------- GURU SAMVAAD (quarterly 1:1 student–guru feedback session) ---------------- */
 function addMonths(d,m){ return new Date(d.getFullYear(), d.getMonth()+m, d.getDate()); }
 function isoLocal(d){ return `${d.getFullYear()}-${PAD(d.getMonth()+1)}-${PAD(d.getDate())}`; }
@@ -1548,10 +1600,8 @@ async function renderReviews(){
   if(role==="teacher"){
     tid=await myTeacherId();
     if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
-    const { data:batches } = await db.from("batches").select("id").eq("teacher_id",tid);
-    const bids=(batches||[]).map(b=>b.id); const seen=new Set();
-    if(bids.length){ const { data:enr } = await db.from("enrollments").select("students(id,full_name,join_date,branches(name))").eq("status","confirmed").in("batch_id",bids);
-      (enr||[]).forEach(e=>{ const s=e.students; if(s && !seen.has(s.id)){ seen.add(s.id); students.push(s); } }); }
+    const { data } = await db.from("students").select("id,full_name,join_date,branches(name)").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
+    students=data||[];
   } else {
     const { data } = await db.from("students").select("id,full_name,join_date,branches(name)").eq("status","active").order("full_name");
     students=data||[];
@@ -1889,6 +1939,7 @@ async function renderStudentDetail(id){
   M.innerHTML=`<div class="empty">Loading profile…</div>`;
   const { data:s, error } = await db.from("students").select("*,branches(name),courses(name)").eq("id",id).single();
   if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load profile — ${esc(error.message)}</div>`; return; }
+  await loadClassRefs();
   const { data:att } = await db.from("attendance").select("status").eq("student_id",id);
   const attTotal=(att||[]).length, attPresent=(att||[]).filter(a=>a.status==="present").length;
   const attPct = attTotal? Math.round(attPresent/attTotal*100):null;
@@ -1921,6 +1972,7 @@ async function renderStudentDetail(id){
       </div>
       <div class="panel"><h3>School record</h3>
         <div class="dl"><span class="k">Course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")}</span></div>
+        <div class="dl"><span class="k">Primary guru</span><span>${esc(teacherName(s.primary_teacher_id))}</span></div>
         <div class="dl"><span class="k">Attendance</span><span>${attPct!=null?attPct+"% ("+attPresent+"/"+attTotal+" days)":"—"}</span></div>
         <div class="dl"><span class="k">Latest fee</span><span>${feeHtml}</span></div>
         <div class="dl"><span class="k">Goal</span><span>${esc(s.goal||"—")}</span></div>
@@ -1954,11 +2006,12 @@ async function deleteStudent(id){
   gotoNav("students");
 }
 async function editStudent(id){
-  const M=$("mainArea"); await loadRef();
+  const M=$("mainArea"); await loadRef(); await loadClassRefs();
   const { data:s, error } = await db.from("students").select("*").eq("id",id).single();
   if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const branchOpts=state.branches.map(b=>`<option value="${b.id}"${s.branch_id===b.id?" selected":""}>${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}"${s.course_id===c.id?" selected":""}>${esc(c.name)}</option>`).join("");
+  const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}"${s.primary_teacher_id===t.id?" selected":""}>${esc(t.name)}</option>`).join("");
   const opt=(val,list)=>list.map(o=>`<option${o===val?" selected":""}>${o}</option>`).join("");
   const heardOpts=[["signboard","Signboard"],["website","Website"],["google","Google"],["justdial","Justdial"],["recommended","Recommended by someone"],["other","Others"]];
   const yn=(id2,val)=>`<select id="${id2}"><option value="">—</option><option value="yes"${val===true?" selected":""}>Yes</option><option value="no"${val===false?" selected":""}>No</option></select>`;
@@ -1981,6 +2034,7 @@ async function editStudent(id){
       <div class="panel"><h3>School record</h3>
         <div class="kf"><label>Branch</label><select id="ed_branch"><option value="">Select…</option>${branchOpts}</select></div>
         <div class="kf"><label>Course</label><select id="ed_course"><option value="">Select…</option>${courseOpts}</select></div>
+        <div class="kf"><label>Primary guru</label><select id="ed_guru"><option value="">— unassigned —</option>${guruOpts}</select></div>
         <div class="kf"><label>Class level</label><select id="ed_level"><option value="">Select…</option>${opt(s.level,["Beginner","Some experience","Advanced"])}</select></div>
         <div class="kf"><label>Date of joining</label><input id="ed_join" type="date" value="${esc(s.join_date||"")}"></div>
         <div class="kf"><label>Goal</label><select id="ed_goal"><option value="">Select…</option>${opt(s.goal,["Hobby","Certification","Stage performance","Professional"])}</select></div>
@@ -2002,7 +2056,7 @@ async function saveStudentEdits(id){
     full_name:V("ed_name"), date_of_birth:V("ed_dob")||null, is_minor:$("ed_minor").checked,
     parent_name:V("ed_parent")||null, parent_phone:V("ed_pphone")||null, parent_email:V("ed_pemail")||null,
     phone:V("ed_phone")||null, whatsapp:V("ed_wa")||null, email:V("ed_email")||null,
-    emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null,
+    emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null, primary_teacher_id:V("ed_guru")||null,
     level:V("ed_level")||null, join_date:V("ed_join")||null, goal:V("ed_goal")||null,
     owns_instrument: owns===""?null:(owns==="yes"), health_notes:V("ed_health")||null,
     heard_via:V("ed_heard")||null, consent_media: media===""?null:(media==="yes")
@@ -2026,9 +2080,10 @@ function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
 
 async function renderIntake(){
   const M=$("mainArea");
-  await loadRef();
+  await loadRef(); await loadClassRefs();
   const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts = state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const guruOpts = (state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const cc = id=>`<select id="${id}_cc" style="max-width:160px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   const numIn = id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
   M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Numbers are validated; your draft is auto-saved as you type.</p></div></div>
@@ -2048,6 +2103,7 @@ async function renderIntake(){
     <div class="panel"><h3>2 · Course, joining &amp; consent</h3>
       <div class="kf"><label>Branch *</label><select id="f_branch"><option value="">Select…</option>${branchOpts}</select></div>
       <div class="kf"><label>Course *</label><select id="f_course"><option value="">Select…</option>${courseOpts}</select></div>
+      <div class="kf"><label>Primary guru *</label><select id="f_guru"><option value="">Select…</option>${guruOpts}</select></div>
       <div class="kf"><label>Class level *</label><select id="f_level"><option value="">Select…</option><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
       <div class="kf"><label>Date of joining (= Session 1) *</label><input id="f_join" type="date"></div>
       <div style="font-size:11.5px;color:var(--teal-deep);margin:-4px 0 8px">↳ Monthly fee is calculated from this date.</div>
@@ -2107,6 +2163,7 @@ async function submitIntake(){
   const emerE164=ec+en;
   if(!D("f_branch")) return fail("f_branch","Please choose a branch.");
   if(!D("f_course")) return fail("f_course","Please choose a course.");
+  if(!D("f_guru"))   return fail("f_guru","Please choose the student's primary guru.");
   if(!D("f_level"))  return fail("f_level","Please choose the class level.");
   if(!D("f_join"))   return fail("f_join","Please set the date of joining.");
   if(!D("f_goal"))   return fail("f_goal","Please choose a goal.");
@@ -2134,6 +2191,7 @@ async function submitIntake(){
     parent_email: minor? D("f_email") : null,
     emergency_contact: emerE164,
     branch_id:D("f_branch"), course_id:D("f_course"),
+    primary_teacher_id: D("f_guru")||null,
     level: D("f_level"), join_date:D("f_join"),
     goal: D("f_goal"),
     owns_instrument: D("f_owns")==="yes",
