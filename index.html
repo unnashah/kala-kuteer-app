@@ -272,6 +272,7 @@ function navigate(key, name, warn){
   if(key==="feedback")  return renderSubmitFeedback();
   if(key==="myclasses") return renderMyClasses();
   if(key==="mystudents") return renderMyStudents();
+  if(key==="myattendance") return renderMyAttendance();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
@@ -328,7 +329,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["myclasses","reviews","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","reviews","feedback"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -434,7 +435,7 @@ async function loadAttendance(){
   const ids=studs.map(s=>s.id);
   let map={};
   if(ids.length){
-    const { data:marks } = await db.from("attendance").select("student_id,status").eq("class_date",date).in("student_id",ids);
+    const { data:marks } = await db.from("attendance").select("student_id,status").eq("class_date",date).is("batch_id",null).in("student_id",ids);
     (marks||[]).forEach(m=>map[m.student_id]=m.status);
   }
   state._att=map; state._attStuds=studs; state._attDate=date;
@@ -460,7 +461,9 @@ async function saveAttendance(){
   const rows=Object.keys(state._att||{}).filter(sid=>state._att[sid]).map(sid=>({ student_id:sid, class_date:date, status:state._att[sid] }));
   if(!rows.length){ m.className="formmsg err"; m.textContent="Mark at least one student first."; return; }
   m.className="formmsg ok"; m.textContent="Saving…";
-  const { error } = await db.from("attendance").upsert(rows,{ onConflict:"student_id,class_date" });
+  const ids=rows.map(r=>r.student_id);
+  await db.from("attendance").delete().eq("class_date",date).is("batch_id",null).in("student_id",ids);
+  const { error } = await db.from("attendance").insert(rows);
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Saved attendance for "+date+" ("+rows.length+" students).";
 }
@@ -1569,6 +1572,70 @@ async function viewMyStudent(id){
       </div>
       <div class="panel"><h3>Guru Samvaad journey</h3>${journey}</div>
     </div>`;
+}
+
+/* ---------------- TEACHER: ATTENDANCE (per-class) ---------------- */
+async function renderMyAttendance(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const tid=await myTeacherId();
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Attendance</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
+  state._maTid=tid;
+  const { data:cls } = await db.from("batches").select("id,name,day_of_week,start_time").eq("teacher_id",tid).eq("is_active",true).order("name");
+  const today=new Date().toISOString().slice(0,10);
+  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Mark attendance for your class</p></div></div>
+    ${(cls&&cls.length)?`<div class="searchbar">
+      <span class="mini">Class</span><select id="maClass" style="max-width:230px;flex:none">${cls.map(c=>`<option value="${c.id}">${esc(c.name)}${c.day_of_week!=null?" · "+DOW[c.day_of_week].slice(0,3):""}</option>`).join("")}</select>
+      <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:160px;flex:none">
+      <button class="kbtn ghost" id="maLoad">Load</button>
+      <button class="kbtn teal" id="maSave">Save attendance</button>
+    </div>
+    <p class="footnote">Once you save, you can correct a mark for up to <b>10 minutes</b>. After that, ask an admin to change it.</p>
+    <div class="formmsg" id="maMsg"></div>
+    <div id="maList"><div class="empty">Pick a class &amp; date, then Load.</div></div>`
+    :`<div class="empty">You have no classes yet. Add one in <b>My Classes</b>, or the admin can assign you a class.</div>`}`;
+  if(cls&&cls.length){ $("maLoad").onclick=loadMyAttendance; $("maSave").onclick=saveMyAttendance; $("maClass").onchange=loadMyAttendance; loadMyAttendance(); }
+}
+async function loadMyAttendance(){
+  const bid=$("maClass").value, date=$("maDate").value;
+  if(!date){ $("maMsg").className="formmsg err"; $("maMsg").textContent="Pick a date."; return; }
+  $("maMsg").textContent=""; $("maList").innerHTML=`<div class="empty">Loading students…</div>`;
+  const { data:enr, error } = await db.from("enrollments").select("students(id,full_name)").eq("batch_id",bid).eq("status","confirmed");
+  if(error){ $("maList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const studs=(enr||[]).map(e=>e.students).filter(Boolean).sort((a,b)=>(a.full_name<b.full_name?-1:1));
+  const { data:marks } = await db.from("attendance").select("id,student_id,status,marked_at").eq("batch_id",bid).eq("class_date",date);
+  const existing={}; const cur={}; (marks||[]).forEach(m=>{ existing[m.student_id]={id:m.id,status:m.status,marked_at:m.marked_at}; cur[m.student_id]=m.status; });
+  state._maExisting=existing; state._maMarks=cur; state._maStuds=studs;
+  drawMyAttendance();
+}
+function drawMyAttendance(){
+  const studs=state._maStuds||[], marks=state._maMarks||{};
+  if(!studs.length){ $("maList").innerHTML=`<div class="empty">No students enrolled in this class yet.</div>`; return; }
+  const p=Object.values(marks).filter(v=>v==="present").length;
+  const btn=(id,v,label,cls)=>`<span class="rowbtn" onclick="markMyAtt('${id}','${v}')" style="margin-right:4px${marks[id]===v?(";"+cls):""}">${label}</span>`;
+  $("maList").innerHTML=`<div class="mini" style="margin-bottom:8px">${studs.length} student${studs.length===1?"":"s"} · present: ${p}</div>
+    <table><tr><th>Student</th><th>Mark</th></tr>${studs.map(s=>`<tr>
+      <td><b>${esc(s.full_name)}</b></td>
+      <td>${btn(s.id,"present","Present","background:var(--good);color:#fff;border-color:var(--good)")}${btn(s.id,"absent","Absent","background:var(--warn);color:#fff;border-color:var(--warn)")}${btn(s.id,"excused","Excused","background:var(--saffron);color:#3a2c00;border-color:var(--saffron)")}</td>
+    </tr>`).join("")}</table>`;
+}
+function markMyAtt(id,status){ state._maMarks[id]=status; drawMyAttendance(); }
+async function saveMyAttendance(){
+  const m=$("maMsg"); const bid=$("maClass").value, date=$("maDate").value, tid=state._maTid;
+  const today=new Date().toISOString().slice(0,10);
+  if(date>today){ m.className="formmsg err"; m.textContent="Attendance can only be saved for today or a past date."; return; }
+  const marks=state._maMarks||{}, existing=state._maExisting||{};
+  const inserts=[], updates=[];
+  Object.keys(marks).forEach(sid=>{ const st=marks[sid]; if(!st) return; const ex=existing[sid];
+    if(!ex) inserts.push({ student_id:sid, batch_id:bid, class_date:date, status:st, marked_by:tid });
+    else if(ex.status!==st) updates.push({ id:ex.id, status:st }); });
+  if(!inserts.length && !updates.length){ m.className="formmsg err"; m.textContent="Nothing to save — mark or change a student first."; return; }
+  m.className="formmsg ok"; m.textContent="Saving…";
+  if(inserts.length){ const { error } = await db.from("attendance").insert(inserts); if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; } }
+  let locked=0;
+  for(const u of updates){ const { error } = await db.from("attendance").update({ status:u.status }).eq("id",u.id); if(error) locked++; }
+  if(locked>0){ m.className="formmsg err"; m.textContent=`Saved new marks. ${locked} earlier mark(s) were locked (older than 10 minutes) — ask an admin to change those.`; }
+  else { m.className="formmsg ok"; m.textContent="✓ Attendance saved for "+date+"."; }
+  loadMyAttendance();
 }
 
 /* ---------------- GURU SAMVAAD (quarterly 1:1 student–guru feedback session) ---------------- */
