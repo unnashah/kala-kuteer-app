@@ -275,6 +275,7 @@ function navigate(key, name, warn){
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
+  if(key==="slotreq")   return renderSlotRequests();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
@@ -331,7 +332,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","earnings","mycalendar","reviews","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","earnings","mycalendar","slotreq","reviews","feedback"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -1640,6 +1641,44 @@ async function saveMyAttendance(){
   loadMyAttendance();
 }
 
+/* ---------------- TEACHER: SLOT REQUESTS (enrolment requests) ---------------- */
+async function renderSlotRequests(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const tid=await myTeacherId();
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Slot Requests</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
+  const { data:batches } = await db.from("batches").select("id").eq("teacher_id",tid);
+  const bids=(batches||[]).map(b=>b.id);
+  let reqs=[];
+  if(bids.length){ const { data } = await db.from("enrollments").select("id,requested_at,students(full_name,branches(name)),batches(name)").eq("status","requested").in("batch_id",bids).order("requested_at"); reqs=data||[]; }
+  state._slotReqs=reqs;
+  M.innerHTML=`<div class="ph"><div><h2>Slot Requests</h2><p>Students asking to join your classes — approve or decline</p></div></div>
+    <div id="slotList"></div>`;
+  drawSlotRequests();
+}
+function drawSlotRequests(){
+  const list=state._slotReqs||[];
+  if(!list.length){ $("slotList").innerHTML=`<div class="empty">No pending requests right now. When a student asks to join one of your classes, it'll appear here.</div>`; return; }
+  $("slotList").innerHTML=`<table><tr><th>Student</th><th>Class</th><th>Requested</th><th></th></tr>
+    ${list.map(r=>`<tr>
+      <td><b>${esc(r.students?.full_name||"—")}</b>${r.students?.branches?.name?`<br><span class="mini">${esc(r.students.branches.name)}</span>`:""}</td>
+      <td>${esc(r.batches?.name||"—")}</td>
+      <td class="mini">${r.requested_at?String(r.requested_at).slice(0,10):"—"}</td>
+      <td class="mini"><span class="rowbtn edit" onclick="approveSlot('${r.id}')">✅ Approve</span><span class="rowbtn danger" onclick="declineSlot('${r.id}')">Decline</span></td>
+    </tr>`).join("")}</table>`;
+}
+async function approveSlot(id){
+  const tid=await myTeacherId();
+  const { error } = await db.from("enrollments").update({ status:"confirmed", confirmed_by:tid, confirmed_at:new Date().toISOString() }).eq("id",id);
+  if(error){ alert("Couldn't approve — "+error.message); return; }
+  state._slotReqs=(state._slotReqs||[]).filter(r=>r.id!==id); drawSlotRequests();
+}
+async function declineSlot(id){
+  if(!confirm("Decline this request?")) return;
+  const { error } = await db.from("enrollments").update({ status:"declined" }).eq("id",id);
+  if(error){ alert("Couldn't decline — "+error.message); return; }
+  state._slotReqs=(state._slotReqs||[]).filter(r=>r.id!==id); drawSlotRequests();
+}
+
 /* ---------------- TEACHER: MY EARNINGS ---------------- */
 async function renderMyEarnings(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
@@ -1712,8 +1751,14 @@ function drawMyCalendar(){
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
-  for(let d=1;d<=dim;d++){ const ds=`${y}-${PAD(mo)}-${PAD(d)}`; const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join(""); cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${evs}</div>`; }
-  $("mcalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>`;
+  for(let d=1;d<=dim;d++){
+    const ds=`${y}-${PAD(mo)}-${PAD(d)}`; const wday=new Date(y,mo-1,d).getDay();
+    const clsChips=(state._mcalClasses||[]).filter(c=>c.day_of_week===wday).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" title="${esc(c.name)}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.name)}</div>`).join("");
+    const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
+    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
+  }
+  $("mcalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>
+    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">your classes</span> &nbsp; <span class="badge b-teal">school events</span></div>`;
   const list=state._mcalEvents||[];
   $("mcalList").innerHTML=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3><table><tr><th>Date</th><th>Event</th><th>Type</th></tr>${list.map(e=>`<tr><td>${esc(e.event_date)}${e.end_date&&e.end_date!==e.event_date?`<br><span class="mini">to ${esc(e.end_date)}</span>`:""}</td><td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}</td><td>${esc(e.event_type||"—")}</td></tr>`).join("")}</table></div>`:`<div class="empty">No school events in ${MONS[mo-1]} ${y}.</div>`;
 }
