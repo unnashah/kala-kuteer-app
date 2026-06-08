@@ -273,6 +273,8 @@ function navigate(key, name, warn){
   if(key==="myclasses") return renderMyClasses();
   if(key==="mystudents") return renderMyStudents();
   if(key==="myattendance") return renderMyAttendance();
+  if(key==="earnings")  return renderMyEarnings();
+  if(key==="mycalendar") return renderMyCalendar();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
@@ -329,7 +331,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","reviews","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","earnings","mycalendar","reviews","feedback"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -1637,6 +1639,86 @@ async function saveMyAttendance(){
   else { m.className="formmsg ok"; m.textContent="✓ Attendance saved for "+date+"."; }
   loadMyAttendance();
 }
+
+/* ---------------- TEACHER: MY EARNINGS ---------------- */
+async function renderMyEarnings(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const tid=await myTeacherId();
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
+  const { data:tr } = await db.from("teachers").select("payout_pct").eq("id",tid).single();
+  state._earnTid=tid; state._earnPct=(tr&&tr.payout_pct)||40;
+  const thisMonth=new Date().toISOString().slice(0,7);
+  M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>Your payout — ${state._earnPct}% of fees paid by your students</p></div></div>
+    <div class="searchbar"><span class="mini">Month</span><input id="earnMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="earnLoad">Load</button></div>
+    <div class="kpis" id="earnKpis" style="margin-bottom:12px"></div>
+    <div id="earnBody"><div class="empty">Loading…</div></div>`;
+  $("earnMonth").onchange=loadMyEarnings; $("earnLoad").onclick=loadMyEarnings; loadMyEarnings();
+}
+async function loadMyEarnings(){
+  const tid=state._earnTid, pct=state._earnPct;
+  const v=$("earnMonth").value||new Date().toISOString().slice(0,7); const [y,mo]=v.split("-").map(Number);
+  const start=`${y}-${PAD(mo)}-01`, next=`${mo===12?y+1:y}-${PAD(mo===12?1:mo+1)}-01`, label=MONS[mo-1]+" "+y;
+  $("earnBody").innerHTML=`<div class="empty">Loading…</div>`;
+  const { data:studs } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid);
+  const sids=(studs||[]).map(s=>s.id); const sName={}; (studs||[]).forEach(s=>sName[s.id]=s.full_name);
+  if(!sids.length){ $("earnKpis").innerHTML=""; $("earnBody").innerHTML=`<div class="empty">No students are assigned to you yet.</div>`; return; }
+  const { data:invs } = await db.from("invoices").select("id,student_id,period_label").in("student_id",sids);
+  const invMap={}; (invs||[]).forEach(i=>invMap[i.id]={student_id:i.student_id,period:i.period_label});
+  const invIds=(invs||[]).map(i=>i.id);
+  let pays=[];
+  if(invIds.length){ const { data:p } = await db.from("payments").select("amount,paid_at,invoice_id").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next); pays=p||[]; }
+  let gross=0; const rows=pays.map(p=>{ const inv=invMap[p.invoice_id]||{}; const amt=Number(p.amount||0); gross+=amt; return { name:sName[inv.student_id]||"—", period:inv.period||"—", date:String(p.paid_at).slice(0,10), amt }; });
+  const share=Math.round(gross*pct/100);
+  $("earnKpis").innerHTML=`<div class="kpi"><div class="l">Fees collected (${esc(label)})</div><div class="v">${INR(gross)}</div></div>
+    <div class="kpi"><div class="l">Your share (${pct}%)</div><div class="v" style="color:var(--good)">${INR(share)}</div></div>
+    <div class="kpi"><div class="l">Payments</div><div class="v">${rows.length}</div></div>`;
+  $("earnBody").innerHTML=`<div class="panel"><h3>Payments from your students — ${esc(label)}</h3>
+    ${rows.length?`<table><tr><th>Student</th><th>For</th><th>Date</th><th>Fee paid</th><th>Your share</th></tr>
+      ${rows.map(r=>`<tr><td><b>${esc(r.name)}</b></td><td class="mini">${esc(r.period)}</td><td class="mini">${esc(r.date)}</td><td>${INR(r.amt)}</td><td>${INR(Math.round(r.amt*pct/100))}</td></tr>`).join("")}</table>`
+      :`<div class="empty">No fees were paid by your students in ${esc(label)}.</div>`}
+    <p class="footnote">This is an estimate based on payments recorded this month. Final payouts are confirmed by the admin.</p></div>`;
+}
+/* ---------------- TEACHER: MY CALENDAR ---------------- */
+async function renderMyCalendar(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const tid=await myTeacherId();
+  state._mcalMonth=state._mcalMonth||new Date().toISOString().slice(0,7);
+  let classes=[];
+  if(tid){ const { data } = await db.from("batches").select("name,day_of_week,start_time,mode").eq("teacher_id",tid).eq("is_active",true).order("day_of_week"); classes=data||[]; }
+  state._mcalClasses=classes;
+  M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>School events &amp; your weekly classes</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Your weekly classes</h3>
+      ${classes.length?`<table><tr><th>Class</th><th>Day</th><th>Time</th></tr>${classes.map(c=>`<tr><td><b>${esc(c.name)}</b>${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td><td>${c.day_of_week!=null?DOW[c.day_of_week]:"—"}</td><td>${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td></tr>`).join("")}</table>`:`<div class="mini" style="color:var(--muted)">No classes assigned to you yet.</div>`}
+    </div>
+    <div class="searchbar" style="justify-content:space-between">
+      <div><button class="kbtn ghost" onclick="mcalShift(-1)">‹ Prev</button><b id="mcalLabel" style="margin:0 12px"></b><button class="kbtn ghost" onclick="mcalShift(1)">Next ›</button></div>
+      <button class="kbtn ghost" onclick="mcalToday()">Today</button></div>
+    <div id="mcalGrid"><div class="empty">Loading…</div></div>
+    <div id="mcalList"></div>`;
+  loadMyCalendar();
+}
+async function loadMyCalendar(){
+  const [y,mo]=state._mcalMonth.split("-").map(Number);
+  const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
+  const { data } = await db.from("events").select("id,title,event_type,event_date,end_date,description").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  state._mcalEvents=data||[]; drawMyCalendar();
+}
+function drawMyCalendar(){
+  const [y,mo]=state._mcalMonth.split("-").map(Number);
+  if($("mcalLabel")) $("mcalLabel").textContent=MONS[mo-1]+" "+y;
+  const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0), dim=mEnd.getDate(), first=mStart.getDay();
+  const todayS=new Date().toISOString().slice(0,10);
+  const byDay={}; (state._mcalEvents||[]).forEach(e=>{ const s=parseD(String(e.event_date).slice(0,10)); const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s; let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd)); for(;d<=last;d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); } });
+  const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
+  let cells="";
+  for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
+  for(let d=1;d<=dim;d++){ const ds=`${y}-${PAD(mo)}-${PAD(d)}`; const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join(""); cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${evs}</div>`; }
+  $("mcalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>`;
+  const list=state._mcalEvents||[];
+  $("mcalList").innerHTML=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3><table><tr><th>Date</th><th>Event</th><th>Type</th></tr>${list.map(e=>`<tr><td>${esc(e.event_date)}${e.end_date&&e.end_date!==e.event_date?`<br><span class="mini">to ${esc(e.end_date)}</span>`:""}</td><td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}</td><td>${esc(e.event_type||"—")}</td></tr>`).join("")}</table></div>`:`<div class="empty">No school events in ${MONS[mo-1]} ${y}.</div>`;
+}
+function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); state._mcalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadMyCalendar(); }
+function mcalToday(){ state._mcalMonth=new Date().toISOString().slice(0,7); loadMyCalendar(); }
 
 /* ---------------- GURU SAMVAAD (quarterly 1:1 student–guru feedback session) ---------------- */
 function addMonths(d,m){ return new Date(d.getFullYear(), d.getMonth()+m, d.getDate()); }
