@@ -1286,7 +1286,7 @@ async function renderClasses(){
 }
 function onClassMode(){ const m=$("cl_mode")?$("cl_mode").value:"in_person"; if($("cl_zoomWrap")) $("cl_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
 async function loadClasses(){
-  const { data, error } = await db.from("batches").select("id,name,course_id,teacher_id,branch_id,mode,day_of_week,start_time,capacity,zoom_link,is_active,courses(name),branches(name)").order("name");
+  const { data, error } = await db.from("batches").select("id,name,course_id,teacher_id,branch_id,mode,day_of_week,start_time,capacity,zoom_link,is_active,is_published,published_at,courses(name),branches(name)").order("name");
   if(error){ $("clsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed");
   const counts={}; (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1);
@@ -1301,16 +1301,25 @@ function drawClasses(){
     if(q){ const hay=((b.name||"")+" "+teacherName(b.teacher_id)).toLowerCase(); if(!hay.includes(q)) return false; }
     return true;
   });
-  if(!list.length){ $("clsList").innerHTML=`<div class="empty">No classes${q||bf?" match":" yet — add your first above"}.</div>`; return; }
-  $("clsList").innerHTML=`<table><tr><th>Class</th><th>Teacher</th><th>Branch</th><th>Schedule</th><th>Enrolled</th><th></th></tr>
+  const needsReview=b=>!b.published_at;
+  list.sort((a,b)=>((needsReview(a)?0:1)-(needsReview(b)?0:1)) || (a.name<b.name?-1:1));
+  const pending=all.filter(needsReview).length;
+  const banner=pending?`<div class="cfgwarn" style="background:#fff7e8;border:0">🔔 <b>${pending}</b> class${pending===1?"":"es"} added by gurus — already active, please review.</div>`:"";
+  if(!list.length){ $("clsList").innerHTML=banner+`<div class="empty">No classes${q||bf?" match":" yet — add your first above"}.</div>`; return; }
+  $("clsList").innerHTML=banner+`<table><tr><th>Class</th><th>Teacher</th><th>Branch</th><th>Schedule</th><th>Enrolled</th><th></th></tr>
     ${list.map(b=>`<tr>
-      <td><b>${esc(b.name)}</b>${b.courses?.name?`<br><span class="mini">${esc(b.courses.name)}</span>`:""}${b.mode&&b.mode!=="in_person"?` <span class="badge b-teal">${esc(b.mode)}</span>`:""}</td>
+      <td><b>${esc(b.name)}</b>${needsReview(b)?` <span class="badge b-amber">🆕 To review</span>`:""}${b.courses?.name?`<br><span class="mini">${esc(b.courses.name)}</span>`:""}${b.mode&&b.mode!=="in_person"?` <span class="badge b-teal">${esc(b.mode)}</span>`:""}</td>
       <td>${esc(teacherName(b.teacher_id))}</td>
       <td>${esc(b.branches?.name||"—")}</td>
       <td class="mini">${esc(classSchedule(b))}</td>
       <td>${counts[b.id]||0}${b.capacity?` / ${b.capacity}`:""}</td>
-      <td class="mini"><span class="rowbtn edit" onclick="manageClass('${b.id}')">👥 Students</span><span class="rowbtn" onclick="editClass('${b.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delClass('${b.id}')">Delete</span></td>
+      <td class="mini">${needsReview(b)?`<span class="rowbtn edit" onclick="markClassReviewed('${b.id}')">✅ Mark reviewed</span>`:""}<span class="rowbtn" onclick="manageClass('${b.id}')">👥 Students</span><span class="rowbtn" onclick="editClass('${b.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delClass('${b.id}')">Delete</span></td>
     </tr>`).join("")}</table>`;
+}
+async function markClassReviewed(id){
+  const { error } = await db.from("batches").update({ is_published:true, published_at:new Date().toISOString() }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  loadClasses();
 }
 async function saveClass(){
   const m=$("clMsg"); const name=$("cl_name").value.trim();
@@ -1322,7 +1331,7 @@ async function saveClass(){
   m.className="formmsg ok"; m.textContent="Saving…"; $("addCls").disabled=true;
   let error;
   if(state._clsEdit){ ({ error } = await db.from("batches").update(rec).eq("id",state._clsEdit)); }
-  else { ({ error } = await db.from("batches").insert(rec)); }
+  else { ({ error } = await db.from("batches").insert({ ...rec, is_published:true, published_at:new Date().toISOString() })); }
   $("addCls").disabled=false;
   if(error) return failMsg(m,"Couldn't save — "+error.message);
   m.className="formmsg ok"; m.textContent=state._clsEdit?"✓ Class updated.":"✓ Class added.";
@@ -1405,21 +1414,63 @@ async function myTeacherId(){
 async function renderMyClasses(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading your classes…</div>`;
   const tid=await myTeacherId();
-  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Classes</h2></div></div><div class="cfgwarn">Your teacher profile isn't fully set up yet. Please ask the admin to check your account.</div>`; return; }
-  const { data:cls, error } = await db.from("batches").select("id,name,mode,day_of_week,start_time,zoom_link,capacity,courses(name),branches(name)").eq("teacher_id",tid).order("day_of_week");
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Classes</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Please ask the admin to check your account.</div>`; return; }
+  await loadRef();
+  const { data:cls, error } = await db.from("batches").select("id,name,mode,day_of_week,start_time,zoom_link,capacity,is_published,published_at,courses(name),branches(name)").eq("teacher_id",tid).order("day_of_week");
   if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const ids=(cls||[]).map(c=>c.id); const counts={};
   if(ids.length){ const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed").in("batch_id",ids); (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1); }
-  M.innerHTML=`<div class="ph"><div><h2>My Classes</h2><p>Your assigned classes &amp; students</p></div></div>
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>My Classes</h2><p>Your classes &amp; students — and propose new ones for admin approval</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Schedule a class</h3>
+      <p class="footnote" style="margin:0 0 10px">Set up a class here — it becomes <b>active right away</b> and is sent to the super admin to review. You can take attendance for it immediately.</p>
+      <div class="form2">
+        <div class="kf"><label>Class name *</label><input id="pc_name" placeholder="e.g. Vocals — Intermediate"></div>
+        <div class="kf"><label>Course</label><select id="pc_course"><option value="">—</option>${courseOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Branch</label><select id="pc_branch"><option value="">—</option>${branchOpts}</select></div>
+        <div class="kf"><label>Day</label><select id="pc_dow"><option value="">—</option>${dowOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Start time</label><input id="pc_time" type="time"></div>
+        <div class="kf"><label>Capacity</label><input id="pc_cap" type="number" min="1" value="8"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Mode</label><select id="pc_mode" onchange="onProposeMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
+        <div class="kf" id="pc_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="pc_zoom" placeholder="https://…"></div>
+      </div>
+      <div class="formmsg" id="pcMsg"></div>
+      <button class="kbtn teal" id="proposeCls" onclick="submitProposedClass()">Add my class</button>
+    </div>
     ${(cls&&cls.length)?cls.map(c=>`<div class="panel" style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-          <div><b style="font-size:15px">${esc(c.name)}</b>${c.courses?.name?` <span class="mini">· ${esc(c.courses.name)}</span>`:""}
+          <div><b style="font-size:15px">${esc(c.name)}</b>${c.courses?.name?` <span class="mini">· ${esc(c.courses.name)}</span>`:""}${!c.published_at?` <span class="badge b-amber">🕐 Sent for review</span>`:""}
             <div class="mini" style="margin-top:3px">${esc(classSchedule(c))} · ${esc(c.branches?.name||"—")}${c.mode&&c.mode!=="in_person"?` · <span class="badge b-teal">${esc(c.mode)}</span>`:""}</div></div>
           <span class="badge b-green">${counts[c.id]||0} student${(counts[c.id]||0)===1?"":"s"}</span>
         </div>
         <div style="margin-top:10px"><span class="rowbtn" onclick="viewClassRoster('${c.id}')">👥 View students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(c.zoom_link)}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
         <div id="roster_${c.id}"></div>
-      </div>`).join(""):`<div class="empty">No classes assigned to you yet. The admin can assign you a class from the <b>Classes</b> screen.</div>`}`;
+      </div>`).join(""):`<div class="empty">You don't have any classes yet. Schedule one above, or the admin can assign you a class.</div>`}`;
+}
+function onProposeMode(){ const m=$("pc_mode")?$("pc_mode").value:"in_person"; if($("pc_zoomWrap")) $("pc_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
+async function submitProposedClass(){
+  const m=$("pcMsg"); const name=($("pc_name").value||"").trim();
+  if(!name){ m.className="formmsg err"; m.textContent="Enter a class name."; return; }
+  const tid=await myTeacherId(); if(!tid){ m.className="formmsg err"; m.textContent="Your guru profile isn't set up."; return; }
+  const dow=$("pc_dow").value; const mode=$("pc_mode").value||"in_person";
+  const rec={ name, teacher_id:tid, course_id:$("pc_course").value||null, branch_id:$("pc_branch").value||null,
+    mode, day_of_week: dow===""?null:Number(dow), start_time:$("pc_time").value||null,
+    capacity:Number($("pc_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("pc_zoom").value.trim())||null,
+    is_published:true };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("proposeCls").disabled=true;
+  const { error } = await db.from("batches").insert(rec);
+  $("proposeCls").disabled=false;
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  m.className="formmsg ok"; m.textContent="✓ Your class is active now and has been sent to the super admin to review.";
+  renderMyClasses();
 }
 async function viewClassRoster(id){
   const P=$("roster_"+id); if(!P) return;
@@ -1656,6 +1707,12 @@ async function renderTeachers(){
       <div class="formmsg" id="tMsg"></div>
       <button class="kbtn teal" id="addTeacher">Create teacher login</button>
     </div>
+    <div class="panel" style="margin-bottom:14px"><h3>Owner / admin who also teaches</h3>
+      <p class="footnote" style="margin:0 0 10px">If a super admin or front-desk admin also takes classes (e.g. Abhinav), add them as a guru here. They keep their existing login — this just makes them assignable to classes and Guru Samvaad.</p>
+      <div class="searchbar"><select id="staffGuru" style="flex:1"><option value="">Loading…</option></select>
+        <button class="kbtn teal" onclick="addStaffAsGuru()">Make guru</button></div>
+      <div class="formmsg" id="staffGuruMsg"></div>
+    </div>
     <div id="tList"><div class="empty">Loading teachers…</div></div>`;
   $("addTeacher").onclick=addTeacher;
   loadTeachers();
@@ -1664,6 +1721,20 @@ async function loadTeachers(){
   const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,profiles(full_name,email)").order("created_at",{ascending:false});
   if(error){ $("tList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   state._teachers=data||[]; drawTeachers();
+  const have=new Set((data||[]).map(t=>t.profile_id));
+  const { data:staff } = await db.from("profiles").select("id,full_name,email,role").in("role",["super_admin","admin"]);
+  const elig=(staff||[]).filter(p=>!have.has(p.id));
+  const sel=$("staffGuru");
+  if(sel){ sel.innerHTML = elig.length?`<option value="">Select a staff member…</option>`+elig.map(p=>`<option value="${p.id}">${esc(p.full_name||p.email)} · ${esc((p.role||"").replace("_"," "))}</option>`).join(""):`<option value="">Everyone on staff is already a guru</option>`; }
+}
+async function addStaffAsGuru(){
+  const m=$("staffGuruMsg"); const pid=$("staffGuru")?$("staffGuru").value:"";
+  if(!pid){ if(m){ m.className="formmsg err"; m.textContent="Pick a staff member first."; } return; }
+  if(m){ m.className="formmsg ok"; m.textContent="Adding…"; }
+  const { error } = await db.from("teachers").insert({ profile_id:pid });
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't add — "+error.message; } return; }
+  if(m){ m.className="formmsg ok"; m.textContent="✓ Added as a guru. They can now be assigned to classes and Guru Samvaad."; }
+  loadTeachers();
 }
 function drawTeachers(){
   const data=state._teachers||[];
