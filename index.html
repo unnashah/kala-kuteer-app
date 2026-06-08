@@ -62,6 +62,9 @@
   .tile{border:1px solid var(--line);border-radius:14px;padding:16px;background:linear-gradient(180deg,#fff,#fffdf8)}
   .tile .ic{font-size:22px} .tile h3{font-size:14px;margin:8px 0 4px} .tile p{font-size:12px;color:var(--muted)}
   .tile .soon{font-size:10px;font-weight:700;color:var(--saffron-deep);background:#fcefcf;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:8px}
+  .tile .ready{font-size:10px;font-weight:700;color:#1f7a5a;background:#dff3e8;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:8px}
+  .tile.click{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .tile.click:hover{border-color:var(--teal);box-shadow:0 3px 12px rgba(0,0,0,.06)}
   .note{font-size:12.5px;color:var(--muted);margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
   /* page header */
   .ph{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;gap:10px}
@@ -166,8 +169,8 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["🎼","My Classes","myclasses"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","soon"],["📨","Slot Requests","soon"],["✓","Attendance","soon"],["₹","My Earnings","soon"],["💡","Suggestion Box","feedback"]],
-  student:[["🏠","Dashboard","soon"],["🌱","My Journey","soon"],["🗓","My Calendar","soon"],["₹","Fees","soon"],["📣","News","soon"],["📜","Exams","soon"],["💡","Suggestion Box","feedback"]]
+  teacher:[["▦","Dashboard","dashboard"],["🎼","My Classes","myclasses"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["📨","Slot Requests","slotreq"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
 
@@ -271,15 +274,16 @@ function navigate(key, name, warn){
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
+  if(key==="home")      return renderDashboard(name, warn);
   if(key==="classdetail") return; // handled directly
   if(key==="studentdetail") return; // handled directly
-  // not-yet-built or non-admin shells
+  // not-yet-built modules → clean, module-named "coming next" screen
   if(!isAdmin()){
-    const items = NAV[state.role]||[];
-    const tiles = items.slice(1).map(it=>`<div class="tile"><div class="ic">${it[0]}</div><h3>${it[1]}</h3><div class="soon">Coming next</div></div>`).join("");
-    M.innerHTML = `<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div><div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
-      <span class="ok-pill">✓ Signed in &amp; connected</span><div class="grid">${tiles}</div>
-      <p class="note">Your modules are being switched on next.</p>`;
+    const activeNav=$("sideNav")&&$("sideNav").querySelector(".navitem.active");
+    let label="This module";
+    if(activeNav){ const ic=activeNav.querySelector(".ic"); label=(activeNav.textContent||"").replace(ic?ic.textContent:"","").trim()||label; }
+    M.innerHTML=`<div class="ph"><div><h2>${esc(label)}</h2><p>Coming next</p></div></div>
+      <div class="empty">🛠️ ${esc(label)} is being built — we'll switch it on in an upcoming update.</div>`;
     return;
   }
   M.innerHTML = `<div class="ph"><div><h2>Coming next</h2><p>This module is being built. Students &amp; the Intake form are ready to use now.</p></div></div>
@@ -295,26 +299,59 @@ async function loadRef(){
   state.branches = b.data||[]; state.courses = c.data||[]; state.refLoaded = true;
 }
 
-/* ---------------- DASHBOARD ---------------- */
+/* ---------------- DASHBOARD (every role) ---------------- */
+const MODDESC={
+  students:"Add & manage students, profiles & status",
+  classes:"Set up classes, assign gurus & enrol students",
+  attendance:"Mark & review attendance — by day or student",
+  reviews:"Guru Samvaad — quarterly 1:1 feedback sessions",
+  enquiries:"Track leads & enquiries through your funnel",
+  intake:"New-student admission form",
+  fees:"Generate invoices & record payments",
+  calendar:"School events, competitions & holidays",
+  finance:"Income, expenses & centre-wise profit/loss",
+  inventory:"Instruments & equipment register",
+  news:"Post announcements & notices",
+  suggestions:"Read anonymous suggestions from students & gurus",
+  teachers:"Create & manage guru logins",
+  settings:"Fee structure, roles & staff access",
+  feedback:"Share anonymous feedback & suggestions",
+  myclasses:"Your classes, students & class scheduling",
+  mycalendar:"Your class schedule & school events",
+  slotreq:"Approve student slot bookings",
+  myattendance:"Mark attendance for your classes",
+  earnings:"Your payouts & earnings",
+  journey:"Your progress, milestones & journey",
+  myfees:"View & pay your fees",
+  mynews:"School announcements & news",
+  exams:"Exam enrolment & results"
+};
+function modBuilt(k){ return !!LIVE[k] || ["myclasses","reviews","feedback"].includes(k); }
 async function renderDashboard(name, warn){
-  const M=$("mainArea");
-  M.innerHTML = `<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
-    <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
+  const M=$("mainArea"); const admin=isAdmin();
+  const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
+  const tiles=items.map(it=>{ const k=it[2], b=modBuilt(k), desc=MODDESC[k]||"";
+    return `<div class="tile click" onclick="gotoNav('${k}')"><div class="ic">${it[0]}</div><h3>${esc(it[1])}</h3>${desc?`<p>${esc(desc)}</p>`:""}<div class="${b?"ready":"soon"}">${b?"Open →":"Coming next"}</div></div>`; }).join("");
+  M.innerHTML=`<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
+      <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
-    <div class="kpis" style="margin-top:16px">
+    ${admin?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
       <div class="kpi"><div class="l">Total students</div><div class="v" id="kpiTotal">…</div></div>
       <div class="kpi"><div class="l">Branches</div><div class="v" id="kpiBranch">…</div></div>
-    </div>
-    <p class="note">Live modules: <b>Students</b> and the <b>Intake form</b>. Use the menu to add your first student.</p>`;
-  const [act,tot] = await Promise.all([
-    db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
-    db.from("students").select("id",{count:"exact",head:true})
-  ]);
-  await loadRef();
-  $("kpiActive").textContent = act.count ?? 0;
-  $("kpiTotal").textContent  = tot.count ?? 0;
-  $("kpiBranch").textContent = state.branches.length;
+    </div>`:""}
+    <div class="grid">${tiles}</div>
+    <p class="note">Tap any card to open it. 💛</p>`;
+  if(admin){
+    const [act,tot]=await Promise.all([
+      db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
+      db.from("students").select("id",{count:"exact",head:true})
+    ]);
+    await loadRef();
+    if($("kpiActive")) $("kpiActive").textContent=act.count??0;
+    if($("kpiTotal"))  $("kpiTotal").textContent=tot.count??0;
+    if($("kpiBranch")) $("kpiBranch").textContent=state.branches.length;
+  }
 }
 
 /* ---------------- STUDENTS LIST ---------------- */
