@@ -344,6 +344,10 @@ async function renderDashboard(name, warn){
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
   const tiles=items.map(it=>{ const k=it[2], b=modBuilt(k), desc=MODDESC[k]||"";
     return `<div class="tile click" onclick="gotoNav('${k}')"><div class="ic">${it[0]}</div><h3>${esc(it[1])}</h3>${desc?`<p>${esc(desc)}</p>`:""}<div class="${b?"ready":"soon"}">${b?"Open →":"Coming next"}</div></div>`; }).join("");
+  const qa=(k,ic,label)=>`<div class="tile click" onclick="gotoNav('${k}')" style="flex:1;min-width:150px;max-width:230px;padding:14px 16px;display:flex;align-items:center;gap:11px;margin:0"><span style="font-size:20px;flex:none">${ic}</span><b style="font-size:14px">${label}</b></div>`;
+  const quickActions=`<div style="margin-top:20px"><h3 style="margin:0 0 10px;font-size:14px">Quick actions</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">${qa("attendance","✓","Mark attendance")}${qa("intake","＋","Add a student")}${qa("fees","₹","Record a payment")}${qa("news","📣","Post announcement")}</div>
+      <p class="mini" style="color:var(--muted);margin:12px 0 0">Everything else is in the menu on the left. 💛</p></div>`;
   M.innerHTML=`<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
       <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
@@ -353,8 +357,7 @@ async function renderDashboard(name, warn){
       <div class="kpi"><div class="l">Total students</div><div class="v" id="kpiTotal">…</div></div>
       <div class="kpi"><div class="l">Branches</div><div class="v" id="kpiBranch">…</div></div>
     </div>`:""}
-    <div class="grid">${tiles}</div>
-    <p class="note">Tap any card to open it. 💛</p>`;
+    ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(admin){
     const [act,tot]=await Promise.all([
       db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
