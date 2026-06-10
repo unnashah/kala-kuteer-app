@@ -167,12 +167,12 @@ const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["▦","Dashboard","dashboard"],["🎼","My Classes","myclasses"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
+  teacher:[["▦","Dashboard","dashboard"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -270,16 +270,13 @@ function navigate(key, name, warn){
   if(key==="news")      return renderNews();
   if(key==="suggestions") return renderSuggestions();
   if(key==="feedback")  return renderSubmitFeedback();
-  if(key==="myclasses") return renderMyClasses();
   if(key==="mystudents") return renderMyStudents();
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
-  if(key==="classes")   return renderClasses();
   if(key==="home")      return renderDashboard(name, warn);
-  if(key==="classdetail") return; // handled directly
   if(key==="studentdetail") return; // handled directly
   // not-yet-built modules → clean, module-named "coming next" screen
   if(!isAdmin()){
@@ -306,7 +303,6 @@ async function loadRef(){
 /* ---------------- DASHBOARD (every role) ---------------- */
 const MODDESC={
   students:"Add & manage students, profiles & status",
-  classes:"Set up classes, assign gurus & enrol students",
   attendance:"Mark & review attendance — by day or student",
   reviews:"Guru Samvaad — quarterly 1:1 feedback sessions",
   enquiries:"Track leads & enquiries through your funnel",
@@ -320,7 +316,6 @@ const MODDESC={
   teachers:"Create & manage guru logins",
   settings:"Fee structure, roles & staff access",
   feedback:"Share anonymous feedback & suggestions",
-  myclasses:"Your classes, students & class scheduling",
   mystudents:"Students assigned to you as their primary guru",
   mycalendar:"Your class schedule & school events",
   myattendance:"Mark attendance for your classes",
@@ -330,7 +325,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","earnings","mycalendar","reviews","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","feedback"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -1174,6 +1169,7 @@ async function renderCalendar(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Schedule classes for the week &amp; post school events — everyone can see this</p></div></div>
+    <div id="calSummary"></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Schedule a class</h3>
       <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place a class on it. Schedules can differ week to week.</p>
       <div class="form2">
@@ -1232,6 +1228,19 @@ async function loadCalendar(){
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
   state._events=ev||[]; state._calSess=sess||[]; drawCalendar();
+  // scheduling report: this month + this quarter
+  const q=Math.floor((mo-1)/3); const qs=q*3+1, qe=qs+2;
+  const qStart=`${y}-${PAD(qs)}-01`, qEnd=new Date(y,qe,0).toISOString().slice(0,10);
+  const { count:qCount } = await db.from("class_sessions").select("id",{count:"exact",head:true}).gte("session_date",qStart).lte("session_date",qEnd);
+  const monthCount=(sess||[]).length;
+  const byT={}; (sess||[]).forEach(c=>{ const t=c.teacher_id||"none"; byT[t]=(byT[t]||0)+1; });
+  const guruRows=Object.keys(byT).sort((a,b)=>byT[b]-byT[a]).map(t=>`<tr><td>${esc(t==="none"?"— unassigned —":teacherName(t))}</td><td>${byT[t]}</td></tr>`).join("");
+  const qLabel=["Jan–Mar","Apr–Jun","Jul–Sep","Oct–Dec"][q]+" "+y;
+  if($("calSummary")) $("calSummary").innerHTML=`<div class="kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="l">Classes scheduled · ${MONS[mo-1]} ${y}</div><div class="v">${monthCount}</div></div>
+      <div class="kpi"><div class="l">Classes scheduled · ${qLabel}</div><div class="v">${qCount||0}</div></div>
+    </div>
+    ${guruRows?`<details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:13px">By guru — ${MONS[mo-1]} ${y}</summary><table style="margin-top:10px"><tr><th>Guru</th><th>Classes</th></tr>${guruRows}</table></details>`:""}`;
 }
 function drawCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
