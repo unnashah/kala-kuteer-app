@@ -868,8 +868,8 @@ async function loadPayouts(){
   $("poBody").innerHTML=`<div class="empty">Loading…</div>`;
   const { data:teachers } = await db.from("teachers").select("id,payout_pct,profiles(full_name)").eq("is_active",true);
   const pctMap={}, nameMap={}; (teachers||[]).forEach(t=>{ pctMap[t.id]=t.payout_pct||40; nameMap[t.id]=t.profiles?.full_name||"(guru)"; });
-  const { data:studs } = await db.from("students").select("id,primary_teacher_id");
-  const stuTeacher={}; (studs||[]).forEach(s=>{ if(s.primary_teacher_id) stuTeacher[s.id]=s.primary_teacher_id; });
+  const { data:studs } = await db.from("students").select("id,primary_teacher_id,status");
+  const stuTeacher={}, activeByT={}; (studs||[]).forEach(s=>{ if(s.primary_teacher_id){ stuTeacher[s.id]=s.primary_teacher_id; if(s.status==="active") activeByT[s.primary_teacher_id]=(activeByT[s.primary_teacher_id]||0)+1; } });
   const sids=Object.keys(stuTeacher);
   let invMap={};
   if(sids.length){ const { data:invs } = await db.from("invoices").select("id,student_id").in("student_id",sids); (invs||[]).forEach(i=>{ invMap[i.id]=stuTeacher[i.student_id]; }); }
@@ -878,31 +878,64 @@ async function loadPayouts(){
   if(invIds.length){ const { data:pays } = await db.from("payments").select("amount,invoice_id,paid_at").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next); (pays||[]).forEach(p=>{ const t=invMap[p.invoice_id]; if(t) grossByT[t]=(grossByT[t]||0)+Number(p.amount||0); }); }
   const { data:paid } = await db.from("guru_payouts").select("teacher_id,amount").eq("period",v);
   const paidByT={}; (paid||[]).forEach(p=>{ paidByT[p.teacher_id]=(paidByT[p.teacher_id]||0)+Number(p.amount||0); });
-  const rows=(teachers||[]).map(t=>{ const due=Math.round((grossByT[t.id]||0)*pctMap[t.id]/100); const pd=Math.round(paidByT[t.id]||0); return { id:t.id, name:nameMap[t.id], due, paid:pd, bal:due-pd }; });
-  state._poRows=rows; state._poNames=nameMap;
-  let totDue=0,totPaid=0; rows.forEach(r=>{ totDue+=r.due; totPaid+=r.paid; });
-  $("poKpis").innerHTML=`<div class="kpi"><div class="l">Total due · ${esc(label)}</div><div class="v">${INR(totDue)}</div></div>
+  const { data:plans } = await db.from("guru_payout_plan").select("teacher_id,pct,bonus,bonus_reason,deduction,deduction_reason").eq("period",v);
+  const planByT={}; (plans||[]).forEach(p=>{ planByT[p.teacher_id]=p; });
+  state._poNames=nameMap;
+  state._poData={ teachers:teachers||[], pctMap, nameMap, activeByT, grossByT, paidByT, planByT };
+  drawPayouts();
+}
+function drawPayouts(){
+  const d=state._poData||{teachers:[]}; const label=state._poLabel||"";
+  $("poBody").innerHTML=`<div id="poCards"></div>
+    <div class="panel"><h3>Payment history — ${esc(label)}</h3><div id="poHist"></div></div>`;
+  if(!d.teachers.length){ $("poCards").innerHTML=`<div class="panel"><div class="empty">No active gurus yet.</div></div>`; recalcPayouts(); loadPayoutHistory(); return; }
+  const gin=(cls,val,w)=>`<input type="number" min="0" class="${cls}" value="${val}" style="width:${w}px;padding:7px 9px;border:1px solid #E3C285;border-radius:8px;text-align:right">`;
+  $("poCards").innerHTML=d.teachers.map(t=>{
+    const base=Math.round(d.grossByT[t.id]||0); const plan=d.planByT[t.id]||{};
+    const pct=(plan.pct!=null?plan.pct:d.pctMap[t.id]); const bonus=Math.round(plan.bonus||0), ded=Math.round(plan.deduction||0);
+    const active=d.activeByT[t.id]||0; const paid=Math.round(d.paidByT[t.id]||0);
+    return `<div class="panel poGard" data-tid="${t.id}" data-base="${base}" data-paid="${paid}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:15px">${esc(d.nameMap[t.id])}</b><span class="badge b-teal">${active} active student${active===1?"":"s"}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)"><span class="mini" style="color:var(--muted)">Fees collected this month</span><b>${INR(base)}</b></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0"><span class="mini" style="color:var(--muted)">Payout share %</span><span>${gin("po_pct",pct,62)} %</span></div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0"><span class="mini" style="color:var(--muted)">Share</span><b class="po_share"></b></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;gap:8px;flex-wrap:wrap"><span class="mini" style="color:var(--muted)">Bonus +</span><span style="display:flex;gap:6px;align-items:center">₹ ${gin("po_bonus",bonus,86)}<input class="po_bonusr" placeholder="reason" value="${esc(plan.bonus_reason||"")}" style="width:130px;padding:7px 9px;border:1px solid #E3C285;border-radius:8px"></span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;gap:8px;flex-wrap:wrap"><span class="mini" style="color:var(--muted)">Deduction −</span><span style="display:flex;gap:6px;align-items:center">₹ ${gin("po_ded",ded,86)}<input class="po_dedr" placeholder="reason" value="${esc(plan.deduction_reason||"")}" style="width:130px;padding:7px 9px;border:1px solid #E3C285;border-radius:8px"></span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0 4px;border-top:1.5px solid var(--line);margin-top:4px"><span style="font-weight:600">Final payout</span><span class="po_final" style="font-size:18px;font-weight:700;color:var(--maroon)"></span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;gap:8px;flex-wrap:wrap"><span class="mini" style="color:var(--muted)">Paid ${INR(paid)} · Balance <b class="po_bal"></b></span><span><span class="rowbtn" onclick="savePlan('${t.id}')">Save adjustments</span> <span class="rowbtn edit" onclick="recordPayoutForm('${t.id}')">💰 Record payment</span> <span class="mini po_saved" id="po_saved_${t.id}" style="color:var(--good);display:none">✓ saved</span></span></div>
+      <div class="poForm" id="poForm_${t.id}" style="display:none;margin-top:8px"></div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll(".poGard").forEach(c=>{ c.querySelectorAll(".po_pct,.po_bonus,.po_ded").forEach(i=>i.addEventListener("input",recalcPayouts)); });
+  recalcPayouts(); loadPayoutHistory();
+}
+function recalcPayouts(){
+  let totDue=0, totPaid=0;
+  document.querySelectorAll(".poGard").forEach(c=>{
+    const base=parseFloat(c.dataset.base)||0, paid=parseFloat(c.dataset.paid)||0;
+    const pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0;
+    const share=Math.round(base*pct/100), fin=Math.round(share+bonus-ded);
+    c.querySelector(".po_share").textContent=INR(share);
+    c.querySelector(".po_final").textContent=INR(fin);
+    const balEl=c.querySelector(".po_bal"); balEl.textContent=INR(fin-paid); balEl.style.color=(fin-paid)>0?"var(--warn)":"var(--good)";
+    totDue+=fin; totPaid+=paid;
+  });
+  if($("poKpis")) $("poKpis").innerHTML=`<div class="kpi"><div class="l">Total payout · ${esc(state._poLabel||"")}</div><div class="v">${INR(totDue)}</div></div>
     <div class="kpi"><div class="l">Total paid</div><div class="v" style="color:var(--good)">${INR(totPaid)}</div></div>
     <div class="kpi"><div class="l">Outstanding</div><div class="v" style="color:${totDue-totPaid>0?'var(--warn)':'var(--ink)'}">${INR(totDue-totPaid)}</div></div>`;
-  $("poBody").innerHTML=`<div class="panel"><h3>Gurus — ${esc(label)}</h3>
-    <table><tr><th>Guru</th><th>Due</th><th>Paid</th><th>Balance</th><th></th></tr>
-      ${rows.map(r=>`<tr>
-        <td><b>${esc(r.name)}</b></td><td>${INR(r.due)}</td><td>${INR(r.paid)}</td>
-        <td><b style="color:${r.bal>0?'var(--warn)':'var(--good)'}">${INR(r.bal)}</b></td>
-        <td class="mini"><span class="rowbtn edit" onclick="recordPayoutForm('${r.id}')">💰 Record payment</span></td>
-      </tr><tr class="poForm" id="poForm_${r.id}" style="display:none"><td colspan="5"></td></tr>`).join("")}</table>
-    <p class="footnote">“Due” is calculated from your students’ confirmed fee payments this month. Record what you actually pay each guru to keep balances accurate.</p></div>
-    <div class="panel"><h3>Payment history — ${esc(label)}</h3><div id="poHist"></div></div>`;
-  loadPayoutHistory();
 }
 function recordPayoutForm(tid){
-  const r=(state._poRows||[]).find(x=>x.id===tid); const row=$("poForm_"+tid); if(!row) return;
+  const row=$("poForm_"+tid); if(!row) return;
   if(row.style.display!=="none"){ row.style.display="none"; return; }
   document.querySelectorAll(".poForm").forEach(x=>x.style.display="none");
-  row.style.display=""; const cell=row.querySelector("td");
+  row.style.display="";
+  const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); let defAmt=0;
+  if(c){ const base=parseFloat(c.dataset.base)||0, paid=parseFloat(c.dataset.paid)||0, pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0; defAmt=Math.max(0,Math.round(base*pct/100+bonus-ded-paid)); }
   const today=new Date().toISOString().slice(0,10);
-  cell.innerHTML=`<div class="form2" style="margin:6px 0">
-      <div class="kf"><label>Amount paid (₹)</label><input id="po_amt_${tid}" type="number" min="0" value="${r?r.bal:0}"></div>
+  row.innerHTML=`<div style="background:#FBF1DA;border:1px solid var(--saffron);border-radius:10px;padding:12px 14px">
+    <div class="mini" style="margin-bottom:8px;color:var(--muted)">Save your %, bonus &amp; deduction first so the suggested amount is correct.</div>
+    <div class="form2" style="margin:0 0 6px">
+      <div class="kf"><label>Amount paid (₹)</label><input id="po_amt_${tid}" type="number" min="0" value="${defAmt}"></div>
       <div class="kf"><label>Paid on</label><input id="po_date_${tid}" type="date" value="${today}"></div>
     </div>
     <div class="form2" style="margin:0 0 6px">
@@ -911,7 +944,7 @@ function recordPayoutForm(tid){
     </div>
     <div class="formmsg" id="po_msg_${tid}"></div>
     <button class="kbtn teal" onclick="savePayout('${tid}')">Save payment</button>
-    <button class="kbtn ghost" style="margin-left:6px" onclick="document.getElementById('poForm_${tid}').style.display='none'">Cancel</button>`;
+    <button class="kbtn ghost" style="margin-left:6px" onclick="document.getElementById('poForm_${tid}').style.display='none'">Cancel</button></div>`;
 }
 async function savePayout(tid){
   const m=$("po_msg_"+tid); const amt=Number($("po_amt_"+tid).value); const date=$("po_date_"+tid).value;
@@ -921,6 +954,20 @@ async function savePayout(tid){
   const { error } = await db.from("guru_payouts").insert({ teacher_id:tid, period:state._poPeriod, amount:amt, paid_on:date, method:$("po_method_"+tid).value, note:$("po_note_"+tid).value.trim()||null });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
   loadPayouts();
+}
+async function savePlan(tid){
+  const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); if(!c) return;
+  const rec={ teacher_id:tid, period:state._poPeriod,
+    pct:parseFloat(c.querySelector(".po_pct").value)||0,
+    bonus:parseFloat(c.querySelector(".po_bonus").value)||0,
+    bonus_reason:c.querySelector(".po_bonusr").value.trim()||null,
+    deduction:parseFloat(c.querySelector(".po_ded").value)||0,
+    deduction_reason:c.querySelector(".po_dedr").value.trim()||null,
+    updated_at:new Date().toISOString() };
+  const { error } = await db.from("guru_payout_plan").upsert(rec,{ onConflict:"teacher_id,period" });
+  if(error){ alert("Couldn't save adjustments — "+error.message); return; }
+  const s=$("po_saved_"+tid); if(s){ s.style.display="inline"; setTimeout(()=>{ if($("po_saved_"+tid)) $("po_saved_"+tid).style.display="none"; },1600); }
+  recalcPayouts();
 }
 async function loadPayoutHistory(){
   const { data } = await db.from("guru_payouts").select("id,teacher_id,amount,paid_on,method,note").eq("period",state._poPeriod).order("paid_on",{ascending:false});
@@ -1983,53 +2030,39 @@ async function renderMyEarnings(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const tid=await myTeacherId();
   if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
-  const { data:tr } = await db.from("teachers").select("payout_pct,profiles(full_name)").eq("id",tid).single();
-  const pct=(tr&&tr.payout_pct)||40; const gname=(tr&&tr.profiles&&tr.profiles.full_name)||"Guru";
+  const { data:tr } = await db.from("teachers").select("profiles(full_name)").eq("id",tid).single();
+  const gname=(tr&&tr.profiles&&tr.profiles.full_name)||"Guru";
   state._earnTid=tid; state._earnName=gname;
-  const { data:studs } = await db.from("students").select("id").eq("primary_teacher_id",tid);
-  const sids=(studs||[]).map(s=>s.id);
-  const now=new Date(); const startD=new Date(now.getFullYear(), now.getMonth()-11, 1); const startISO=isoLocal(startD);
-  let pays=[];
-  if(sids.length){
-    const { data:invs } = await db.from("invoices").select("id").in("student_id",sids);
-    const invIds=(invs||[]).map(i=>i.id);
-    if(invIds.length){ const { data:p } = await db.from("payments").select("amount,paid_at").in("invoice_id",invIds).gte("paid_at",startISO); pays=p||[]; }
-  }
-  const byMonth={}; pays.forEach(p=>{ const k=String(p.paid_at).slice(0,7); byMonth[k]=(byMonth[k]||0)+Number(p.amount||0); });
-  const { data:paidRows } = await db.from("guru_payouts").select("period,amount");
+  const { data:paidRows } = await db.from("guru_payouts").select("period,amount").eq("teacher_id",tid);
   const paidByMonth={}; (paidRows||[]).forEach(p=>{ paidByMonth[p.period]=(paidByMonth[p.period]||0)+Number(p.amount||0); });
-  const rows=[]; let total=0, totalPaid=0;
-  for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); const k=`${d.getFullYear()}-${PAD(d.getMonth()+1)}`; const earn=Math.round((byMonth[k]||0)*pct/100); const pd=Math.round(paidByMonth[k]||0); total+=earn; totalPaid+=pd; rows.push({ k, label:MONS[d.getMonth()]+" "+d.getFullYear(), earn, paid:pd }); }
+  const now=new Date(); const rows=[]; let total=0;
+  for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); const k=`${d.getFullYear()}-${PAD(d.getMonth()+1)}`; const paid=Math.round(paidByMonth[k]||0); total+=paid; rows.push({ k, label:MONS[d.getMonth()]+" "+d.getFullYear(), paid }); }
   state._earnRows=rows;
   const last3=rows.slice(0,3);
-  M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>What you've earned and what's been paid</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>What Kala Kuteer has paid you each month</p></div></div>
     <div class="panel"><h3>Last 3 months</h3>
-      <table><tr><th>Month</th><th>Earned</th><th>Paid</th><th>Status</th><th></th></tr>
-        ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${INR(r.earn)}</td><td>${INR(r.paid)}</td><td>${earnStatus(r)}</td><td class="mini">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice / Download</span>`:"—"}</td></tr>`).join("")}</table>
+      <table><tr><th>Month</th><th>Amount paid</th><th>Status</th><th></th></tr>
+        ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td><b>${INR(r.paid)}</b></td><td>${r.paid>0?`<span class="badge b-green">paid</span>`:`<span class="badge b-grey">awaiting</span>`}</td><td class="mini">${r.paid>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Statement</span>`:"—"}</td></tr>`).join("")}</table>
     </div>
     <div class="panel"><h3>Look up another month</h3>
       <div class="searchbar"><span class="mini">Month</span><select id="earnSel" style="max-width:200px;flex:none">${rows.map(r=>`<option value="${r.k}">${esc(r.label)}</option>`).join("")}</select></div>
       <div id="earnDetail"></div>
-      <p class="footnote">${total>0?`“Paid” shows what the school has actually settled with you. On a month with earnings, tap <b>Invoice / Download</b> to open a statement — then use <b>Print</b>, or choose <b>Save as PDF</b> in the print dialog to download it.`:`Your monthly earnings will appear here once your students' fees come in. You'll then be able to open and download an invoice for any month.`}</p>
+      <p class="footnote">${total>0?`This is the amount Kala Kuteer has paid you each month. Tap <b>Statement</b> on a paid month to open a record — then use <b>Print</b>, or choose <b>Save as PDF</b> in the print dialog to download it.`:`Once the school records a payout to you, the amount will appear here and you'll be able to download a statement for any month.`}</p>
     </div>`;
   $("earnSel").onchange=e=>showEarnMonth(e.target.value);
   showEarnMonth(rows[0].k);
 }
-function earnStatus(r){ if(r.earn===0&&r.paid===0) return "—"; if(r.paid>=r.earn&&r.paid>0) return `<span class="badge b-green">paid</span>`; if(r.paid>0) return `<span class="badge b-amber">part-paid</span>`; return `<span class="badge b-grey">pending</span>`; }
 function showEarnMonth(k){
   const r=(state._earnRows||[]).find(x=>x.k===k); if(!r||!$("earnDetail")) return;
-  const pending=r.earn-r.paid;
   $("earnDetail").innerHTML=`<div class="kpis" style="margin:4px 0 0">
-      <div class="kpi"><div class="l">Earned · ${esc(r.label)}</div><div class="v">${INR(r.earn)}</div></div>
-      <div class="kpi"><div class="l">Paid</div><div class="v" style="color:var(--good)">${INR(r.paid)}</div></div>
-      <div class="kpi"><div class="l">Pending</div><div class="v" style="color:${pending>0?'var(--warn)':'var(--ink)'}">${INR(pending)}</div></div>
+      <div class="kpi"><div class="l">Paid to you · ${esc(r.label)}</div><div class="v" style="color:var(--good)">${INR(r.paid)}</div></div>
     </div>
-    <div style="margin-top:12px">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice / Download — ${esc(r.label)}</span>`:`<span class="mini" style="color:var(--muted)">No earnings for ${esc(r.label)}.</span>`}</div>`;
+    <div style="margin-top:12px">${r.paid>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Statement — ${esc(r.label)}</span>`:`<span class="mini" style="color:var(--muted)">No payment recorded for ${esc(r.label)} yet.</span>`}</div>`;
 }
 function genPayoutInvoice(monthKey){
   const r=(state._earnRows||[]).find(x=>x.k===monthKey); if(!r){ alert("Couldn't open the invoice."); return; }
   const num="KK-PAY-"+monthKey.replace("-","")+"-"+String(state._earnTid||"").slice(0,4).toUpperCase();
-  const amt="₹"+Number(r.earn||0).toLocaleString("en-IN");
+  const amt="₹"+Number(r.paid||0).toLocaleString("en-IN");
   const today=new Date().toISOString().slice(0,10);
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Payout ${num}</title>
    <style>body{font-family:Georgia,'Times New Roman',serif;color:#16305A;max-width:600px;margin:30px auto;padding:0 22px}
@@ -2047,8 +2080,8 @@ function genPayoutInvoice(monthKey){
      <tr><td class="k">Guru</td><td><b>${esc(state._earnName||"")}</b></td></tr>
      <tr><td class="k">For the month of</td><td>${esc(r.label)}</td></tr>
    </table>
-   <div class="amt">Amount due: ${amt}</div>
-   <p class="ft">This statement reflects the payout due to the guru for ${esc(r.label)}, as settled by Kala Kuteer.</p>
+   <div class="amt">Amount paid: ${amt}</div>
+   <p class="ft">This statement reflects the payout of ${amt} made to the guru for ${esc(r.label)} by Kala Kuteer.</p>
    <button onclick="window.print()" style="margin-top:18px;padding:10px 18px;background:#7A2233;color:#fff;border:0;border-radius:8px;font-size:14px;cursor:pointer">🖨 Print / Save as PDF</button>
    </body></html>`;
   const w=window.open("","_blank"); if(w){ w.document.write(html); w.document.close(); } else alert("Please allow pop-ups to open the invoice.");
