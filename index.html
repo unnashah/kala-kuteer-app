@@ -1252,12 +1252,13 @@ function toggleWho(id){
 }
 function drawNews(){
   const list=state._news||[];
+  list.forEach(regAnn);
   if(!list.length){ $("newsList").innerHTML=`<div class="empty">No announcements yet — post your first above.</div>`; return; }
   $("newsList").innerHTML=list.map(n=>`<div class="panel" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><b style="font-size:15px">${esc(n.title)}</b>
           <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${n.response_type==="ack"?"Acknowledge":"RSVP"}</span>`:""}</div></div>
-        <div style="white-space:nowrap"><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
+        <div style="white-space:nowrap"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
       </div>
       ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
       ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
@@ -2185,11 +2186,13 @@ function respButtonsHTML(n, myResp){
   return "";
 }
 function announceCardHTML(n, myResp){
+  regAnn(n);
   return `<div class="panel" style="margin-bottom:12px">
     <b style="font-size:15px">${esc(n.title)}</b><div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
     ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
     ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
     ${respButtonsHTML(n, myResp)}
+    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span></div>
   </div>`;
 }
 async function respondNews(postId, resp){
@@ -2202,6 +2205,49 @@ async function loadMyResponses(){
   const uid=await myUid(); const map={};
   if(uid){ const { data:rs } = await db.from("news_responses").select("news_post_id,response").eq("profile_id",uid); (rs||[]).forEach(r=>map[r.news_post_id]=r.response); }
   return map;
+}
+/* ----- Share an announcement to social media / WhatsApp ----- */
+function regAnn(n){ (state._annById||(state._annById={}))[n.id]={ title:n.title||"", body:n.body||"", media_url:n.media_url||"" }; }
+function annShareText(n){ return (n.title||"")+(n.body?("\n\n"+n.body):"")+"\n\n— Kala Kuteer"; }
+async function shareAnnounce(id){
+  const n=(state._annById||{})[id]; if(!n) return;
+  const text=annShareText(n);
+  if(navigator.share){
+    try{
+      if(n.media_url && /(\.(png|jpe?g|gif|webp)(\?|$)|\/uploads\/)/i.test(n.media_url) && navigator.canShare){
+        try{
+          const resp=await fetch(n.media_url); const blob=await resp.blob();
+          const file=new File([blob],"kala-kuteer.jpg",{type:blob.type||"image/jpeg"});
+          if(navigator.canShare({files:[file]})){ await navigator.share({ title:n.title||"Kala Kuteer", text, files:[file] }); return; }
+        }catch(e){ /* fall through to text share */ }
+      }
+      await navigator.share({ title:n.title||"Kala Kuteer", text });
+      return;
+    }catch(e){ if(e&&e.name==="AbortError") return; }
+  }
+  shareMenu(text);
+}
+function shareMenu(text){
+  state._shareText=text; const enc=encodeURIComponent(text);
+  const wa=`https://wa.me/?text=${enc}`, tw=`https://twitter.com/intent/tweet?text=${enc}`;
+  let el=document.getElementById("shareModal"); if(el) el.remove();
+  el=document.createElement("div"); el.id="shareModal";
+  el.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999";
+  el.innerHTML=`<div style="background:#fff;border-radius:14px;padding:20px;max-width:320px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>Share announcement</b><span style="cursor:pointer;font-size:18px;color:#999" onclick="document.getElementById('shareModal').remove()">✕</span></div>
+    <a href="${wa}" target="_blank" rel="noopener" class="kbtn teal" style="display:block;text-align:center;margin-bottom:8px;text-decoration:none" onclick="document.getElementById('shareModal').remove()">WhatsApp</a>
+    <a href="${tw}" target="_blank" rel="noopener" class="kbtn ghost" style="display:block;text-align:center;margin-bottom:8px;text-decoration:none" onclick="document.getElementById('shareModal').remove()">X (Twitter)</a>
+    <button class="kbtn ghost" style="display:block;width:100%" onclick="shareCopy()">Copy text</button>
+    <p class="mini" style="color:var(--muted);margin:10px 0 0">On a phone you'll get your full share sheet — Instagram, Facebook & more.</p>
+  </div>`;
+  el.onclick=ev=>{ if(ev.target===el) el.remove(); };
+  document.body.appendChild(el);
+}
+function shareCopy(){
+  const t=state._shareText||"";
+  const done=()=>{ const sm=document.getElementById("shareModal"); if(sm) sm.remove(); alert("Copied! Paste it into any app."); };
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(done,done); }
+  else { const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");}catch(e){} ta.remove(); done(); }
 }
 /* ---------------- TEACHER: ANNOUNCEMENTS feed ---------------- */
 async function renderNotices(){
