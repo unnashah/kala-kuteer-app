@@ -419,7 +419,7 @@ async function renderAttendance(){
   await loadRef();
   const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   M.innerHTML = `<div class="ph"><div><h2>Attendance</h2><p>Mark who attended on a given day</p></div></div>
-    <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button></div>
+    <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar">
       <span class="mini">Date</span><input id="attDate" type="date" style="max-width:170px;flex:none">
       <span class="mini">Branch</span><select id="attBranch" style="max-width:170px;flex:none"><option value="">All</option>${branchOpts}</select>
@@ -489,7 +489,7 @@ async function renderAttendanceByStudent(){
   const M=$("mainArea"); await loadRef();
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Each student's attendance record</p></div></div>
-    <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn teal" style="margin-left:6px" disabled>📊 By student</button></div>
+    <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn teal" style="margin-left:6px" disabled>📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar"><input id="absSearch" placeholder="🔍 Search student…" style="flex:1">
       <select id="absBranch" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
     <div id="absList"><div class="empty">Loading…</div></div>
@@ -532,6 +532,97 @@ async function attStudentDays(id,name){
   P.innerHTML=`<div class="panel" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center"><h3>${esc(name)} — attendance by day</h3><span class="rowbtn" onclick="document.getElementById('absDays').innerHTML=''">✕ Close</span></div>
     <table><tr><th>Date</th><th>Status</th></tr>${rows}</table></div>`;
   P.scrollIntoView({behavior:"smooth",block:"start"});
+}
+/* ----- Attendance: reports (filter by student / guru / branch / date) ----- */
+async function renderAttendanceReport(){
+  const M=$("mainArea"); await loadRef(); await loadClassRefs();
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  const now=new Date(); const first=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10); const today=now.toISOString().slice(0,10);
+  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Pull a report — by student, guru, branch or date</p></div></div>
+    <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn teal" style="margin-left:6px" disabled>📈 Reports</button></div>
+    <div class="searchbar" style="flex-wrap:wrap;gap:8px">
+      <span class="mini">From</span><input id="arFrom" type="date" value="${first}" style="max-width:155px;flex:none">
+      <span class="mini">To</span><input id="arTo" type="date" value="${today}" style="max-width:155px;flex:none">
+      <span class="mini">Guru</span><select id="arGuru" style="max-width:160px;flex:none"><option value="">All gurus</option>${guruOpts}</select>
+      <span class="mini">Branch</span><select id="arBranch" style="max-width:150px;flex:none"><option value="">All</option>${branchOpts}</select>
+      <input id="arStu" placeholder="🔍 Student…" style="flex:1;min-width:130px">
+      <span class="mini">Group by</span><select id="arGroup" style="max-width:150px;flex:none"><option value="">No grouping</option><option value="date">Date</option><option value="student">Student</option><option value="guru">Guru</option><option value="branch">Branch</option></select>
+      <button class="kbtn ghost" id="arPrint">🖨 Print / Save PDF</button>
+    </div>
+    <div class="formmsg" id="arMsg"></div>
+    <div id="arOut"><div class="empty">Loading…</div></div>`;
+  $("arPrint").onclick=genAttReport;
+  ["arFrom","arTo"].forEach(id=>{ const el=$(id); if(el) el.onchange=loadAttReport; });
+  ["arGuru","arBranch","arGroup"].forEach(id=>{ const el=$(id); if(el) el.onchange=drawAttReport; });
+  $("arStu").oninput=drawAttReport;
+  loadAttReport();
+}
+async function loadAttReport(){
+  const from=$("arFrom").value, to=$("arTo").value;
+  if(!from||!to){ $("arMsg").className="formmsg err"; $("arMsg").textContent="Pick a from and to date."; return; }
+  if(from>to){ $("arMsg").className="formmsg err"; $("arMsg").textContent="\"From\" must be on or before \"To\"."; return; }
+  $("arMsg").textContent=""; $("arOut").innerHTML=`<div class="empty">Loading…</div>`;
+  const [{ data:marks, error:me }, { data:studs, error:se }] = await Promise.all([
+    db.from("attendance").select("student_id,class_date,status").gte("class_date",from).lte("class_date",to),
+    db.from("students").select("id,full_name,branch_id,primary_teacher_id,branches(name),courses(name)")
+  ]);
+  if(me||se){ $("arOut").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc((me||se).message)}</div>`; return; }
+  const sMap={}; (studs||[]).forEach(s=>sMap[s.id]=s);
+  const recs=(marks||[]).map(m=>{ const s=sMap[m.student_id]||{};
+    return { date:m.class_date, status:m.status, studentId:m.student_id, sName:s.full_name||"(unknown)", branchId:s.branch_id||"", branchName:s.branches?.name||"—", course:s.courses?.name||"—", guruId:s.primary_teacher_id||"", guruName:s.primary_teacher_id?teacherName(s.primary_teacher_id):"—" };
+  });
+  state._attRep={ from, to, recs }; drawAttReport();
+}
+function drawAttReport(){
+  if(!state._attRep) return;
+  const guru=$("arGuru")?$("arGuru").value:"", branch=$("arBranch")?$("arBranch").value:"", q=(($("arStu")&&$("arStu").value)||"").toLowerCase().trim(), group=$("arGroup")?$("arGroup").value:"";
+  let recs=state._attRep.recs.filter(r=>{
+    if(guru && r.guruId!==guru) return false;
+    if(branch && r.branchId!==branch) return false;
+    if(q && !r.sName.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  state._attRepView=recs;
+  if(!recs.length){ $("arOut").innerHTML=`<div class="empty">No attendance records match these filters.</div>`; return; }
+  const tally=t=>recs.filter(r=>r.status===t).length;
+  const days=new Set(recs.map(r=>r.date)).size, stus=new Set(recs.map(r=>r.studentId)).size;
+  const summary=`<div class="mini" style="margin-bottom:10px"><b>${recs.length}</b> records · <span style="color:var(--good)">Present ${tally("present")}</span> · <span style="color:var(--warn)">Absent ${tally("absent")}</span> · <span style="color:var(--saffron-deep)">Excused ${tally("excused")}</span> · ${days} day${days===1?"":"s"} · ${stus} student${stus===1?"":"s"}</div>`;
+  const bcol={ present:"b-green", absent:"b-red", excused:"b-teal" };
+  const row=r=>`<tr><td>${esc(r.date)}</td><td><b>${esc(r.sName)}</b></td><td class="mini">${esc(r.course)} · ${esc(r.branchName)}</td><td class="mini">${esc(r.guruName)}</td><td><span class="badge ${bcol[r.status]||"b-grey"}">${esc(r.status)}</span></td></tr>`;
+  const head=`<tr><th>Date</th><th>Student</th><th>Course · Branch</th><th>Guru</th><th>Status</th></tr>`;
+  const byDateName=(a,b)=> a.date<b.date?1:a.date>b.date?-1:(a.sName<b.sName?-1:1);
+  if(!group){
+    $("arOut").innerHTML=summary+`<table>${head}${recs.slice().sort(byDateName).map(row).join("")}</table>`;
+    return;
+  }
+  const keyOf=r=> group==="date"?r.date: group==="student"?r.studentId: group==="guru"?(r.guruId||"—"): (r.branchId||"—");
+  const labelOf=r=> group==="date"?r.date: group==="student"?r.sName: group==="guru"?r.guruName: r.branchName;
+  const groups={};
+  recs.forEach(r=>{ const k=keyOf(r); (groups[k]||(groups[k]={label:labelOf(r),items:[]})).items.push(r); });
+  const keys=Object.keys(groups);
+  keys.sort((a,b)=> group==="date" ? (a<b?1:-1) : groups[a].label.localeCompare(groups[b].label));
+  $("arOut").innerHTML=summary+keys.map(k=>{
+    const g=groups[k]; const gp=g.items.filter(r=>r.status==="present").length;
+    return `<div class="panel" style="margin-bottom:10px;padding:12px 14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>${esc(g.label)}</b><span class="mini">${g.items.length} record${g.items.length===1?"":"s"} · ${gp} present</span></div><table>${head}${g.items.slice().sort(byDateName).map(row).join("")}</table></div>`;
+  }).join("");
+}
+function genAttReport(){
+  const recs=state._attRepView||[]; if(!recs.length){ alert("Run a report with at least one record first."); return; }
+  const rep=state._attRep||{}; const guruSel=$("arGuru"), branchSel=$("arBranch");
+  const guruTxt=guruSel&&guruSel.value?guruSel.options[guruSel.selectedIndex].text:"All gurus";
+  const branchTxt=branchSel&&branchSel.value?branchSel.options[branchSel.selectedIndex].text:"All branches";
+  const tally=t=>recs.filter(r=>r.status===t).length;
+  const rows=recs.slice().sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:(a.sName<b.sName?-1:1)).map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.sName)}</td><td>${esc(r.course)} · ${esc(r.branchName)}</td><td>${esc(r.guruName)}</td><td>${esc(r.status)}</td></tr>`).join("");
+  const w=window.open("","_blank"); if(!w){ alert("Please allow pop-ups to print the report."); return; }
+  w.document.write(`<html><head><title>Attendance Report</title><style>body{font-family:Arial,sans-serif;color:#222;padding:28px;font-size:13px}h1{color:#b8541a;margin:0 0 2px;font-size:20px}.sub{color:#666;margin:0 0 14px}table{border-collapse:collapse;width:100%;margin-top:10px}th,td{border:1px solid #ddd;padding:6px 9px;text-align:left}th{background:#f6efe6}.tot{margin:10px 0;font-weight:bold}</style></head><body>
+    <h1>Kala Kuteer — Attendance Report</h1>
+    <p class="sub">${esc(rep.from||"")} to ${esc(rep.to||"")} &middot; ${esc(guruTxt)} &middot; ${esc(branchTxt)}</p>
+    <div class="tot">${recs.length} records — Present ${tally("present")} · Absent ${tally("absent")} · Excused ${tally("excused")}</div>
+    <table><tr><th>Date</th><th>Student</th><th>Course · Branch</th><th>Guru</th><th>Status</th></tr>${rows}</table>
+    <p style="margin-top:18px;color:#888">Generated ${new Date().toLocaleDateString()}</p>
+  </body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>w.print(),300);
 }
 
 /* ---------------- FEES & INVOICES ---------------- */
