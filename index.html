@@ -172,7 +172,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"]],
-  teacher:[["▦","Dashboard","dashboard"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  teacher:[["▦","Dashboard","dashboard"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["📣","Notices","notices"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
@@ -275,6 +275,7 @@ function navigate(key, name, warn){
   if(key==="suggestions") return renderSuggestions();
   if(key==="feedback")  return renderSubmitFeedback();
   if(key==="mystudents") return renderMyStudents();
+  if(key==="notices")   return renderNotices();
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
@@ -322,6 +323,7 @@ const MODDESC={
   settings:"Fee structure, roles & staff access",
   feedback:"Share anonymous feedback & suggestions",
   mystudents:"Students assigned to you as their primary guru",
+  notices:"School notices & announcements from the office",
   mycalendar:"Your class schedule & school events",
   myattendance:"Mark attendance for your classes",
   earnings:"Your payouts & earnings",
@@ -330,7 +332,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -2043,6 +2045,21 @@ async function delMySession(id){
 }
 function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); state._mcalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadMyCalendar(); }
 function mcalToday(){ state._mcalMonth=new Date().toISOString().slice(0,7); loadMyCalendar(); }
+
+/* ---------------- TEACHER: NOTICES (read-only news feed) ---------------- */
+async function renderNotices(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,created_at").eq("audience","all").order("created_at",{ascending:false});
+  if(error){ M.innerHTML=`<div class="ph"><div><h2>Notices</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const list=data||[];
+  M.innerHTML=`<div class="ph"><div><h2>Notices</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
+    ${list.length?list.map(n=>`<div class="panel" style="margin-bottom:12px">
+        <b style="font-size:15px">${esc(n.title)}</b>
+        <div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
+        ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
+        ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+      </div>`).join(""):`<div class="empty">No notices yet. Announcements from the school office will appear here.</div>`}`;
+}
 
 /* ---------------- GURU SAMVAAD (quarterly 1:1 student–guru feedback session) ---------------- */
 function addMonths(d,m){ return new Date(d.getFullYear(), d.getMonth()+m, d.getDate()); }
