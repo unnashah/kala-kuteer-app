@@ -1885,12 +1885,12 @@ async function renderMyEarnings(){
   M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>What you've earned and what's been paid</p></div></div>
     <div class="panel"><h3>Last 3 months</h3>
       <table><tr><th>Month</th><th>Earned</th><th>Paid</th><th>Status</th><th></th></tr>
-        ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${INR(r.earn)}</td><td>${INR(r.paid)}</td><td>${earnStatus(r)}</td><td class="mini">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice</span>`:"—"}</td></tr>`).join("")}</table>
+        ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${INR(r.earn)}</td><td>${INR(r.paid)}</td><td>${earnStatus(r)}</td><td class="mini">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice / Download</span>`:"—"}</td></tr>`).join("")}</table>
     </div>
     <div class="panel"><h3>Look up another month</h3>
       <div class="searchbar"><span class="mini">Month</span><select id="earnSel" style="max-width:200px;flex:none">${rows.map(r=>`<option value="${r.k}">${esc(r.label)}</option>`).join("")}</select></div>
       <div id="earnDetail"></div>
-      <p class="footnote">“Paid” shows what the school has actually settled with you. Tap <b>Invoice</b> for a printable statement you can save or share.</p>
+      <p class="footnote">“Paid” shows what the school has actually settled with you. Tap <b>Invoice / Download</b> to open a statement — then use <b>Print</b>, or choose <b>Save as PDF</b> in the print dialog to download it.</p>
     </div>`;
   $("earnSel").onchange=e=>showEarnMonth(e.target.value);
   showEarnMonth(rows[0].k);
@@ -1904,7 +1904,7 @@ function showEarnMonth(k){
       <div class="kpi"><div class="l">Paid</div><div class="v" style="color:var(--good)">${INR(r.paid)}</div></div>
       <div class="kpi"><div class="l">Pending</div><div class="v" style="color:${pending>0?'var(--warn)':'var(--ink)'}">${INR(pending)}</div></div>
     </div>
-    <div style="margin-top:12px">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice for ${esc(r.label)}</span>`:`<span class="mini" style="color:var(--muted)">No earnings for ${esc(r.label)}.</span>`}</div>`;
+    <div style="margin-top:12px">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice / Download — ${esc(r.label)}</span>`:`<span class="mini" style="color:var(--muted)">No earnings for ${esc(r.label)}.</span>`}</div>`;
 }
 function genPayoutInvoice(monthKey){
   const r=(state._earnRows||[]).find(x=>x.k===monthKey); if(!r){ alert("Couldn't open the invoice."); return; }
