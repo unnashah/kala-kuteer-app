@@ -172,10 +172,10 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📜","Exams","examsadmin"],["📣","Announcements","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📜","Exams","examsadmin"],["📣","Announcements","news"]],
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","Announcements","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","Announcements","news"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
-  student:[["🏠","Dashboard","dashboard"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
+  student:[["🏠","Dashboard","dashboard"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
 
@@ -282,8 +282,6 @@ function navigate(key, name, warn){
   if(key==="stucal")    return renderStudentCalendar();
   if(key==="journey")   return renderStudentJourney();
   if(key==="myfees")    return renderStudentFees();
-  if(key==="exams")     return renderStudentExams();
-  if(key==="examsadmin") return renderExams();
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
@@ -338,11 +336,9 @@ const MODDESC={
   journey:"Your attendance & your guru's feedback",
   stucal:"Your class schedule & school events",
   myfees:"View & pay your fees",
-  mynews:"Announcements & updates from the school",
-  exams:"Enrol in exams & view your results",
-  examsadmin:"Set up exams, enrolments & results"
+  mynews:"Announcements & updates from the school"
 };
-function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey","myfees","exams","examsadmin"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey","myfees"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -2380,125 +2376,6 @@ async function studentRespond(id, resp){
   if(error){ alert("Couldn't update — "+error.message); return; }
   renderStudentFees();
 }
-/* ----- Student: Exams ----- */
-async function renderStudentExams(){
-  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
-  const s=await myStudent();
-  if(!s){ M.innerHTML=`<div class="ph"><div><h2>Exams</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
-  state._stuExam=s;
-  const { data:exams } = await db.from("exams").select("id,name,level,fee,window_start,window_end,is_open").order("created_at",{ascending:false});
-  const { data:mine } = await db.from("exam_enrollments").select("id,exam_id,result").eq("student_id",s.id);
-  const myMap={}; (mine||[]).forEach(e=>myMap[e.exam_id]=e); const examMap={}; (exams||[]).forEach(e=>examMap[e.id]=e);
-  const open=(exams||[]).filter(e=>e.is_open && !myMap[e.id]);
-  const enrolled=(mine||[]).map(en=>({ en, ex:examMap[en.exam_id] })).filter(x=>x.ex);
-  M.innerHTML=`<div class="ph"><div><h2>Exams</h2><p>Enrol in exams &amp; see your results</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3>Open for enrolment</h3>
-      ${open.length?open.map(e=>`<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><b>${esc(e.name)}</b>${e.level?` <span class="mini">· ${esc(e.level)}</span>`:""}<div class="mini" style="margin-top:3px">Fee ${INR(e.fee)}${e.window_start?` · ${esc(e.window_start)}${e.window_end?" – "+esc(e.window_end):""}`:""}</div></div><button class="kbtn teal" onclick="enrolExam('${e.id}')">Enrol</button></div>`).join(""):`<div class="mini" style="color:var(--muted)">No exams open for enrolment right now.</div>`}
-    </div>
-    <div class="panel"><h3>Your exams</h3>
-      ${enrolled.length?`<table><tr><th>Exam</th><th>Status / Result</th></tr>${enrolled.map(x=>`<tr><td><b>${esc(x.ex.name)}</b>${x.ex.level?`<br><span class="mini">${esc(x.ex.level)}</span>`:""}</td><td>${x.en.result?`<span class="badge b-green">${esc(x.en.result)}</span>`:`<span class="badge b-amber">Enrolled — result awaited</span>`}</td></tr>`).join("")}</table>`:`<div class="mini" style="color:var(--muted)">You haven't enrolled in any exam yet.</div>`}
-    </div>`;
-}
-async function enrolExam(examId){
-  const s=state._stuExam||await myStudent(); if(!s) return;
-  if(!confirm("Enrol in this exam?")) return;
-  const { error } = await db.from("exam_enrollments").insert({ exam_id:examId, student_id:s.id });
-  if(error){ alert("Couldn't enrol — "+error.message); return; }
-  renderStudentExams();
-}
-/* ----- Admin: Exams ----- */
-async function renderExams(){
-  const M=$("mainArea"); state._examEdit=null;
-  M.innerHTML=`<div class="ph"><div><h2>Exams</h2><p>Set up exams, manage enrolments &amp; enter results</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3 id="exFormTitle">Add an exam</h3>
-      <div class="form2">
-        <div class="kf"><label>Exam name *</label><input id="ex_name" placeholder="e.g. ABGMM Level 2 — Sitar"></div>
-        <div class="kf"><label>Level</label><input id="ex_level" placeholder="e.g. Level 2"></div>
-      </div>
-      <div class="form2">
-        <div class="kf"><label>Exam fee (₹)</label><input id="ex_fee" type="number" min="0" value="0"></div>
-        <div class="kf"><label>Enrolment</label><select id="ex_open"><option value="yes">Open</option><option value="no">Closed</option></select></div>
-      </div>
-      <div class="form2">
-        <div class="kf"><label>Window start</label><input id="ex_ws" type="date"></div>
-        <div class="kf"><label>Window end</label><input id="ex_we" type="date"></div>
-      </div>
-      <div class="formmsg" id="exMsg"></div>
-      <button class="kbtn teal" id="addExam" onclick="saveExam()">Add exam</button>
-      <button class="kbtn ghost" id="exCancelBtn" style="display:none;margin-left:6px" onclick="cancelExamEdit()">Cancel</button>
-    </div>
-    <div id="examList"><div class="empty">Loading…</div></div>`;
-  loadExams();
-}
-async function loadExams(){
-  const { data, error } = await db.from("exams").select("id,name,level,fee,window_start,window_end,is_open,created_at").order("created_at",{ascending:false});
-  if(error){ $("examList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const ids=(data||[]).map(e=>e.id); const counts={};
-  if(ids.length){ const { data:en } = await db.from("exam_enrollments").select("exam_id").in("exam_id",ids); (en||[]).forEach(e=>counts[e.exam_id]=(counts[e.exam_id]||0)+1); }
-  state._exams=data||[]; state._examCounts=counts; drawExams();
-}
-function drawExams(){
-  const list=state._exams||[]; const counts=state._examCounts||{};
-  if(!list.length){ $("examList").innerHTML=`<div class="empty">No exams yet — add one above.</div>`; return; }
-  $("examList").innerHTML=list.map(e=>`<div class="panel" style="margin-bottom:12px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-      <div><b style="font-size:15px">${esc(e.name)}</b>${e.level?` <span class="mini">· ${esc(e.level)}</span>`:""} ${e.is_open?`<span class="badge b-green">Open</span>`:`<span class="badge b-grey">Closed</span>`}
-        <div class="mini" style="margin-top:3px">Fee ${INR(e.fee)}${e.window_start?` · ${esc(e.window_start)}${e.window_end?" – "+esc(e.window_end):""}`:""} · <b>${counts[e.id]||0}</b> enrolled</div></div>
-      <div style="white-space:nowrap"><span class="rowbtn" onclick="viewExamEnrol('${e.id}')">👥 Enrolments</span><span class="rowbtn edit" onclick="editExam('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delExam('${e.id}')">Delete</span></div>
-    </div>
-    <div id="exen_${e.id}"></div>
-  </div>`).join("");
-}
-async function saveExam(){
-  const m=$("exMsg"); const name=$("ex_name").value.trim();
-  if(!name) return failMsg(m,"Enter an exam name.");
-  const rec={ name, level:$("ex_level").value.trim()||null, fee:Number($("ex_fee").value)||0, is_open:$("ex_open").value==="yes", window_start:$("ex_ws").value||null, window_end:$("ex_we").value||null };
-  m.className="formmsg ok"; m.textContent="Saving…"; $("addExam").disabled=true;
-  let error;
-  if(state._examEdit){ ({ error } = await db.from("exams").update(rec).eq("id",state._examEdit)); }
-  else { ({ error } = await db.from("exams").insert(rec)); }
-  $("addExam").disabled=false;
-  if(error) return failMsg(m,"Couldn't save — "+error.message);
-  m.className="formmsg ok"; m.textContent=state._examEdit?"✓ Exam updated.":"✓ Exam added.";
-  cancelExamEdit(); loadExams();
-}
-function editExam(id){
-  const e=(state._exams||[]).find(x=>x.id===id); if(!e) return;
-  state._examEdit=id;
-  $("ex_name").value=e.name||""; $("ex_level").value=e.level||""; $("ex_fee").value=e.fee||0;
-  $("ex_open").value=e.is_open?"yes":"no"; $("ex_ws").value=e.window_start||""; $("ex_we").value=e.window_end||"";
-  $("exFormTitle").textContent="Edit exam"; $("addExam").textContent="Save changes"; $("exCancelBtn").style.display="inline-block";
-  window.scrollTo({top:0,behavior:"smooth"});
-}
-function cancelExamEdit(){
-  state._examEdit=null;
-  ["ex_name","ex_level","ex_ws","ex_we"].forEach(x=>{ if($(x)) $(x).value=""; });
-  if($("ex_fee")) $("ex_fee").value=0; if($("ex_open")) $("ex_open").value="yes";
-  if($("exFormTitle")) $("exFormTitle").textContent="Add an exam";
-  if($("addExam")) $("addExam").textContent="Add exam";
-  if($("exCancelBtn")) $("exCancelBtn").style.display="none";
-}
-async function delExam(id){
-  if(!confirm("Delete this exam and its enrolments? This can't be undone.")) return;
-  const { error } = await db.from("exams").delete().eq("id",id);
-  if(error){ alert("Couldn't delete — "+error.message); return; }
-  loadExams();
-}
-async function viewExamEnrol(id){
-  const P=$("exen_"+id); if(!P) return;
-  if(P.dataset.open==="1"){ P.innerHTML=""; P.dataset.open="0"; return; }
-  P.dataset.open="1"; P.innerHTML=`<div class="mini" style="margin-top:8px">Loading…</div>`;
-  const { data, error } = await db.from("exam_enrollments").select("id,result,students(full_name)").eq("exam_id",id).order("enrolled_at");
-  if(error){ P.innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
-  P.innerHTML=(data&&data.length)?`<table style="margin-top:10px"><tr><th>Student</th><th>Result</th><th></th></tr>${data.map(en=>`<tr><td>${esc(en.students?.full_name||"—")}</td><td><input id="res_${en.id}" value="${esc(en.result||"")}" placeholder="e.g. Distinction / Pass" style="width:170px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td class="mini"><span class="rowbtn edit" onclick="saveResult('${en.id}')">Save</span></td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
-}
-async function saveResult(enId){
-  const v=(($("res_"+enId)||{}).value||"").trim();
-  const { error } = await db.from("exam_enrollments").update({ result:v||null }).eq("id",enId);
-  if(error){ alert("Couldn't save — "+error.message); return; }
-  const b=$("res_"+enId); if(b){ b.style.borderColor="var(--good)"; }
-}
-
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
 function renderSubmitFeedback(){
   const M=$("mainArea");
