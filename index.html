@@ -354,18 +354,18 @@ async function renderDashboard(name, warn){
     <div id="dashNotices" style="margin-top:16px"></div>
     ${admin?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
-      <div class="kpi"><div class="l">Total students</div><div class="v" id="kpiTotal">…</div></div>
+      <div class="kpi"><div class="l">Gurus</div><div class="v" id="kpiGurus">…</div></div>
       <div class="kpi"><div class="l">Branches</div><div class="v" id="kpiBranch">…</div></div>
     </div>`:""}
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(admin){
-    const [act,tot]=await Promise.all([
+    const [act,gur]=await Promise.all([
       db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
-      db.from("students").select("id",{count:"exact",head:true})
+      db.from("teachers").select("id",{count:"exact",head:true}).eq("is_active",true)
     ]);
     await loadRef();
     if($("kpiActive")) $("kpiActive").textContent=act.count??0;
-    if($("kpiTotal"))  $("kpiTotal").textContent=tot.count??0;
+    if($("kpiGurus"))  $("kpiGurus").textContent=gur.count??0;
     if($("kpiBranch")) $("kpiBranch").textContent=state.branches.length;
   }
   // latest notices section, right under the dashboard header
