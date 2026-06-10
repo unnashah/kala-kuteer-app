@@ -2548,10 +2548,29 @@ async function renderSettings(){
   M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
       <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th></tr>
-        ${state.branches.map(b=>`<tr><td><b>${esc(b.name)}</b></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td></tr>`).join("")}</table>
+        ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td></tr>`).join("")}</table>
       <div class="formmsg" id="feeStructMsg"></div>
       <button class="kbtn teal" id="saveFees" style="margin-top:8px">Save fee structure</button>
       <p class="footnote" style="margin-top:8px">No GST is added to tuition. Each branch's <b>UPI ID</b> is what its students see when paying — give Tarnaka its own, and use the same handle for Gachibowli &amp; Online if you want them together.</p>
+      <div style="border-top:1px dashed var(--line);margin-top:14px;padding-top:12px">
+        <h3 style="font-size:13px;margin:0 0 8px">Add a branch</h3>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div class="kf" style="margin:0"><label>Branch name *</label><input id="nb_name" placeholder="e.g. Kondapur"></div>
+          <div class="kf" style="margin:0"><label>Monthly fee (₹)</label><input id="nb_fee" type="number" min="0" value="0" style="width:120px"></div>
+          <button class="kbtn ghost" id="addBranchBtn">+ Add branch</button>
+        </div>
+        <div class="formmsg" id="nbMsg"></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:14px"><h3>Courses &amp; instruments</h3>
+      <p class="mini" style="color:var(--muted);margin:-2px 0 8px">These appear in the intake form. Rename anytime; <b>Hide</b> a course you no longer offer (existing students keep theirs).</p>
+      <div id="courseList"><div class="empty">Loading…</div></div>
+      <h3 style="margin-top:14px;font-size:13px">Add a course</h3>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="kf" style="margin:0"><label>Course / instrument name *</label><input id="nc_name" placeholder="e.g. Hindustani Vocal"></div>
+        <button class="kbtn ghost" id="addCourseBtn">+ Add course</button>
+      </div>
+      <div class="formmsg" id="ncMsg"></div>
     </div>
     <div class="panel"><h3>Staff &amp; access</h3>
       <div id="staffList"><div class="empty">Loading…</div></div>
@@ -2566,6 +2585,9 @@ async function renderSettings(){
     </div>`;
   $("saveFees").onclick=saveFeeStructure;
   $("addAdmin").onclick=addAdmin;
+  $("addBranchBtn").onclick=addBranch;
+  $("addCourseBtn").onclick=addCourse;
+  loadCoursesAdmin();
   loadStaff();
 }
 async function saveFeeStructure(){
@@ -2573,16 +2595,76 @@ async function saveFeeStructure(){
   for(const b of state.branches){
     const mf=Number($("bf_"+b.id).value)||0, rf=Number($("br_"+b.id).value)||0;
     const upi=(($("bu_"+b.id)||{}).value||"").trim()||null;
-    const { error } = await db.from("branches").update({ monthly_fee:mf, registration_fee:rf, upi_id:upi }).eq("id",b.id);
+    const nm=(($("bn_"+b.id)||{}).value||"").trim()||b.name;
+    const { error } = await db.from("branches").update({ name:nm, monthly_fee:mf, registration_fee:rf, upi_id:upi }).eq("id",b.id);
     if(error){ m.className="formmsg err"; m.textContent="Couldn't save "+b.name+" — "+error.message; return; }
   }
   state.refLoaded=false; await loadRef();
   m.className="formmsg ok"; m.textContent="✓ Fee structure saved.";
 }
+async function addBranch(){
+  const m=$("nbMsg"); const name=(($("nb_name")||{}).value||"").trim();
+  if(!name) return failMsg(m,"Enter a branch name.");
+  const fee=Number(($("nb_fee")||{}).value)||0;
+  m.className="formmsg ok"; m.textContent="Adding…"; $("addBranchBtn").disabled=true;
+  const { error } = await db.from("branches").insert({ name, monthly_fee:fee });
+  $("addBranchBtn").disabled=false;
+  if(error) return failMsg(m,"Couldn't add — "+error.message);
+  state.refLoaded=false; renderSettings();
+}
+async function loadCoursesAdmin(){
+  const { data, error } = await db.from("courses").select("id,name,is_active").order("name");
+  if(error){ $("courseList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
+  state._coursesAdmin=data||[]; drawCoursesAdmin();
+}
+function drawCoursesAdmin(){
+  const list=state._coursesAdmin||[];
+  if(!list.length){ $("courseList").innerHTML=`<div class="mini" style="color:var(--muted)">No courses yet — add one below.</div>`; return; }
+  $("courseList").innerHTML=`<table><tr><th>Course / instrument</th><th>Status</th><th></th></tr>${list.map(c=>`<tr><td><input id="cn_${c.id}" value="${esc(c.name)}" style="width:200px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${c.is_active?`<span class="badge b-green">Active</span>`:`<span class="badge b-grey">Hidden</span>`}</td><td class="mini" style="white-space:nowrap"><span class="rowbtn edit" onclick="saveCourseName('${c.id}')">Save</span><span class="rowbtn" onclick="toggleCourseActive('${c.id}',${c.is_active?"false":"true"})">${c.is_active?"Hide":"Activate"}</span></td></tr>`).join("")}</table>`;
+}
+async function saveCourseName(id){
+  const v=(($("cn_"+id)||{}).value||"").trim(); if(!v){ alert("Course name can't be empty."); return; }
+  const { error } = await db.from("courses").update({ name:v }).eq("id",id);
+  if(error){ alert("Couldn't save — "+error.message); return; }
+  const el=$("cn_"+id); if(el) el.style.borderColor="var(--good)"; state.refLoaded=false;
+}
+async function toggleCourseActive(id,makeActive){
+  const { error } = await db.from("courses").update({ is_active:makeActive }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  state.refLoaded=false; loadCoursesAdmin();
+}
+async function addCourse(){
+  const m=$("ncMsg"); const name=(($("nc_name")||{}).value||"").trim();
+  if(!name) return failMsg(m,"Enter a course name.");
+  m.className="formmsg ok"; m.textContent="Adding…"; $("addCourseBtn").disabled=true;
+  const { error } = await db.from("courses").insert({ name, is_active:true });
+  $("addCourseBtn").disabled=false;
+  if(error) return failMsg(m,"Couldn't add — "+error.message);
+  $("nc_name").value=""; m.className="formmsg ok"; m.textContent="✓ Course added.";
+  state.refLoaded=false; loadCoursesAdmin();
+}
 async function loadStaff(){
-  const { data, error } = await db.from("profiles").select("full_name,email,role").in("role",["super_admin","admin","teacher"]).order("role");
+  const { data, error } = await db.from("profiles").select("id,full_name,email,role").in("role",["super_admin","admin","teacher"]).order("role");
   if(error){ $("staffList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
-  $("staffList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Role</th></tr>${(data||[]).map(p=>`<tr><td><b>${esc(p.full_name||"—")}</b></td><td>${esc(p.email||"—")}</td><td><span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc((p.role||"").replace("_"," "))}</span></td></tr>`).join("")}</table>`;
+  state._staff=data||[]; drawStaff();
+}
+function drawStaff(){
+  const rows=state._staff||[];
+  $("staffList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>${rows.map(p=>{
+    const editing=state._staffEdit===p.id;
+    const nameCell=editing?`<input id="sn_${p.id}" value="${esc(p.full_name||"")}" style="width:150px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`:`<b>${esc(p.full_name||"—")}</b>`;
+    const badge=`<span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc((p.role||"").replace("_"," "))}</span>`;
+    const actions=p.role==="teacher"?`<span class="mini" style="color:var(--muted)">Edit in Teachers</span>`:(editing?`<span class="rowbtn edit" onclick="saveStaffName('${p.id}')">Save</span><span class="rowbtn" onclick="cancelStaffEdit()">Cancel</span>`:`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span>`);
+    return `<tr><td>${nameCell}</td><td>${esc(p.email||"—")}</td><td>${badge}</td><td class="mini" style="white-space:nowrap">${actions}</td></tr>`;
+  }).join("")}</table>`;
+}
+function editStaffName(id){ state._staffEdit=id; drawStaff(); }
+function cancelStaffEdit(){ state._staffEdit=null; drawStaff(); }
+async function saveStaffName(id){
+  const v=(($("sn_"+id)||{}).value||"").trim(); if(!v){ alert("Name can't be empty."); return; }
+  const { error } = await db.from("profiles").update({ full_name:v }).eq("id",id);
+  if(error){ alert("Couldn't save — "+error.message); return; }
+  state._staffEdit=null; loadStaff();
 }
 async function addAdmin(){
   const m=$("adminMsg"); const name=$("a_name").value.trim(), email=$("a_email").value.trim(), pass=$("a_pass").value;
