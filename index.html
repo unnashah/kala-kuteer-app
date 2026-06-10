@@ -172,7 +172,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"]],
-  teacher:[["▦","Dashboard","dashboard"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["📣","Notices","notices"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  teacher:[["▦","Dashboard","dashboard"],["📣","Notices","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
@@ -341,6 +341,7 @@ async function renderDashboard(name, warn){
   M.innerHTML=`<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
       <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
+    <div id="dashNotices" style="margin-top:16px"></div>
     ${admin?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
       <div class="kpi"><div class="l">Total students</div><div class="v" id="kpiTotal">…</div></div>
@@ -357,6 +358,13 @@ async function renderDashboard(name, warn){
     if($("kpiActive")) $("kpiActive").textContent=act.count??0;
     if($("kpiTotal"))  $("kpiTotal").textContent=tot.count??0;
     if($("kpiBranch")) $("kpiBranch").textContent=state.branches.length;
+  }
+  // latest notices section, right under the dashboard header
+  const { data:notices } = await db.from("news_posts").select("id,title,body,created_at").eq("audience","all").order("created_at",{ascending:false}).limit(3);
+  if($("dashNotices") && notices && notices.length){
+    const dest = state.role==="teacher"?"notices":(isAdmin()?"news":(state.role==="student"?"mynews":null));
+    $("dashNotices").innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">📣 Latest notices</h3>${dest?`<span class="rowbtn" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
+      ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid var(--line);padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}</div>`).join("")}</div>`;
   }
 }
 
