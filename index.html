@@ -172,8 +172,8 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","Announcements","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","Announcements","news"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
@@ -369,11 +369,12 @@ async function renderDashboard(name, warn){
     if($("kpiBranch")) $("kpiBranch").textContent=state.branches.length;
   }
   // latest notices section, right under the dashboard header
-  const { data:notices } = await db.from("news_posts").select("id,title,body,created_at").eq("audience","all").order("created_at",{ascending:false}).limit(3);
+  const { data:notices } = await db.from("news_posts").select("id,title,body,media_url,created_at").eq("audience","all").order("created_at",{ascending:false}).limit(3);
   if($("dashNotices") && notices && notices.length){
     const dest = state.role==="teacher"?"notices":(isAdmin()?"news":(state.role==="student"?"mynews":null));
+    notices.forEach(regAnn);
     $("dashNotices").innerHTML=`<div class="panel" style="background:linear-gradient(180deg,#eaf5f2,#e0f0ec);border:1.5px solid var(--teal)"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:var(--teal-deep)">📣 Latest announcements</h3>${dest?`<span class="rowbtn edit" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
-      ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid #bfe0d8;padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap;color:#3c5650">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}</div>`).join("")}</div>`;
+      ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid #bfe0d8;padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap;color:#3c5650">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}<div style="margin-top:6px"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span></div></div>`).join("")}</div>`;
   }
 }
 
@@ -2195,7 +2196,9 @@ function announceCardHTML(n, myResp){
     ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
     ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
     ${respButtonsHTML(n, myResp)}
-    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span></div>
+    ${state.role==="student"
+      ? `<div style="margin-top:13px;background:#fff7e8;border:1px solid #f0e2c0;border-radius:10px;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><div style="font-size:13px;color:#7a5e1f">💛 <b>Spread the word!</b> Feel free to share this with your friends &amp; family.</div><button class="kbtn teal" style="flex:none" onclick="shareAnnounce('${n.id}')">🔗 Share</button></div>`
+      : `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span></div>`}
   </div>`;
 }
 async function respondNews(postId, resp){
