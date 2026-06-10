@@ -169,7 +169,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["🎼","Classes","classes"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"]],
-  teacher:[["▦","Dashboard","dashboard"],["🎼","My Classes","myclasses"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["📨","Slot Requests","slotreq"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  teacher:[["▦","Dashboard","dashboard"],["🎼","My Classes","myclasses"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, classes:1 }; // built modules
@@ -275,7 +275,6 @@ function navigate(key, name, warn){
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
-  if(key==="slotreq")   return renderSlotRequests();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="classes")   return renderClasses();
@@ -324,7 +323,6 @@ const MODDESC={
   myclasses:"Your classes, students & class scheduling",
   mystudents:"Students assigned to you as their primary guru",
   mycalendar:"Your class schedule & school events",
-  slotreq:"Approve student slot bookings",
   myattendance:"Mark attendance for your classes",
   earnings:"Your payouts & earnings",
   journey:"Your progress, milestones & journey",
@@ -332,7 +330,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","earnings","mycalendar","slotreq","reviews","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["myclasses","mystudents","myattendance","earnings","mycalendar","reviews","feedback"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -1171,24 +1169,50 @@ async function delSuggestion(id){
 /* ---------------- CALENDAR (school events) ---------------- */
 const EV_TYPES=["Chirag-e-Mehfil","Competition","Annual Day","Celebration","Workshop","Exam","Holiday","Other"];
 async function renderCalendar(){
-  const M=$("mainArea"); await loadRef(); state._calEdit=null;
+  const M=$("mainArea"); await loadRef(); await loadClassRefs(); state._calEdit=null; state._sessEdit=null;
   state._calMonth = state._calMonth || new Date().toISOString().slice(0,7);
-  M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Competitions, celebrations, workshops, exams &amp; holidays</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3 id="evFormTitle">Add an event</h3>
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Schedule classes for the week &amp; post school events — everyone can see this</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Schedule a class</h3>
+      <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place a class on it. Schedules can differ week to week.</p>
+      <div class="form2">
+        <div class="kf"><label>Class name *</label><input id="cs_title" placeholder="e.g. Kathak — Beginners"></div>
+        <div class="kf"><label>Guru</label><select id="cs_teacher"><option value="">— unassigned —</option>${teachOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Date *</label><input id="cs_date" type="date"></div>
+        <div class="kf"><label>Start time</label><input id="cs_time" type="time"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Branch</label><select id="cs_branch"><option value="">—</option>${branchOpts}</select></div>
+        <div class="kf"><label>Capacity</label><input id="cs_cap" type="number" min="1" value="8"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Mode</label><select id="cs_mode" onchange="onSessMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
+        <div class="kf" id="cs_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cs_zoom" placeholder="https://…"></div>
+      </div>
+      <div class="formmsg" id="csMsg"></div>
+      <button class="kbtn teal" id="addCs" onclick="saveSession()">Add class to calendar</button>
+      <button class="kbtn ghost" id="csCancelBtn" style="display:none;margin-left:6px" onclick="cancelSessEdit()">Cancel</button>
+    </div>
+    <details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:13px">＋ Add a school event (competition, holiday, Chirag-e-Mehfil…)</summary>
+      <div style="margin-top:12px">
       <div class="form2">
         <div class="kf"><label>Event title *</label><input id="ev_title" placeholder="e.g. Annual Day"></div>
         <div class="kf"><label>Type</label><select id="ev_type">${EV_TYPES.map(t=>`<option>${t}</option>`).join("")}</select></div>
       </div>
       <div class="form2">
         <div class="kf"><label>Start date *</label><input id="ev_date" type="date"></div>
-        <div class="kf"><label>End date (optional)</label><input id="ev_end" type="date"><div class="mini" style="margin-top:4px;color:var(--muted)">For multi-day events (e.g. a 3-day competition). Leave blank for a single day.</div></div>
+        <div class="kf"><label>End date (optional)</label><input id="ev_end" type="date"></div>
       </div>
       <div class="kf"><label>Poster (optional)</label><input id="ev_file" type="file" accept="image/*" style="font-size:12.5px"></div>
-      <div class="kf"><label>Details (optional)</label><textarea id="ev_desc" rows="2" placeholder="Time, venue, what students should know…"></textarea></div>
+      <div class="kf"><label>Details (optional)</label><textarea id="ev_desc" rows="2"></textarea></div>
       <div class="formmsg" id="evMsg"></div>
       <button class="kbtn teal" id="addEv" onclick="saveEvent()">Add event</button>
       <button class="kbtn ghost" id="evCancelBtn" style="display:none;margin-left:6px" onclick="cancelEvEdit()">Cancel</button>
-    </div>
+      </div>
+    </details>
     <div class="searchbar" style="justify-content:space-between">
       <div><button class="kbtn ghost" onclick="calShift(-1)">‹ Prev</button>
         <b id="calLabel" style="margin:0 12px"></b>
@@ -1197,15 +1221,17 @@ async function renderCalendar(){
     </div>
     <div id="calGrid"><div class="empty">Loading…</div></div>
     <div id="calList"></div>`;
-  $("ev_date").value=new Date().toISOString().slice(0,10);
+  const t=new Date().toISOString().slice(0,10);
+  $("cs_date").value=t; $("ev_date").value=t;
   loadCalendar();
 }
 async function loadCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
-  const { data, error } = await db.from("events").select("id,title,event_type,event_date,end_date,description,poster_url").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  const { data:ev, error } = await db.from("events").select("id,title,event_type,event_date,end_date,description,poster_url").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  state._events=data||[]; drawCalendar();
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
+  state._events=ev||[]; state._calSess=sess||[]; drawCalendar();
 }
 function drawCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
@@ -1219,23 +1245,81 @@ function drawCalendar(){
     let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd));
     for(; d<=last; d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); }
   });
+  const sessByDay={}; (state._calSess||[]).forEach(c=>{ const d=Number(String(c.session_date).slice(8,10)); (sessByDay[d]=sessByDay[d]||[]).push(c); });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
   for(let d=1;d<=dim;d++){
     const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
-    const evs=(byDay[d]||[]).map(e=>`<div class="calev" onclick="editEvent('${e.id}')" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
-    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${evs}</div>`;
+    const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" onclick="event.stopPropagation();editSession('${c.id}')" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
+    const evs=(byDay[d]||[]).map(e=>`<div class="calev" onclick="event.stopPropagation();editEvent('${e.id}')" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
+    cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
   }
-  $("calGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>`;
+  $("calGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>
+    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> · tip: click any day to schedule a class on it</div>`;
+  const sess=state._calSess||[];
+  const sessList=sess.length?`<div class="panel" style="margin-top:14px"><h3>Classes in ${MONS[mo-1]} ${y}</h3>
+    <table><tr><th>Date</th><th>Class</th><th>Guru</th><th>Time</th><th></th></tr>${sess.map(c=>`<tr>
+      <td>${esc(c.session_date)}</td>
+      <td><b>${esc(c.title)}</b>${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td>
+      <td>${esc(teacherName(c.teacher_id))}</td>
+      <td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td>
+      <td class="mini"><span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
+    </tr>`).join("")}</table></div>`:`<div class="empty">No classes scheduled in ${MONS[mo-1]} ${y} — schedule one above or click a day.</div>`;
   const list=state._events||[];
-  $("calList").innerHTML=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
+  const evList=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
     <table><tr><th>Date</th><th>Event</th><th>Type</th><th></th></tr>${list.map(e=>`<tr>
       <td>${esc(e.event_date)}${e.end_date&&e.end_date!==e.event_date?`<br><span class="mini">to ${esc(e.end_date)}</span>`:""}</td>
       <td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}${e.poster_url?` <span class="mini">📎 poster</span>`:""}</td>
       <td>${esc(e.event_type||"—")}</td>
       <td class="mini"><span class="rowbtn edit" onclick="editEvent('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delEvent('${e.id}')">Delete</span></td>
-    </tr>`).join("")}</table></div>`:`<div class="empty">No events in ${MONS[mo-1]} ${y} — add one above.</div>`;
+    </tr>`).join("")}</table></div>`:"";
+  $("calList").innerHTML=sessList+evList;
+}
+function onSessMode(){ const m=$("cs_mode")?$("cs_mode").value:"in_person"; if($("cs_zoomWrap")) $("cs_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
+function pickSessionDate(ds){ if($("cs_date")) $("cs_date").value=ds; const m=$("csMsg"); if(m){ m.className="formmsg ok"; m.textContent="Date set to "+ds+" — fill the class details and Add."; } window.scrollTo({top:0,behavior:"smooth"}); if($("cs_title")) $("cs_title").focus(); }
+async function saveSession(){
+  const m=$("csMsg"); const title=$("cs_title").value.trim(), date=$("cs_date").value;
+  if(!title) return failMsg(m,"Enter a class name.");
+  if(!date) return failMsg(m,"Pick a date.");
+  const mode=$("cs_mode").value||"in_person";
+  const rec={ title, teacher_id:$("cs_teacher").value||null, branch_id:$("cs_branch").value||null, session_date:date,
+    start_time:$("cs_time").value||null, mode, capacity:Number($("cs_cap").value)||8,
+    zoom_link:((mode==="online"||mode==="hybrid")&&$("cs_zoom").value.trim())||null };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("addCs").disabled=true;
+  let error;
+  if(state._sessEdit){ ({ error } = await db.from("class_sessions").update(rec).eq("id",state._sessEdit)); }
+  else { ({ error } = await db.from("class_sessions").insert(rec)); }
+  $("addCs").disabled=false;
+  if(error) return failMsg(m,"Couldn't save — "+error.message);
+  m.className="formmsg ok"; m.textContent=state._sessEdit?"✓ Class updated.":"✓ Class added to the calendar.";
+  state._calMonth=date.slice(0,7); cancelSessEdit(); loadCalendar();
+}
+function editSession(id){
+  const c=(state._calSess||[]).find(x=>x.id===id); if(!c) return;
+  state._sessEdit=id;
+  $("cs_title").value=c.title||""; $("cs_teacher").value=c.teacher_id||""; $("cs_branch").value=c.branch_id||"";
+  $("cs_date").value=c.session_date||""; $("cs_time").value=c.start_time?c.start_time.slice(0,5):"";
+  $("cs_mode").value=c.mode||"in_person"; $("cs_cap").value=c.capacity||8; if($("cs_zoom")) $("cs_zoom").value=c.zoom_link||"";
+  onSessMode();
+  $("csFormTitle").textContent="Edit class"; $("addCs").textContent="Save changes"; $("csCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelSessEdit(){
+  state._sessEdit=null;
+  ["cs_title","cs_time","cs_zoom"].forEach(x=>{ if($(x)) $(x).value=""; });
+  ["cs_teacher","cs_branch"].forEach(x=>{ if($(x)) $(x).value=""; });
+  if($("cs_mode")) $("cs_mode").value="in_person"; if($("cs_cap")) $("cs_cap").value=8; onSessMode();
+  if($("cs_date")) $("cs_date").value=new Date().toISOString().slice(0,10);
+  if($("csFormTitle")) $("csFormTitle").textContent="Schedule a class";
+  if($("addCs")) $("addCs").textContent="Add class to calendar";
+  if($("csCancelBtn")) $("csCancelBtn").style.display="none";
+}
+async function delSession(id){
+  if(!confirm("Delete this class from the calendar?")) return;
+  const { error } = await db.from("class_sessions").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  loadCalendar();
 }
 function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); state._calMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); state._calEdit=null; loadCalendar(); }
 function calToday(){ state._calMonth=new Date().toISOString().slice(0,7); loadCalendar(); }
@@ -1466,7 +1550,7 @@ async function renderMyClasses(){
   const ids=(cls||[]).map(c=>c.id); const counts={};
   if(ids.length){ const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed").in("batch_id",ids); (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1); }
   const { data:myStu } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
-  state._myStuForEnrol=myStu||[];
+  state._myStuForEnrol=myStu||[]; state._myClassesList=cls||[];
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
@@ -1527,13 +1611,30 @@ async function manageMyClass(id){
   if(error){ P.innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   const enrolledIds=new Set((enr||[]).map(e=>e.student_id));
   const avail=(state._myStuForEnrol||[]).filter(s=>!enrolledIds.has(s.id));
-  const roster=(enr&&enr.length)?`<table style="margin-top:8px"><tr><th>Student</th><th></th></tr>${enr.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td><td class="mini"><span class="rowbtn danger" onclick="removeMyEnrol('${e.id}','${id}')">Remove</span></td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
+  const roster=(enr&&enr.length)?`<table style="margin-top:8px"><tr><th>Student</th><th></th></tr>${enr.map(e=>`<tr><td>${esc(e.students?.full_name||"—")}</td><td class="mini"><span class="rowbtn" onclick="startMove('${e.id}','${id}','${esc((e.students?.full_name||'').replace(/'/g,''))}')">↪ Move</span><span class="rowbtn danger" onclick="removeMyEnrol('${e.id}','${id}')">Remove</span></td></tr>`).join("")}</table>`:`<div class="mini" style="margin-top:8px;color:var(--muted)">No students enrolled yet.</div>`;
   P.innerHTML=`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
     <div class="searchbar" style="margin-bottom:8px"><select id="mcEnrol_${id}" style="flex:1">${avail.length?`<option value="">Add a student…</option>${avail.map(s=>`<option value="${s.id}">${esc(s.full_name)}</option>`).join("")}`:`<option value="">No more of your students to add</option>`}</select>
       <button class="kbtn teal" onclick="enrolMyClass('${id}')">Enrol</button></div>
     <div class="formmsg" id="mcEnrolMsg_${id}"></div>
+    <div id="mvPanel_${id}"></div>
     ${roster}
-    <p class="footnote">You can add students who are assigned to you (your primary guru students). To add anyone else, ask the admin.</p></div>`;
+    <p class="footnote">Add students assigned to you. <b>Move</b> shifts a student to another of your classes for good; for a one-off make-up, use <b>Attendance</b>. To add anyone else, ask the admin.</p></div>`;
+}
+function startMove(eid, fromId, name){
+  const P=$("mvPanel_"+fromId); if(!P) return;
+  const others=(state._myClassesList||[]).filter(c=>c.id!==fromId);
+  if(!others.length){ P.innerHTML=`<div class="mini" style="color:var(--muted)">You have no other class to move ${esc(name)} to.</div>`; return; }
+  P.innerHTML=`<div class="searchbar" style="margin-bottom:8px"><span class="mini">Move <b>${esc(name)}</b> to</span>
+    <select id="mvSel_${fromId}" style="flex:1">${others.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <button class="kbtn teal" onclick="doMove('${eid}','${fromId}')">Move</button>
+    <button class="kbtn ghost" onclick="document.getElementById('mvPanel_${fromId}').innerHTML=''">Cancel</button></div>`;
+}
+async function doMove(eid, fromId){
+  const newBid=$("mvSel_"+fromId)?$("mvSel_"+fromId).value:"";
+  if(!newBid) return;
+  const { error } = await db.from("enrollments").update({ batch_id:newBid }).eq("id",eid);
+  if(error){ alert("Couldn't move — "+error.message); return; }
+  $("roster_"+fromId).dataset.open="0"; manageMyClass(fromId); renderMyClasses();
 }
 async function enrolMyClass(id){
   const m=$("mcEnrolMsg_"+id); const sid=$("mcEnrol_"+id)?$("mcEnrol_"+id).value:"";
@@ -1602,106 +1703,62 @@ async function viewMyStudent(id){
     </div>`;
 }
 
-/* ---------------- TEACHER: ATTENDANCE (per-class) ---------------- */
+/* ---------------- TEACHER: ATTENDANCE (per-student, who came today) ---------------- */
 async function renderMyAttendance(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const tid=await myTeacherId();
   if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Attendance</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
   state._maTid=tid;
-  const { data:cls } = await db.from("batches").select("id,name,day_of_week,start_time").eq("teacher_id",tid).eq("is_active",true).order("name");
+  const { data:gs } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
+  state._maStu=gs||[];
   const today=new Date().toISOString().slice(0,10);
-  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Mark attendance for your class</p></div></div>
-    ${(cls&&cls.length)?`<div class="searchbar">
-      <span class="mini">Class</span><select id="maClass" style="max-width:230px;flex:none">${cls.map(c=>`<option value="${c.id}">${esc(c.name)}${c.day_of_week!=null?" · "+DOW[c.day_of_week].slice(0,3):""}</option>`).join("")}</select>
-      <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:160px;flex:none">
-      <button class="kbtn ghost" id="maLoad">Load</button>
-      <button class="kbtn teal" id="maSave">Save attendance</button>
-    </div>
-    <p class="footnote">Once you save, you can correct a mark for up to <b>10 minutes</b>. After that, ask an admin to change it.</p>
+  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Tap the students who came in, then Save</p></div></div>
+    ${state._maStu.length?`<div class="searchbar">
+      <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:170px;flex:none">
+      <button class="kbtn teal" id="maSave">Save</button></div>
     <div class="formmsg" id="maMsg"></div>
-    <div id="maList"><div class="empty">Pick a class &amp; date, then Load.</div></div>`
-    :`<div class="empty">You have no classes yet. Add one in <b>My Classes</b>, or the admin can assign you a class.</div>`}`;
-  if(cls&&cls.length){ $("maLoad").onclick=loadMyAttendance; $("maSave").onclick=saveMyAttendance; $("maClass").onchange=loadMyAttendance; loadMyAttendance(); }
+    <div id="maList"><div class="empty">Loading…</div></div>`
+    :`<div class="empty">No students are assigned to you yet. The admin sets a student's primary guru on their profile.</div>`}`;
+  if(state._maStu.length){ $("maDate").onchange=loadMyAtt; $("maSave").onclick=saveMyAtt; loadMyAtt(); }
 }
-async function loadMyAttendance(){
-  const bid=$("maClass").value, date=$("maDate").value;
-  if(!date){ $("maMsg").className="formmsg err"; $("maMsg").textContent="Pick a date."; return; }
-  $("maMsg").textContent=""; $("maList").innerHTML=`<div class="empty">Loading students…</div>`;
-  const { data:enr, error } = await db.from("enrollments").select("students(id,full_name)").eq("batch_id",bid).eq("status","confirmed");
-  if(error){ $("maList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const studs=(enr||[]).map(e=>e.students).filter(Boolean).sort((a,b)=>(a.full_name<b.full_name?-1:1));
-  const { data:marks } = await db.from("attendance").select("id,student_id,status,marked_at").eq("batch_id",bid).eq("class_date",date);
-  const existing={}; const cur={}; (marks||[]).forEach(m=>{ existing[m.student_id]={id:m.id,status:m.status,marked_at:m.marked_at}; cur[m.student_id]=m.status; });
-  state._maExisting=existing; state._maMarks=cur; state._maStuds=studs;
-  drawMyAttendance();
+function weekRange(dateStr){ const d=parseD(dateStr); const diffToMon=(d.getDay()+6)%7; const mon=new Date(d); mon.setDate(d.getDate()-diffToMon); const sun=new Date(mon); sun.setDate(mon.getDate()+6); return { start:isoLocal(mon), end:isoLocal(sun) }; }
+async function loadMyAtt(){
+  const date=$("maDate").value; if(!date) return;
+  state._maDate=date; $("maList").innerHTML=`<div class="empty">Loading…</div>`;
+  const sids=state._maStu.map(s=>s.id); const wk=weekRange(date); state._maWeekRange=wk;
+  const { data:dayMarks } = await db.from("attendance").select("student_id").is("batch_id",null).eq("class_date",date).eq("status","present").in("student_id",sids);
+  const { data:wkMarks } = await db.from("attendance").select("student_id,class_date").is("batch_id",null).gte("class_date",wk.start).lte("class_date",wk.end).eq("status","present").in("student_id",sids);
+  state._maToday=new Set((dayMarks||[]).map(m=>m.student_id));
+  const wc={}; (wkMarks||[]).forEach(m=>{ wc[m.student_id]=(wc[m.student_id]||0)+1; }); state._maWeek=wc;
+  drawMyAtt();
 }
-function drawMyAttendance(){
-  const studs=state._maStuds||[], marks=state._maMarks||{};
-  if(!studs.length){ $("maList").innerHTML=`<div class="empty">No students enrolled in this class yet.</div>`; return; }
-  const p=Object.values(marks).filter(v=>v==="present").length;
-  const btn=(id,v,label,cls)=>`<span class="rowbtn" onclick="markMyAtt('${id}','${v}')" style="margin-right:4px${marks[id]===v?(";"+cls):""}">${label}</span>`;
-  $("maList").innerHTML=`<div class="mini" style="margin-bottom:8px">${studs.length} student${studs.length===1?"":"s"} · present: ${p}</div>
-    <table><tr><th>Student</th><th>Mark</th></tr>${studs.map(s=>`<tr>
-      <td><b>${esc(s.full_name)}</b></td>
-      <td>${btn(s.id,"present","Present","background:var(--good);color:#fff;border-color:var(--good)")}${btn(s.id,"absent","Absent","background:var(--warn);color:#fff;border-color:var(--warn)")}${btn(s.id,"excused","Excused","background:var(--saffron);color:#3a2c00;border-color:var(--saffron)")}</td>
-    </tr>`).join("")}</table>`;
+function drawMyAtt(){
+  const studs=state._maStu||[]; const today=state._maToday||new Set(); const wc=state._maWeek||{};
+  $("maList").innerHTML=`<div class="mini" style="margin-bottom:8px">Tap a student to mark them present · ${today.size} marked for this day</div>
+    <table><tr><th>Student</th><th>This week</th><th>Came in?</th></tr>${studs.map(s=>{ const n=wc[s.id]||0; const here=today.has(s.id); const wcol=n>=2?"b-green":(n===1?"b-amber":"b-grey");
+      return `<tr>
+        <td><b>${esc(s.full_name)}</b></td>
+        <td><span class="badge ${wcol}">${n}/2</span></td>
+        <td><span class="rowbtn${here?" edit":""}" onclick="toggleAtt('${s.id}')">${here?"✓ Present":"Mark present"}</span></td>
+      </tr>`; }).join("")}</table>
+    <p class="footnote">Each student attends <b>2 sessions a week</b>. The badge shows their count for this week (${esc(state._maWeekRange?state._maWeekRange.start:"")} – ${esc(state._maWeekRange?state._maWeekRange.end:"")}). Just mark whoever came in — <b>any day counts</b>, so a make-up needs nothing special. <span class="badge b-green">2/2</span> done · <span class="badge b-amber">1 left</span> · <span class="badge b-grey">none yet</span></p>`;
 }
-function markMyAtt(id,status){ state._maMarks[id]=status; drawMyAttendance(); }
-async function saveMyAttendance(){
-  const m=$("maMsg"); const bid=$("maClass").value, date=$("maDate").value, tid=state._maTid;
+function toggleAtt(sid){ const t=state._maToday; if(t.has(sid)) t.delete(sid); else t.add(sid); drawMyAtt(); }
+async function saveMyAtt(){
+  const m=$("maMsg"); const date=state._maDate, tid=state._maTid;
   const today=new Date().toISOString().slice(0,10);
-  if(date>today){ m.className="formmsg err"; m.textContent="Attendance can only be saved for today or a past date."; return; }
-  const marks=state._maMarks||{}, existing=state._maExisting||{};
-  const inserts=[], updates=[];
-  Object.keys(marks).forEach(sid=>{ const st=marks[sid]; if(!st) return; const ex=existing[sid];
-    if(!ex) inserts.push({ student_id:sid, batch_id:bid, class_date:date, status:st, marked_by:tid });
-    else if(ex.status!==st) updates.push({ id:ex.id, status:st }); });
-  if(!inserts.length && !updates.length){ m.className="formmsg err"; m.textContent="Nothing to save — mark or change a student first."; return; }
+  if(date>today){ m.className="formmsg err"; m.textContent="You can only mark today or a past date."; return; }
+  const sids=state._maStu.map(s=>s.id); const attended=[...(state._maToday||[])];
   m.className="formmsg ok"; m.textContent="Saving…";
-  if(inserts.length){ const { error } = await db.from("attendance").insert(inserts); if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; } }
-  let locked=0;
-  for(const u of updates){ const { error } = await db.from("attendance").update({ status:u.status }).eq("id",u.id); if(error) locked++; }
-  if(locked>0){ m.className="formmsg err"; m.textContent=`Saved new marks. ${locked} earlier mark(s) were locked (older than 10 minutes) — ask an admin to change those.`; }
-  else { m.className="formmsg ok"; m.textContent="✓ Attendance saved for "+date+"."; }
-  loadMyAttendance();
-}
-
-/* ---------------- TEACHER: SLOT REQUESTS (enrolment requests) ---------------- */
-async function renderSlotRequests(){
-  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
-  const tid=await myTeacherId();
-  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Slot Requests</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
-  const { data:batches } = await db.from("batches").select("id").eq("teacher_id",tid);
-  const bids=(batches||[]).map(b=>b.id);
-  let reqs=[];
-  if(bids.length){ const { data } = await db.from("enrollments").select("id,requested_at,students(full_name,branches(name)),batches(name)").eq("status","requested").in("batch_id",bids).order("requested_at"); reqs=data||[]; }
-  state._slotReqs=reqs;
-  M.innerHTML=`<div class="ph"><div><h2>Slot Requests</h2><p>Students asking to join your classes — approve or decline</p></div></div>
-    <div id="slotList"></div>`;
-  drawSlotRequests();
-}
-function drawSlotRequests(){
-  const list=state._slotReqs||[];
-  if(!list.length){ $("slotList").innerHTML=`<div class="empty">No pending requests right now. When a student asks to join one of your classes, it'll appear here.</div>`; return; }
-  $("slotList").innerHTML=`<table><tr><th>Student</th><th>Class</th><th>Requested</th><th></th></tr>
-    ${list.map(r=>`<tr>
-      <td><b>${esc(r.students?.full_name||"—")}</b>${r.students?.branches?.name?`<br><span class="mini">${esc(r.students.branches.name)}</span>`:""}</td>
-      <td>${esc(r.batches?.name||"—")}</td>
-      <td class="mini">${r.requested_at?String(r.requested_at).slice(0,10):"—"}</td>
-      <td class="mini"><span class="rowbtn edit" onclick="approveSlot('${r.id}')">✅ Approve</span><span class="rowbtn danger" onclick="declineSlot('${r.id}')">Decline</span></td>
-    </tr>`).join("")}</table>`;
-}
-async function approveSlot(id){
-  const tid=await myTeacherId();
-  const { error } = await db.from("enrollments").update({ status:"confirmed", confirmed_by:tid, confirmed_at:new Date().toISOString() }).eq("id",id);
-  if(error){ alert("Couldn't approve — "+error.message); return; }
-  state._slotReqs=(state._slotReqs||[]).filter(r=>r.id!==id); drawSlotRequests();
-}
-async function declineSlot(id){
-  if(!confirm("Decline this request?")) return;
-  const { error } = await db.from("enrollments").update({ status:"declined" }).eq("id",id);
-  if(error){ alert("Couldn't decline — "+error.message); return; }
-  state._slotReqs=(state._slotReqs||[]).filter(r=>r.id!==id); drawSlotRequests();
+  const { error:de } = await db.from("attendance").delete().is("batch_id",null).eq("class_date",date).in("student_id",sids);
+  if(de){ m.className="formmsg err"; m.textContent="Couldn't save — "+de.message; return; }
+  if(attended.length){
+    const rows=attended.map(sid=>({ student_id:sid, class_date:date, status:"present", marked_by:tid }));
+    const { error:ie } = await db.from("attendance").insert(rows);
+    if(ie){ m.className="formmsg err"; m.textContent="Couldn't save — "+ie.message; return; }
+  }
+  m.className="formmsg ok"; m.textContent="✓ Saved for "+date+".";
+  loadMyAtt();
 }
 
 /* ---------------- TEACHER: MY EARNINGS ---------------- */
@@ -1746,46 +1803,109 @@ async function loadMyEarnings(){
 async function renderMyCalendar(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const tid=await myTeacherId();
-  state._mcalMonth=state._mcalMonth||new Date().toISOString().slice(0,7);
-  let classes=[];
-  if(tid){ const { data } = await db.from("batches").select("name,day_of_week,start_time,mode").eq("teacher_id",tid).eq("is_active",true).order("day_of_week"); classes=data||[]; }
-  state._mcalClasses=classes;
-  M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>School events &amp; your weekly classes</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3>Your weekly classes</h3>
-      ${classes.length?`<table><tr><th>Class</th><th>Day</th><th>Time</th></tr>${classes.map(c=>`<tr><td><b>${esc(c.name)}</b>${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td><td>${c.day_of_week!=null?DOW[c.day_of_week]:"—"}</td><td>${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td></tr>`).join("")}</table>`:`<div class="mini" style="color:var(--muted)">No classes assigned to you yet.</div>`}
+  if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
+  await loadRef(); await loadClassRefs();
+  state._mcalTid=tid; state._mcalMonth=state._mcalMonth||new Date().toISOString().slice(0,7); state._mySessEdit=null;
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>Schedule your classes for the week — everyone can see this</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="mcsFormTitle">Schedule a class</h3>
+      <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place your class on it. Your schedule can differ week to week.</p>
+      <div class="form2">
+        <div class="kf"><label>Class name *</label><input id="mcs_title" placeholder="e.g. Kathak — Beginners"></div>
+        <div class="kf"><label>Branch</label><select id="mcs_branch"><option value="">—</option>${branchOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Date *</label><input id="mcs_date" type="date"></div>
+        <div class="kf"><label>Start time</label><input id="mcs_time" type="time"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Capacity</label><input id="mcs_cap" type="number" min="1" value="8"></div>
+        <div class="kf"><label>Mode</label><select id="mcs_mode" onchange="onMySessMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
+      </div>
+      <div class="kf" id="mcs_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="mcs_zoom" placeholder="https://…"></div>
+      <div class="formmsg" id="mcsMsg"></div>
+      <button class="kbtn teal" id="addMcs" onclick="saveMySession()">Add class to calendar</button>
+      <button class="kbtn ghost" id="mcsCancelBtn" style="display:none;margin-left:6px" onclick="cancelMySessEdit()">Cancel</button>
     </div>
     <div class="searchbar" style="justify-content:space-between">
       <div><button class="kbtn ghost" onclick="mcalShift(-1)">‹ Prev</button><b id="mcalLabel" style="margin:0 12px"></b><button class="kbtn ghost" onclick="mcalShift(1)">Next ›</button></div>
       <button class="kbtn ghost" onclick="mcalToday()">Today</button></div>
     <div id="mcalGrid"><div class="empty">Loading…</div></div>
     <div id="mcalList"></div>`;
+  $("mcs_date").value=new Date().toISOString().slice(0,10);
   loadMyCalendar();
 }
 async function loadMyCalendar(){
   const [y,mo]=state._mcalMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
-  const { data } = await db.from("events").select("id,title,event_type,event_date,end_date,description").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
-  state._mcalEvents=data||[]; drawMyCalendar();
+  const { data:ev } = await db.from("events").select("id,title,event_type,event_date,end_date,description").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,capacity,zoom_link,branch_id").gte("session_date",start).lte("session_date",end).order("session_date");
+  state._mcalEvents=ev||[]; state._mcalSess=sess||[]; drawMyCalendar();
 }
 function drawMyCalendar(){
+  const tid=state._mcalTid;
   const [y,mo]=state._mcalMonth.split("-").map(Number);
   if($("mcalLabel")) $("mcalLabel").textContent=MONS[mo-1]+" "+y;
   const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0), dim=mEnd.getDate(), first=mStart.getDay();
   const todayS=new Date().toISOString().slice(0,10);
   const byDay={}; (state._mcalEvents||[]).forEach(e=>{ const s=parseD(String(e.event_date).slice(0,10)); const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s; let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd)); for(;d<=last;d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); } });
+  const sessByDay={}; (state._mcalSess||[]).forEach(c=>{ const day=Number(String(c.session_date).slice(8,10)); (sessByDay[day]=sessByDay[day]||[]).push(c); });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
   for(let d=1;d<=dim;d++){
-    const ds=`${y}-${PAD(mo)}-${PAD(d)}`; const wday=new Date(y,mo-1,d).getDay();
-    const clsChips=(state._mcalClasses||[]).filter(c=>c.day_of_week===wday).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" title="${esc(c.name)}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.name)}</div>`).join("");
+    const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
+    const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>{ const mine=c.teacher_id===tid;
+      return `<div class="calev" style="background:${mine?"var(--saffron)":"#e6e0d4"};color:#3a2c00;border-color:${mine?"var(--saffron)":"#e6e0d4"}"${mine?` onclick="event.stopPropagation();editMySession('${c.id}')"`:""} title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`; }).join("");
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
-    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
+    cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer" onclick="pickMySessDate('${ds}')" title="Click to schedule your class on ${ds}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
   }
   $("mcalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>
-    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">your classes</span> &nbsp; <span class="badge b-teal">school events</span></div>`;
-  const list=state._mcalEvents||[];
-  $("mcalList").innerHTML=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3><table><tr><th>Date</th><th>Event</th><th>Type</th></tr>${list.map(e=>`<tr><td>${esc(e.event_date)}${e.end_date&&e.end_date!==e.event_date?`<br><span class="mini">to ${esc(e.end_date)}</span>`:""}</td><td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}</td><td>${esc(e.event_type||"—")}</td></tr>`).join("")}</table></div>`:`<div class="empty">No school events in ${MONS[mo-1]} ${y}.</div>`;
+    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">your classes</span> <span class="badge" style="background:#e6e0d4;color:#3a2c00">other gurus</span> <span class="badge b-teal">school events</span> · click a day to add yours</div>`;
+  const mine=(state._mcalSess||[]).filter(c=>c.teacher_id===tid);
+  $("mcalList").innerHTML=mine.length?`<div class="panel" style="margin-top:14px"><h3>Your classes in ${MONS[mo-1]} ${y}</h3>
+    <table><tr><th>Date</th><th>Class</th><th>Time</th><th></th></tr>${mine.map(c=>`<tr><td>${esc(c.session_date)}</td><td><b>${esc(c.title)}</b></td><td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td><td class="mini"><span class="rowbtn edit" onclick="editMySession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delMySession('${c.id}')">Delete</span></td></tr>`).join("")}</table></div>`:`<div class="empty">You haven't scheduled any classes in ${MONS[mo-1]} ${y} — add one above or click a day.</div>`;
+}
+function onMySessMode(){ const m=$("mcs_mode")?$("mcs_mode").value:"in_person"; if($("mcs_zoomWrap")) $("mcs_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
+function pickMySessDate(ds){ if($("mcs_date")) $("mcs_date").value=ds; const m=$("mcsMsg"); if(m){ m.className="formmsg ok"; m.textContent="Date set to "+ds+" — fill the details and Add."; } window.scrollTo({top:0,behavior:"smooth"}); if($("mcs_title")) $("mcs_title").focus(); }
+async function saveMySession(){
+  const m=$("mcsMsg"); const title=$("mcs_title").value.trim(), date=$("mcs_date").value, tid=state._mcalTid;
+  if(!title){ m.className="formmsg err"; m.textContent="Enter a class name."; return; }
+  if(!date){ m.className="formmsg err"; m.textContent="Pick a date."; return; }
+  const mode=$("mcs_mode").value||"in_person";
+  const rec={ title, teacher_id:tid, branch_id:$("mcs_branch").value||null, session_date:date, start_time:$("mcs_time").value||null, mode, capacity:Number($("mcs_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("mcs_zoom").value.trim())||null };
+  m.className="formmsg ok"; m.textContent="Saving…"; $("addMcs").disabled=true;
+  let error;
+  if(state._mySessEdit){ ({ error } = await db.from("class_sessions").update(rec).eq("id",state._mySessEdit)); }
+  else { ({ error } = await db.from("class_sessions").insert(rec)); }
+  $("addMcs").disabled=false;
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  m.className="formmsg ok"; m.textContent=state._mySessEdit?"✓ Class updated.":"✓ Added to the calendar.";
+  state._mcalMonth=date.slice(0,7); cancelMySessEdit(); loadMyCalendar();
+}
+function editMySession(id){
+  const c=(state._mcalSess||[]).find(x=>x.id===id); if(!c||c.teacher_id!==state._mcalTid) return;
+  state._mySessEdit=id;
+  $("mcs_title").value=c.title||""; $("mcs_branch").value=c.branch_id||""; $("mcs_date").value=c.session_date||"";
+  $("mcs_time").value=c.start_time?c.start_time.slice(0,5):""; $("mcs_mode").value=c.mode||"in_person"; $("mcs_cap").value=c.capacity||8; if($("mcs_zoom")) $("mcs_zoom").value=c.zoom_link||"";
+  onMySessMode();
+  $("mcsFormTitle").textContent="Edit class"; $("addMcs").textContent="Save changes"; $("mcsCancelBtn").style.display="inline-block";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function cancelMySessEdit(){
+  state._mySessEdit=null;
+  ["mcs_title","mcs_time","mcs_zoom"].forEach(x=>{ if($(x)) $(x).value=""; }); if($("mcs_branch")) $("mcs_branch").value="";
+  if($("mcs_mode")) $("mcs_mode").value="in_person"; if($("mcs_cap")) $("mcs_cap").value=8; onMySessMode();
+  if($("mcs_date")) $("mcs_date").value=new Date().toISOString().slice(0,10);
+  if($("mcsFormTitle")) $("mcsFormTitle").textContent="Schedule a class";
+  if($("addMcs")) $("addMcs").textContent="Add class to calendar";
+  if($("mcsCancelBtn")) $("mcsCancelBtn").style.display="none";
+}
+async function delMySession(id){
+  if(!confirm("Delete this class from the calendar?")) return;
+  const { error } = await db.from("class_sessions").delete().eq("id",id);
+  if(error){ alert("Couldn't delete — "+error.message); return; }
+  loadMyCalendar();
 }
 function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); state._mcalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadMyCalendar(); }
 function mcalToday(){ state._mcalMonth=new Date().toISOString().slice(0,7); loadMyCalendar(); }
@@ -1863,7 +1983,7 @@ function drawReviews(){
       We warmly encourage every student to sit with their guru at least <b>once a quarter</b>. It's a small, honest conversation — but the kind that can shape the months ahead. And if you'd like a parent or family member to be part of this conversation, they are always most welcome. Your guru sees you, and is always cheering you on. 💛
     </div>
     ${dueCount?`<div class="cfgwarn" style="background:#fff7e8;border:0">🔔 <b>${dueCount}</b> student${dueCount===1?"":"s"} due for their Guru Samvaad this quarter — schedule below.</div>`:`<span class="ok-pill">✓ No sessions due right now</span>`}
-    <p class="footnote" style="margin:8px 0 14px">Sessions are scheduled by the guru. An automated email/WhatsApp reminder can be switched on later once a messaging service is connected.</p>
+    <p class="footnote" style="margin:8px 0 14px">Sessions are scheduled by the guru.</p>
     ${rows.length?rows.map(card).join(""):`<div class="empty">No students to review yet.</div>`}
     ${noJoin?`<p class="footnote">${noJoin} student(s) have no joining date set, so their cycle can't be calculated — add it on their profile.</p>`:""}`;
 }
