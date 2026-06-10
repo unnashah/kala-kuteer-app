@@ -1881,17 +1881,30 @@ async function renderMyEarnings(){
   const rows=[]; let total=0, totalPaid=0;
   for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); const k=`${d.getFullYear()}-${PAD(d.getMonth()+1)}`; const earn=Math.round((byMonth[k]||0)*pct/100); const pd=Math.round(paidByMonth[k]||0); total+=earn; totalPaid+=pd; rows.push({ k, label:MONS[d.getMonth()]+" "+d.getFullYear(), earn, paid:pd }); }
   state._earnRows=rows;
-  const statusBadge=r=>{ if(r.earn===0&&r.paid===0) return "—"; if(r.paid>=r.earn&&r.paid>0) return `<span class="badge b-green">paid</span>`; if(r.paid>0) return `<span class="badge b-amber">part-paid</span>`; return `<span class="badge b-grey">pending</span>`; };
-  M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>What you've earned and what's been paid, month by month</p></div></div>
-    <div class="kpis" style="margin-bottom:18px">
-      <div class="kpi"><div class="l">Earned · last 12 months</div><div class="v">${INR(total)}</div></div>
-      <div class="kpi"><div class="l">Paid to you</div><div class="v" style="color:var(--good)">${INR(totalPaid)}</div></div>
-      <div class="kpi"><div class="l">Pending</div><div class="v" style="color:${total-totalPaid>0?'var(--warn)':'var(--ink)'}">${INR(total-totalPaid)}</div></div>
-    </div>
-    <div class="panel"><h3>Monthly earnings</h3>
+  const last3=rows.slice(0,3);
+  M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>What you've earned and what's been paid</p></div></div>
+    <div class="panel"><h3>Last 3 months</h3>
       <table><tr><th>Month</th><th>Earned</th><th>Paid</th><th>Status</th><th></th></tr>
-        ${rows.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${INR(r.earn)}</td><td>${INR(r.paid)}</td><td>${statusBadge(r)}</td><td class="mini">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice</span>`:"—"}</td></tr>`).join("")}</table>
-      <p class="footnote">“Paid” shows what the school has actually settled with you. Tap <b>Invoice</b> for a printable statement you can save or share.</p></div>`;
+        ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td>${INR(r.earn)}</td><td>${INR(r.paid)}</td><td>${earnStatus(r)}</td><td class="mini">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice</span>`:"—"}</td></tr>`).join("")}</table>
+    </div>
+    <div class="panel"><h3>Look up another month</h3>
+      <div class="searchbar"><span class="mini">Month</span><select id="earnSel" style="max-width:200px;flex:none">${rows.map(r=>`<option value="${r.k}">${esc(r.label)}</option>`).join("")}</select></div>
+      <div id="earnDetail"></div>
+      <p class="footnote">“Paid” shows what the school has actually settled with you. Tap <b>Invoice</b> for a printable statement you can save or share.</p>
+    </div>`;
+  $("earnSel").onchange=e=>showEarnMonth(e.target.value);
+  showEarnMonth(rows[0].k);
+}
+function earnStatus(r){ if(r.earn===0&&r.paid===0) return "—"; if(r.paid>=r.earn&&r.paid>0) return `<span class="badge b-green">paid</span>`; if(r.paid>0) return `<span class="badge b-amber">part-paid</span>`; return `<span class="badge b-grey">pending</span>`; }
+function showEarnMonth(k){
+  const r=(state._earnRows||[]).find(x=>x.k===k); if(!r||!$("earnDetail")) return;
+  const pending=r.earn-r.paid;
+  $("earnDetail").innerHTML=`<div class="kpis" style="margin:4px 0 0">
+      <div class="kpi"><div class="l">Earned · ${esc(r.label)}</div><div class="v">${INR(r.earn)}</div></div>
+      <div class="kpi"><div class="l">Paid</div><div class="v" style="color:var(--good)">${INR(r.paid)}</div></div>
+      <div class="kpi"><div class="l">Pending</div><div class="v" style="color:${pending>0?'var(--warn)':'var(--ink)'}">${INR(pending)}</div></div>
+    </div>
+    <div style="margin-top:12px">${r.earn>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Invoice for ${esc(r.label)}</span>`:`<span class="mini" style="color:var(--muted)">No earnings for ${esc(r.label)}.</span>`}</div>`;
 }
 function genPayoutInvoice(monthKey){
   const r=(state._earnRows||[]).find(x=>x.k===monthKey); if(!r){ alert("Couldn't open the invoice."); return; }
