@@ -363,8 +363,8 @@ async function renderDashboard(name, warn){
   const { data:notices } = await db.from("news_posts").select("id,title,body,created_at").eq("audience","all").order("created_at",{ascending:false}).limit(3);
   if($("dashNotices") && notices && notices.length){
     const dest = state.role==="teacher"?"notices":(isAdmin()?"news":(state.role==="student"?"mynews":null));
-    $("dashNotices").innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">📣 Latest notices</h3>${dest?`<span class="rowbtn" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
-      ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid var(--line);padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}</div>`).join("")}</div>`;
+    $("dashNotices").innerHTML=`<div class="panel" style="background:linear-gradient(180deg,#eaf5f2,#e0f0ec);border:1.5px solid var(--teal)"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:var(--teal-deep)">📣 Latest notices</h3>${dest?`<span class="rowbtn edit" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
+      ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid #bfe0d8;padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap;color:#3c5650">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}</div>`).join("")}</div>`;
   }
 }
 
