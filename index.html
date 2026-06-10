@@ -1890,7 +1890,7 @@ async function renderMyEarnings(){
     <div class="panel"><h3>Look up another month</h3>
       <div class="searchbar"><span class="mini">Month</span><select id="earnSel" style="max-width:200px;flex:none">${rows.map(r=>`<option value="${r.k}">${esc(r.label)}</option>`).join("")}</select></div>
       <div id="earnDetail"></div>
-      <p class="footnote">“Paid” shows what the school has actually settled with you. Tap <b>Invoice / Download</b> to open a statement — then use <b>Print</b>, or choose <b>Save as PDF</b> in the print dialog to download it.</p>
+      <p class="footnote">${total>0?`“Paid” shows what the school has actually settled with you. On a month with earnings, tap <b>Invoice / Download</b> to open a statement — then use <b>Print</b>, or choose <b>Save as PDF</b> in the print dialog to download it.`:`Your monthly earnings will appear here once your students' fees come in. You'll then be able to open and download an invoice for any month.`}</p>
     </div>`;
   $("earnSel").onchange=e=>showEarnMonth(e.target.value);
   showEarnMonth(rows[0].k);
