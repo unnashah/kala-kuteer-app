@@ -165,6 +165,8 @@
    ===================================================================== */
 const SUPABASE_URL      = "https://qazimpjrscihrfjaycxb.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
+// School UPI for student fee payments — change the id/name to your real UPI handle.
+const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 /* ===================================================================== */
 
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
@@ -279,6 +281,7 @@ function navigate(key, name, warn){
   if(key==="mynews")    return renderStudentNews();
   if(key==="stucal")    return renderStudentCalendar();
   if(key==="journey")   return renderStudentJourney();
+  if(key==="myfees")    return renderStudentFees();
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
@@ -302,7 +305,7 @@ function navigate(key, name, warn){
 async function loadRef(){
   if(state.refLoaded) return;
   const [b,c] = await Promise.all([
-    db.from("branches").select("id,name,monthly_fee").order("name"),
+    db.from("branches").select("id,name,monthly_fee,registration_fee,upi_id").order("name"),
     db.from("courses").select("id,name").eq("is_active",true).order("name")
   ]);
   state.branches = b.data||[]; state.courses = c.data||[]; state.refLoaded = true;
@@ -336,7 +339,7 @@ const MODDESC={
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey","myfees"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -2210,7 +2213,7 @@ async function myStudent(){
   if(state._stuRec!==undefined) return state._stuRec;
   const { data:{ user } } = await db.auth.getUser();
   if(!user){ state._stuRec=null; return null; }
-  const { data } = await db.from("students").select("id,full_name,branch_id,course_id,level,join_date,goal,primary_teacher_id,branches(name),courses(name)").eq("profile_id",user.id).maybeSingle();
+  const { data } = await db.from("students").select("id,full_name,branch_id,course_id,level,join_date,goal,primary_teacher_id,upi_id,branches(name,upi_id),courses(name)").eq("profile_id",user.id).maybeSingle();
   state._stuRec=data||null; return state._stuRec;
 }
 /* ----- Student: News ----- */
@@ -2286,6 +2289,50 @@ async function renderStudentJourney(){
       ${sessions.length?`<table><tr><th>Date</th><th></th></tr>${sessions.slice(0,40).map(a=>`<tr><td>${esc(String(a.class_date).slice(0,10))}</td><td><span class="badge b-green">present</span></td></tr>`).join("")}</table>`:`<div class="empty">No sessions recorded yet.</div>`}
     </div>
     <div class="panel"><h3>📋 Guru Samvaad — your guru's feedback</h3>${journey}</div>`;
+}
+
+/* ----- Student: Fees ----- */
+async function renderStudentFees(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const s=await myStudent();
+  if(!s){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
+  const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response").eq("student_id",s.id).order("due_date",{ascending:false});
+  if(error){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const list=invs||[]; const todayS=new Date().toISOString().slice(0,10);
+  const upiId=s.upi_id||(s.branches&&s.branches.upi_id)||SCHOOL_UPI.id;
+  const due=list.filter(i=>i.status!=="paid"); const totalDue=due.reduce((a,i)=>a+Number(i.amount||0),0);
+  const card=i=>{
+    const paid=i.status==="paid"; const overdue=!paid && i.due_date && i.due_date<todayS;
+    if(paid) return `<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(i.period_label||"Fees")}</b> <span class="badge b-green">Paid</span><div class="mini" style="margin-top:3px">${INR(i.amount)}</div></div><span class="rowbtn edit" onclick="genReceipt('${i.id}')">📄 Download receipt</span></div></div>`;
+    const upi=`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(SCHOOL_UPI.name)}&am=${Number(i.amount||0)}&cu=INR&tn=${encodeURIComponent("Fees "+(i.period_label||""))}`;
+    const qr=`https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encodeURIComponent(upi)}`;
+    const respBadge = i.student_response==="paid"?`<span class="badge b-amber">You marked paid — awaiting confirmation</span>`:(i.student_response==="will_pay_later"?`<span class="badge b-grey">You'll pay later</span>`:"");
+    return `<div class="panel" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><b style="font-size:15px">${esc(i.period_label||"Fees")}</b> ${overdue?`<span class="badge b-red">Overdue</span>`:`<span class="badge b-amber">Due</span>`}
+          <div class="mini" style="margin-top:3px">Amount: <b>${INR(i.amount)}</b>${i.due_date?` · due ${esc(i.due_date)}`:""}</div>
+          <div style="margin-top:6px">${respBadge}</div></div>
+        <img src="${qr}" alt="Pay QR" style="width:120px;height:120px;border:1px solid var(--line);border-radius:8px;background:#fff">
+      </div>
+      <div style="margin-top:10px;background:#eaf5f2;border:1px solid var(--teal);border-radius:10px;padding:12px 14px">
+        <div class="mini">Pay to UPI</div><div style="font-size:15px;font-weight:700">${esc(upiId)}</div>
+        <a class="kbtn teal" href="${upi}" style="text-decoration:none;display:inline-block;margin-top:8px">Pay ${INR(i.amount)} via UPI app</a>
+        <span class="mini" style="display:block;margin-top:6px;color:var(--muted)">Or scan the QR with any UPI app (Google Pay, PhonePe, Paytm…)</span>
+      </div>
+      <div style="margin-top:12px">
+        <button class="kbtn teal" onclick="studentRespond('${i.id}','paid')">✓ I've paid</button>
+        <button class="kbtn ghost" style="margin-left:6px" onclick="studentRespond('${i.id}','will_pay_later')">I'll pay later</button>
+      </div></div>`;
+  };
+  M.innerHTML=`<div class="ph"><div><h2>Fees</h2><p>View and pay your monthly fees</p></div></div>
+    ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
+    <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Monthly fees are payable in full — see the attendance/make-up policy.</p>
+    ${list.length?list.map(card).join(""):`<div class="empty">No invoices yet.</div>`}`;
+}
+async function studentRespond(id, resp){
+  const { error } = await db.rpc("student_respond_invoice",{ p_invoice:id, p_response:resp });
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  renderStudentFees();
 }
 
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
@@ -2459,11 +2506,11 @@ async function renderSettings(){
   const inp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v||0}" style="width:130px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
   M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
-      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th></tr>
-        ${state.branches.map(b=>`<tr><td><b>${esc(b.name)}</b></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td></tr>`).join("")}</table>
+      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th></tr>
+        ${state.branches.map(b=>`<tr><td><b>${esc(b.name)}</b></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td></tr>`).join("")}</table>
       <div class="formmsg" id="feeStructMsg"></div>
       <button class="kbtn teal" id="saveFees" style="margin-top:8px">Save fee structure</button>
-      <p class="footnote" style="margin-top:8px">No GST is added to tuition. Set the <b>Online</b> monthly fee here to start billing online students.</p>
+      <p class="footnote" style="margin-top:8px">No GST is added to tuition. Each branch's <b>UPI ID</b> is what its students see when paying — give Tarnaka its own, and use the same handle for Gachibowli &amp; Online if you want them together.</p>
     </div>
     <div class="panel"><h3>Staff &amp; access</h3>
       <div id="staffList"><div class="empty">Loading…</div></div>
@@ -2484,7 +2531,8 @@ async function saveFeeStructure(){
   const m=$("feeStructMsg"); m.className="formmsg ok"; m.textContent="Saving…";
   for(const b of state.branches){
     const mf=Number($("bf_"+b.id).value)||0, rf=Number($("br_"+b.id).value)||0;
-    const { error } = await db.from("branches").update({ monthly_fee:mf, registration_fee:rf }).eq("id",b.id);
+    const upi=(($("bu_"+b.id)||{}).value||"").trim()||null;
+    const { error } = await db.from("branches").update({ monthly_fee:mf, registration_fee:rf, upi_id:upi }).eq("id",b.id);
     if(error){ m.className="formmsg err"; m.textContent="Couldn't save "+b.name+" — "+error.message; return; }
   }
   state.refLoaded=false; await loadRef();
@@ -2558,6 +2606,7 @@ async function renderStudentDetail(id){
       <div class="panel"><h3>School record</h3>
         <div class="dl"><span class="k">Course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")}</span></div>
         <div class="dl"><span class="k">Primary guru</span><span>${esc(teacherName(s.primary_teacher_id))}</span></div>
+        ${s.upi_id?`<div class="dl"><span class="k">Payment UPI (override)</span><span>${esc(s.upi_id)}</span></div>`:""}
         <div class="dl"><span class="k">Attendance</span><span>${attPct!=null?attPct+"% ("+attPresent+"/"+attTotal+" days)":"—"}</span></div>
         <div class="dl"><span class="k">Latest fee</span><span>${feeHtml}</span></div>
         <div class="dl"><span class="k">Goal</span><span>${esc(s.goal||"—")}</span></div>
@@ -2627,6 +2676,7 @@ async function editStudent(id){
         <div class="kf"><label>Health / safety notes</label><textarea id="ed_health" rows="2">${esc(s.health_notes||"")}</textarea></div>
         <div class="kf"><label>How did they find us?</label><select id="ed_heard"><option value="">Select…</option>${heardOpts.map(o=>`<option value="${o[0]}"${s.heard_via===o[0]?" selected":""}>${o[1]}</option>`).join("")}</select></div>
         <div class="kf"><label>Media consent</label>${yn("ed_media",s.consent_media)}</div>
+        <div class="kf"><label>Payment UPI (optional override)</label><input id="ed_upi" value="${esc(s.upi_id||"")}" placeholder="leave blank to use the branch UPI"></div>
       </div>
     </div>
     <div class="formmsg" id="edMsg"></div>
@@ -2641,7 +2691,7 @@ async function saveStudentEdits(id){
     full_name:V("ed_name"), date_of_birth:V("ed_dob")||null, is_minor:$("ed_minor").checked,
     parent_name:V("ed_parent")||null, parent_phone:V("ed_pphone")||null, parent_email:V("ed_pemail")||null,
     phone:V("ed_phone")||null, whatsapp:V("ed_wa")||null, email:V("ed_email")||null,
-    emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null, primary_teacher_id:V("ed_guru")||null,
+    emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null, primary_teacher_id:V("ed_guru")||null, upi_id:V("ed_upi")||null,
     level:V("ed_level")||null, join_date:V("ed_join")||null, goal:V("ed_goal")||null,
     owns_instrument: owns===""?null:(owns==="yes"), health_notes:V("ed_health")||null,
     heard_via:V("ed_heard")||null, consent_media: media===""?null:(media==="yes")
