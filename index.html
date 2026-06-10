@@ -172,10 +172,10 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"]],
-  teacher:[["▦","Dashboard","dashboard"],["📣","Notices","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
-  student:[["🏠","Dashboard","dashboard"],["📣","News","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
+  super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","Announcements","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","Announcements","news"]],
+  teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  student:[["🏠","Dashboard","dashboard"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
 
@@ -323,20 +323,20 @@ const MODDESC={
   finance:"Income, expenses & centre-wise profit/loss",
   payouts:"Record & track payouts due/paid to gurus",
   inventory:"Instruments & equipment register",
-  news:"Post announcements & notices",
+  news:"Post announcements — with optional Got-it / RSVP responses",
   suggestions:"Read anonymous suggestions from students & gurus",
   teachers:"Create & manage guru logins",
   settings:"Fee structure, roles & staff access",
   feedback:"Share anonymous feedback & suggestions",
   mystudents:"Students assigned to you as their primary guru",
-  notices:"School notices & announcements from the office",
+  notices:"Announcements from the school office",
   mycalendar:"Your class schedule & school events",
   myattendance:"Mark attendance for your classes",
   earnings:"Your payouts & earnings",
   journey:"Your attendance & your guru's feedback",
   stucal:"Your class schedule & school events",
   myfees:"View & pay your fees",
-  mynews:"School announcements & news",
+  mynews:"Announcements & updates from the school",
   exams:"Exam enrolment & results"
 };
 function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey","myfees"].includes(k); }
@@ -370,7 +370,7 @@ async function renderDashboard(name, warn){
   const { data:notices } = await db.from("news_posts").select("id,title,body,created_at").eq("audience","all").order("created_at",{ascending:false}).limit(3);
   if($("dashNotices") && notices && notices.length){
     const dest = state.role==="teacher"?"notices":(isAdmin()?"news":(state.role==="student"?"mynews":null));
-    $("dashNotices").innerHTML=`<div class="panel" style="background:linear-gradient(180deg,#eaf5f2,#e0f0ec);border:1.5px solid var(--teal)"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:var(--teal-deep)">📣 Latest notices</h3>${dest?`<span class="rowbtn edit" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
+    $("dashNotices").innerHTML=`<div class="panel" style="background:linear-gradient(180deg,#eaf5f2,#e0f0ec);border:1.5px solid var(--teal)"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:var(--teal-deep)">📣 Latest announcements</h3>${dest?`<span class="rowbtn edit" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
       ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid #bfe0d8;padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap;color:#3c5650">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}</div>`).join("")}</div>`;
   }
 }
@@ -1111,7 +1111,7 @@ async function renderNews(){
   const audOpts=`<option value="all">Everyone</option>`
     + state.branches.map(b=>`<option value="branch:${b.id}">Branch · ${esc(b.name)}</option>`).join("")
     + state.courses.map(c=>`<option value="course:${c.id}">Course · ${esc(c.name)}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>News Board</h2><p>Announcements, notices &amp; competition news for students &amp; parents</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Announcements</h2><p>Post updates for students &amp; parents — competitions, events &amp; notices</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="newsFormTitle">Post an announcement</h3>
       <div class="kf"><label>Title *</label><input id="n_title" placeholder="e.g. Annual Day — 15 Aug"></div>
       <div class="kf"><label>Message</label><textarea id="n_body" rows="3" placeholder="Write the details students &amp; parents should see…"></textarea></div>
@@ -1124,6 +1124,7 @@ async function renderNews(){
         </div>
       </div>
       <div id="n_preview" style="margin:4px 0 0"></div>
+      <div class="kf"><label>Ask people to respond?</label><select id="n_resp"><option value="">No response needed</option><option value="ack">Acknowledge — "Got it ✓" (see who's seen it)</option><option value="rsvp">RSVP — Attending / Maybe / Can't make it</option></select></div>
       <div class="formmsg" id="nMsg"></div>
       <button class="kbtn teal" id="postNews">Post announcement</button>
       <button class="kbtn ghost" id="newsCancelBtn" style="display:none;margin-left:6px" onclick="cancelNewsEdit()">Cancel</button>
@@ -1133,9 +1134,31 @@ async function renderNews(){
   loadNews();
 }
 async function loadNews(){
-  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,created_at").order("created_at",{ascending:false});
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,created_at").order("created_at",{ascending:false});
   if(error){ $("newsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  state._news=data||[]; drawNews();
+  state._news=data||[];
+  const ids=(data||[]).filter(n=>n.response_type).map(n=>n.id);
+  state._newsResp={};
+  if(ids.length){ const { data:rs } = await db.from("news_responses").select("news_post_id,response,profiles(full_name)").in("news_post_id",ids);
+    (rs||[]).forEach(r=>{ const t=state._newsResp[r.news_post_id]||(state._newsResp[r.news_post_id]={}); const name=(r.profiles&&r.profiles.full_name)||"(unknown)"; (t[r.response]=t[r.response]||[]).push(name); }); }
+  drawNews();
+}
+function newsTally(n){
+  if(!n.response_type) return "";
+  const t=(state._newsResp||{})[n.id]||{}; const c=k=>(t[k]||[]).length;
+  const badges = n.response_type==="ack"
+    ? `<span class="badge b-green">✓ ${c("ack")} acknowledged</span>`
+    : `<span class="badge b-green">✅ ${c("attending")} attending</span> <span class="badge b-amber">🤔 ${c("maybe")} maybe</span> <span class="badge b-grey">🚫 ${c("not")} can't</span>`;
+  const any=c("ack")+c("attending")+c("maybe")+c("not");
+  return `<div class="mini" style="margin-top:8px">${badges}${any?` <span class="rowbtn" onclick="toggleWho('${n.id}')">👥 Who responded</span>`:""}</div><div id="who_${n.id}"></div>`;
+}
+function toggleWho(id){
+  const P=$("who_"+id); if(!P) return;
+  if(P.dataset.open==="1"){ P.innerHTML=""; P.dataset.open="0"; return; }
+  P.dataset.open="1";
+  const t=(state._newsResp||{})[id]||{};
+  const grp=(label,arr)=>(arr&&arr.length)?`<div style="margin-top:8px"><b class="mini">${label} (${arr.length})</b><div class="mini" style="color:var(--muted)">${arr.map(esc).join(", ")}</div></div>`:"";
+  P.innerHTML=`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px">${grp("✓ Acknowledged",t.ack)}${grp("✅ Attending",t.attending)}${grp("🤔 Maybe",t.maybe)}${grp("🚫 Can't make it",t.not)}</div>`;
 }
 function drawNews(){
   const list=state._news||[];
@@ -1143,11 +1166,12 @@ function drawNews(){
   $("newsList").innerHTML=list.map(n=>`<div class="panel" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><b style="font-size:15px">${esc(n.title)}</b>
-          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}</div></div>
+          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${n.response_type==="ack"?"Acknowledge":"RSVP"}</span>`:""}</div></div>
         <div style="white-space:nowrap"><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
       </div>
       ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
       ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+      ${newsTally(n)}
     </div>`).join("");
 }
 function onNewsFile(){
@@ -1173,7 +1197,7 @@ async function saveNewsPost(){
     try{ media=await uploadImage(file); }
     catch(err){ $("postNews").disabled=false; return failMsg(m,"Image upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); }
   }
-  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media };
+  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null };
   let error;
   if(state._newsEdit){ ({ error } = await db.from("news_posts").update(rec).eq("id",state._newsEdit)); }
   else {
@@ -1189,7 +1213,7 @@ function editNewsPost(id){
   const n=(state._news||[]).find(x=>x.id===id); if(!n) return;
   state._newsEdit=id;
   $("n_title").value=n.title||""; $("n_body").value=n.body||"";
-  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||"";
+  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||""; if($("n_resp")) $("n_resp").value=n.response_type||"";
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
   $("newsFormTitle").textContent="Edit announcement";
   $("postNews").textContent="Save changes"; $("newsCancelBtn").style.display="inline-block";
@@ -1199,7 +1223,7 @@ function cancelNewsEdit(){
   state._newsEdit=null;
   ["n_title","n_body","n_media"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
-  if($("n_aud")) $("n_aud").value="all";
+  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value="";
   if($("newsFormTitle")) $("newsFormTitle").textContent="Post an announcement";
   if($("postNews")) $("postNews").textContent="Post announcement";
   if($("newsCancelBtn")) $("newsCancelBtn").style.display="none";
@@ -2061,19 +2085,42 @@ async function delMySession(id){
 function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); state._mcalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadMyCalendar(); }
 function mcalToday(){ state._mcalMonth=new Date().toISOString().slice(0,7); loadMyCalendar(); }
 
-/* ---------------- TEACHER: NOTICES (read-only news feed) ---------------- */
+/* ---------------- ANNOUNCEMENTS — shared response helpers ---------------- */
+async function myUid(){ if(state._uid) return state._uid; const { data:{ user } } = await db.auth.getUser(); state._uid=user?user.id:null; return state._uid; }
+function respButtonsHTML(n, myResp){
+  if(!n.response_type) return "";
+  if(n.response_type==="ack") return `<div style="margin-top:12px">${myResp==="ack"?`<span class="badge b-green">✓ You've got it</span> <span class="rowbtn" onclick="respondNews('${n.id}','')">undo</span>`:`<button class="kbtn teal" onclick="respondNews('${n.id}','ack')">Got it ✓</button>`}</div>`;
+  if(n.response_type==="rsvp"){ const b=(v,l)=>`<button class="kbtn ${myResp===v?"teal":"ghost"}" style="margin:4px 6px 0 0" onclick="respondNews('${n.id}','${v}')">${l}</button>`;
+    return `<div style="margin-top:12px"><div class="mini" style="margin-bottom:4px">Will you attend?</div>${b("attending","✅ Attending")}${b("maybe","🤔 Maybe")}${b("not","🚫 Can't make it")}</div>`; }
+  return "";
+}
+function announceCardHTML(n, myResp){
+  return `<div class="panel" style="margin-bottom:12px">
+    <b style="font-size:15px">${esc(n.title)}</b><div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
+    ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
+    ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+    ${respButtonsHTML(n, myResp)}
+  </div>`;
+}
+async function respondNews(postId, resp){
+  const uid=await myUid(); if(!uid) return;
+  if(resp===""){ await db.from("news_responses").delete().eq("news_post_id",postId).eq("profile_id",uid); }
+  else { const { error } = await db.from("news_responses").upsert({ news_post_id:postId, profile_id:uid, response:resp },{ onConflict:"news_post_id,profile_id" }); if(error){ alert("Couldn't record — "+error.message); return; } }
+  if(state.role==="student") renderStudentNews(); else renderNotices();
+}
+async function loadMyResponses(){
+  const uid=await myUid(); const map={};
+  if(uid){ const { data:rs } = await db.from("news_responses").select("news_post_id,response").eq("profile_id",uid); (rs||[]).forEach(r=>map[r.news_post_id]=r.response); }
+  return map;
+}
+/* ---------------- TEACHER: ANNOUNCEMENTS feed ---------------- */
 async function renderNotices(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
-  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,created_at").eq("audience","all").order("created_at",{ascending:false});
-  if(error){ M.innerHTML=`<div class="ph"><div><h2>Notices</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const list=data||[];
-  M.innerHTML=`<div class="ph"><div><h2>Notices</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
-    ${list.length?list.map(n=>`<div class="panel" style="margin-bottom:12px">
-        <b style="font-size:15px">${esc(n.title)}</b>
-        <div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
-        ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-        ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
-      </div>`).join(""):`<div class="empty">No notices yet. Announcements from the school office will appear here.</div>`}`;
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,response_type,created_at").eq("audience","all").order("created_at",{ascending:false});
+  if(error){ M.innerHTML=`<div class="ph"><div><h2>Announcements</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const list=data||[]; const myResp=await loadMyResponses();
+  M.innerHTML=`<div class="ph"><div><h2>Announcements</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
+    ${list.length?list.map(n=>announceCardHTML(n,myResp[n.id])).join(""):`<div class="empty">No announcements yet. Updates from the school office will appear here.</div>`}`;
 }
 
 /* ---------------- GURU SAMVAAD (quarterly 1:1 student–guru feedback session) ---------------- */
@@ -2221,15 +2268,11 @@ async function renderStudentNews(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const s=await myStudent();
   const aud=["all"]; if(s&&s.branch_id) aud.push("branch:"+s.branch_id); if(s&&s.course_id) aud.push("course:"+s.course_id);
-  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,created_at").in("audience",aud).order("created_at",{ascending:false});
-  if(error){ M.innerHTML=`<div class="ph"><div><h2>News</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const list=data||[];
-  M.innerHTML=`<div class="ph"><div><h2>News</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
-    ${list.length?list.map(n=>`<div class="panel" style="margin-bottom:12px">
-        <b style="font-size:15px">${esc(n.title)}</b><div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
-        ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-        ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
-      </div>`).join(""):`<div class="empty">No news yet.</div>`}`;
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,response_type,created_at").in("audience",aud).order("created_at",{ascending:false});
+  if(error){ M.innerHTML=`<div class="ph"><div><h2>Announcements</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const list=data||[]; const myResp=await loadMyResponses();
+  M.innerHTML=`<div class="ph"><div><h2>Announcements</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
+    ${list.length?list.map(n=>announceCardHTML(n,myResp[n.id])).join(""):`<div class="empty">No announcements yet.</div>`}`;
 }
 /* ----- Student: Calendar (read-only) ----- */
 async function renderStudentCalendar(){
