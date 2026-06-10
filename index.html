@@ -173,7 +173,7 @@ const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📋","Guru Samvaad","reviews"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["🪕","Inventory","inventory"],["📣","News Board","news"],["💡","Suggestions","suggestions"],["🎓","Teachers","teachers"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["👥","Students","students"],["✓","Attendance","attendance"],["📨","Enquiries","enquiries"],["📝","Intake Form","intake"],["₹","Fees & Invoices","fees"],["🗓","Calendar","calendar"],["🪕","Inventory","inventory"],["📣","News Board","news"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Notices","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
-  student:[["🏠","Dashboard","dashboard"],["🌱","My Journey","journey"],["🗓","My Calendar","mycalendar"],["₹","Fees","myfees"],["📣","News","mynews"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
+  student:[["🏠","Dashboard","dashboard"],["📣","News","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["📜","Exams","exams"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
 
@@ -276,6 +276,9 @@ function navigate(key, name, warn){
   if(key==="feedback")  return renderSubmitFeedback();
   if(key==="mystudents") return renderMyStudents();
   if(key==="notices")   return renderNotices();
+  if(key==="mynews")    return renderStudentNews();
+  if(key==="stucal")    return renderStudentCalendar();
+  if(key==="journey")   return renderStudentJourney();
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
@@ -327,12 +330,13 @@ const MODDESC={
   mycalendar:"Your class schedule & school events",
   myattendance:"Mark attendance for your classes",
   earnings:"Your payouts & earnings",
-  journey:"Your progress, milestones & journey",
+  journey:"Your attendance & your guru's feedback",
+  stucal:"Your class schedule & school events",
   myfees:"View & pay your fees",
   mynews:"School announcements & news",
   exams:"Exam enrolment & results"
 };
-function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -2199,6 +2203,89 @@ async function cancelPTM(rid){
   const { error } = await db.from("progress_reviews").delete().eq("id",rid);
   if(error){ alert("Couldn't cancel — "+error.message); return; }
   renderReviews();
+}
+
+/* ================= STUDENT / PARENT APP ================= */
+async function myStudent(){
+  if(state._stuRec!==undefined) return state._stuRec;
+  const { data:{ user } } = await db.auth.getUser();
+  if(!user){ state._stuRec=null; return null; }
+  const { data } = await db.from("students").select("id,full_name,branch_id,course_id,level,join_date,goal,primary_teacher_id,branches(name),courses(name)").eq("profile_id",user.id).maybeSingle();
+  state._stuRec=data||null; return state._stuRec;
+}
+/* ----- Student: News ----- */
+async function renderStudentNews(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const s=await myStudent();
+  const aud=["all"]; if(s&&s.branch_id) aud.push("branch:"+s.branch_id); if(s&&s.course_id) aud.push("course:"+s.course_id);
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,created_at").in("audience",aud).order("created_at",{ascending:false});
+  if(error){ M.innerHTML=`<div class="ph"><div><h2>News</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const list=data||[];
+  M.innerHTML=`<div class="ph"><div><h2>News</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
+    ${list.length?list.map(n=>`<div class="panel" style="margin-bottom:12px">
+        <b style="font-size:15px">${esc(n.title)}</b><div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
+        ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
+        ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+      </div>`).join(""):`<div class="empty">No news yet.</div>`}`;
+}
+/* ----- Student: Calendar (read-only) ----- */
+async function renderStudentCalendar(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  await loadClassRefs();
+  state._scalMonth=state._scalMonth||new Date().toISOString().slice(0,7);
+  M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>Class schedule &amp; school events</p></div></div>
+    <div class="searchbar" style="justify-content:space-between"><div><button class="kbtn ghost" onclick="scalShift(-1)">‹ Prev</button><b id="scalLabel" style="margin:0 12px"></b><button class="kbtn ghost" onclick="scalShift(1)">Next ›</button></div><button class="kbtn ghost" onclick="scalToday()">Today</button></div>
+    <div id="scalGrid"><div class="empty">Loading…</div></div>`;
+  loadStudentCalendar();
+}
+async function loadStudentCalendar(){
+  const [y,mo]=state._scalMonth.split("-").map(Number);
+  const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
+  const { data:ev } = await db.from("events").select("id,title,event_date,end_date").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time").gte("session_date",start).lte("session_date",end).order("session_date");
+  state._scalEvents=ev||[]; state._scalSess=sess||[]; drawStudentCalendar();
+}
+function drawStudentCalendar(){
+  const [y,mo]=state._scalMonth.split("-").map(Number);
+  if($("scalLabel")) $("scalLabel").textContent=MONS[mo-1]+" "+y;
+  const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0), dim=mEnd.getDate(), first=mStart.getDay();
+  const todayS=new Date().toISOString().slice(0,10);
+  const byDay={}; (state._scalEvents||[]).forEach(e=>{ const s=parseD(String(e.event_date).slice(0,10)); const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s; let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd)); for(;d<=last;d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); } });
+  const sessByDay={}; (state._scalSess||[]).forEach(c=>{ const day=Number(String(c.session_date).slice(8,10)); (sessByDay[day]=sessByDay[day]||[]).push(c); });
+  const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
+  let cells="";
+  for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
+  for(let d=1;d<=dim;d++){ const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
+    const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
+    const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
+    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
+  }
+  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>`;
+}
+function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); state._scalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadStudentCalendar(); }
+function scalToday(){ state._scalMonth=new Date().toISOString().slice(0,7); loadStudentCalendar(); }
+/* ----- Student: My Attendance / Journey ----- */
+async function renderStudentJourney(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const s=await myStudent();
+  if(!s){ M.innerHTML=`<div class="ph"><div><h2>My Attendance</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
+  const { data:att } = await db.from("attendance").select("class_date,status").eq("student_id",s.id).eq("status","present").order("class_date",{ascending:false});
+  const sessions=att||[];
+  const now=new Date(); const wk=weekRange(now.toISOString().slice(0,10)); const monthKey=now.toISOString().slice(0,7);
+  let wkCount=0, moCount=0; sessions.forEach(a=>{ const d=String(a.class_date).slice(0,10); if(d>=wk.start&&d<=wk.end) wkCount++; if(d.slice(0,7)===monthKey) moCount++; });
+  const { data:rv } = await db.from("progress_reviews").select("quarter_label,scheduled_at,notes,status").eq("student_id",s.id).eq("status","completed").order("scheduled_at",{ascending:false});
+  const journey=(rv&&rv.length)?rv.map(r=>`<div style="margin-bottom:12px"><div class="mini"><b>${r.scheduled_at?fmtDateTime(r.scheduled_at):fmtNiceDate(r.quarter_label)}</b></div><div style="white-space:pre-wrap;font-size:13px;margin-top:3px;line-height:1.5">${esc(r.notes||"—")}</div></div>`).join(""):`<div class="mini" style="color:var(--muted)">No feedback notes yet. After your next Guru Samvaad, your guru's notes will appear here.</div>`;
+  M.innerHTML=`<div class="ph"><div><h2>My Attendance</h2><p>Your sessions &amp; your guru's feedback</p></div></div>
+    <div class="kpis" style="margin-bottom:14px">
+      <div class="kpi"><div class="l">Sessions this week</div><div class="v">${wkCount}<span style="font-size:14px;color:var(--muted)"> / 2</span></div></div>
+      <div class="kpi"><div class="l">Sessions this month</div><div class="v">${moCount}</div></div>
+      <div class="kpi"><div class="l">Total recorded</div><div class="v">${sessions.length}</div></div>
+    </div>
+    <p class="footnote">You're expected to attend <b>2 sessions a week</b>. If you miss one, follow up with your guru and make it up within the <b>same month</b> — classes not made up that month are forfeited, the monthly fee still applies, and unused classes don't roll over to the next month.</p>
+    <div class="panel"><h3>Sessions attended</h3>
+      ${sessions.length?`<table><tr><th>Date</th><th></th></tr>${sessions.slice(0,40).map(a=>`<tr><td>${esc(String(a.class_date).slice(0,10))}</td><td><span class="badge b-green">present</span></td></tr>`).join("")}</table>`:`<div class="empty">No sessions recorded yet.</div>`}
+    </div>
+    <div class="panel"><h3>📋 Guru Samvaad — your guru's feedback</h3>${journey}</div>`;
 }
 
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
