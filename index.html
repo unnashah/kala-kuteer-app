@@ -1364,6 +1364,10 @@ async function renderNews(){
       <div id="n_preview" style="margin:4px 0 0"></div>
       <div class="kf"><label>Ask people to respond?</label><select id="n_resp"><option value="">No response needed</option><option value="ack">Acknowledge — "Got it ✓" (see who's seen it)</option><option value="rsvp">RSVP — Attending / Maybe / Can't make it</option></select></div>
       <div class="kf"><label>Where should this appear?</label><select id="n_web"><option value="app">📱 App only — students &amp; parents</option><option value="web">🌐 App + Website — also on the public News &amp; Announcements page</option></select></div>
+      <div class="form2">
+        <div class="kf"><label>Alignment</label><select id="n_align"><option value="left">Left</option><option value="center">Centered</option></select></div>
+        <div class="kf"><label>Image</label><select id="n_imgfull"><option value="">Normal</option><option value="1">Full-width</option></select></div>
+      </div>
       <div class="formmsg" id="nMsg"></div>
       <button class="kbtn teal" id="postNews">Post announcement</button>
       <button class="kbtn ghost" id="newsCancelBtn" style="display:none;margin-left:6px" onclick="cancelNewsEdit()">Cancel</button>
@@ -1373,7 +1377,7 @@ async function renderNews(){
   loadNews();
 }
 async function loadNews(){
-  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,public_web,created_at").order("created_at",{ascending:false});
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,public_web,align,img_full,created_at").order("created_at",{ascending:false});
   if(error){ $("newsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._news=data||[];
   const ids=(data||[]).filter(n=>n.response_type).map(n=>n.id);
@@ -1409,8 +1413,10 @@ function drawNews(){
           <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${n.response_type==="ack"?"Acknowledge":"RSVP"}</span>`:""}${n.public_web?` · <span class="badge b-green">🌐 website</span>`:""}</div></div>
         <div style="white-space:nowrap"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
       </div>
+      <div style="text-align:${n.align==="center"?"center":"left"}">
       ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-      ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+      ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="${n.img_full?"width:100%;max-width:100%":"max-width:320px;max-height:220px"};border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+      </div>
       ${newsTally(n)}
     </div>`).join("");
 }
@@ -1437,7 +1443,7 @@ async function saveNewsPost(){
     try{ media=await uploadImage(file); }
     catch(err){ $("postNews").disabled=false; return failMsg(m,"Image upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); }
   }
-  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null, public_web: !!($("n_web")&&$("n_web").value==="web") };
+  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null, public_web: !!($("n_web")&&$("n_web").value==="web"), align:($("n_align")&&$("n_align").value)||"left", img_full: !!($("n_imgfull")&&$("n_imgfull").value) };
   let error;
   if(state._newsEdit){ ({ error } = await db.from("news_posts").update(rec).eq("id",state._newsEdit)); }
   else {
@@ -1453,7 +1459,7 @@ function editNewsPost(id){
   const n=(state._news||[]).find(x=>x.id===id); if(!n) return;
   state._newsEdit=id;
   $("n_title").value=n.title||""; $("n_body").value=n.body||"";
-  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||""; if($("n_resp")) $("n_resp").value=n.response_type||""; if($("n_web")) $("n_web").value=n.public_web?"web":"app";
+  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||""; if($("n_resp")) $("n_resp").value=n.response_type||""; if($("n_web")) $("n_web").value=n.public_web?"web":"app"; if($("n_align")) $("n_align").value=n.align||"left"; if($("n_imgfull")) $("n_imgfull").value=n.img_full?"1":"";
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
   $("newsFormTitle").textContent="Edit announcement";
   $("postNews").textContent="Save changes"; $("newsCancelBtn").style.display="inline-block";
@@ -1463,7 +1469,7 @@ function cancelNewsEdit(){
   state._newsEdit=null;
   ["n_title","n_body","n_media"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
-  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value=""; if($("n_web")) $("n_web").value="app";
+  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value=""; if($("n_web")) $("n_web").value="app"; if($("n_align")) $("n_align").value="left"; if($("n_imgfull")) $("n_imgfull").value="";
   if($("newsFormTitle")) $("newsFormTitle").textContent="Post an announcement";
   if($("postNews")) $("postNews").textContent="Post announcement";
   if($("newsCancelBtn")) $("newsCancelBtn").style.display="none";
@@ -2308,10 +2314,14 @@ function respButtonsHTML(n, myResp){
 }
 function announceCardHTML(n, myResp){
   regAnn(n);
+  const al=n.align==="center"?"center":"left";
+  const imgStyle=`${n.img_full?"width:100%;max-width:100%":"max-width:320px;max-height:220px"};border-radius:8px;margin:10px 0 0;border:1px solid var(--line)`;
   return `<div class="panel" style="margin-bottom:12px">
+    <div style="text-align:${al}">
     <b style="font-size:15px">${esc(n.title)}</b><div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
     ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-    ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="max-width:320px;max-height:220px;border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+    ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="${imgStyle}">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+    </div>
     ${respButtonsHTML(n, myResp)}
     ${state.role==="student"
       ? `<div style="margin-top:13px;background:#fff7e8;border:1px solid #f0e2c0;border-radius:10px;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><div style="font-size:13px;color:#7a5e1f">💛 <b>Spread the word!</b> Feel free to share this with your friends &amp; family.</div><button class="kbtn teal" style="flex:none" onclick="shareAnnounce('${n.id}')">🔗 Share</button></div>`
@@ -2330,24 +2340,50 @@ async function loadMyResponses(){
   return map;
 }
 /* ----- Share an announcement to social media / WhatsApp ----- */
-function regAnn(n){ (state._annById||(state._annById={}))[n.id]={ title:n.title||"", body:n.body||"", media_url:n.media_url||"" }; }
+function regAnn(n){ (state._annById||(state._annById={}))[n.id]={ title:n.title||"", body:n.body||"", media_url:n.media_url||"", align:n.align||"left", img_full:!!n.img_full }; }
 function annShareText(n){ return (n.title||"")+(n.body?("\n\n"+n.body):"")+"\n\n— Kala Kuteer"; }
+function annLoadImg(src,cross){ return new Promise((res,rej)=>{ const i=new Image(); if(cross) i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("img")); i.src=src; }); }
+async function buildShareImage(n, withPoster){
+  const W=1080, pad=60, innerW=W-pad*2;
+  let logo=null, poster=null;
+  try{ logo=await annLoadImg("kala-kuteer-logo.png"); }catch(e){}
+  if(withPoster && n.media_url && /(\.(png|jpe?g|gif|webp)(\?|$)|\/uploads\/)/i.test(n.media_url)){ try{ poster=await annLoadImg(n.media_url,true); }catch(e){ poster=null; } }
+  const c=document.createElement("canvas"); const ctx=c.getContext("2d");
+  const titleFont="700 52px Georgia, serif", bodyFont="32px Arial, sans-serif";
+  function wrap(text,font,maxW){ ctx.font=font; const ws=(text||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean); const ls=[]; let ln="";
+    for(const w of ws){ const t=ln?ln+" "+w:w; if(ctx.measureText(t).width>maxW && ln){ ls.push(ln); ln=w; } else ln=t; } if(ln) ls.push(ln); return ls; }
+  const tLines=wrap(n.title||"", titleFont, innerW);
+  let bLines=n.body?wrap(n.body, bodyFont, innerW):[];
+  if(bLines.length>7){ bLines=bLines.slice(0,7); bLines[6]=bLines[6]+"…"; }
+  const logoW=logo?Math.min(420,innerW):0, logoH=logo?logoW*logo.height/logo.width:0;
+  let posW=0,posH=0; if(poster){ posW=innerW; posH=posW*poster.height/poster.width; if(posH>820){ posH=820; posW=posH*poster.width/poster.height; } }
+  const footerH=100;
+  const h=pad + (logo?logoH+34:0) + tLines.length*64 + 18 + (bLines.length?bLines.length*44+18:0) + (poster?posH+30:0) + 24 + footerH;
+  c.width=W; c.height=Math.round(h);
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,c.height);
+  ctx.lineWidth=6; ctx.strokeStyle="#F0A92B"; ctx.strokeRect(3,3,W-6,c.height-6);
+  ctx.textAlign="center"; ctx.textBaseline="top"; let y=pad;
+  if(logo){ try{ ctx.drawImage(logo,(W-logoW)/2,y,logoW,logoH); }catch(e){} y+=logoH+34; }
+  ctx.fillStyle="#7A2233"; ctx.font=titleFont; tLines.forEach(l=>{ ctx.fillText(l,W/2,y); y+=64; }); y+=18;
+  if(bLines.length){ ctx.fillStyle="#4a4036"; ctx.font=bodyFont; bLines.forEach(l=>{ ctx.fillText(l,W/2,y); y+=44; }); y+=18; }
+  if(poster){ try{ ctx.drawImage(poster,(W-posW)/2,y,posW,posH); y+=posH+30; }catch(e){} }
+  ctx.fillStyle="#7A2233"; ctx.fillRect(0,c.height-footerH,W,footerH);
+  ctx.fillStyle="#fff"; ctx.font="30px Arial, sans-serif"; ctx.textBaseline="middle";
+  ctx.fillText("kalakuteer.org    ·    +91 8400806285", W/2, c.height-footerH/2);
+  return await new Promise(res=>{ try{ c.toBlob(b=>res(b),"image/png"); }catch(e){ res(null); } });
+}
 async function shareAnnounce(id){
   const n=(state._annById||{})[id]; if(!n) return;
   const text=annShareText(n);
-  if(navigator.share){
+  if(navigator.share && navigator.canShare){
     try{
-      if(n.media_url && /(\.(png|jpe?g|gif|webp)(\?|$)|\/uploads\/)/i.test(n.media_url) && navigator.canShare){
-        try{
-          const resp=await fetch(n.media_url); const blob=await resp.blob();
-          const file=new File([blob],"kala-kuteer.jpg",{type:blob.type||"image/jpeg"});
-          if(navigator.canShare({files:[file]})){ await navigator.share({ title:n.title||"Kala Kuteer", text, files:[file] }); return; }
-        }catch(e){ /* fall through to text share */ }
-      }
-      await navigator.share({ title:n.title||"Kala Kuteer", text });
-      return;
+      let blob=await buildShareImage(n,true);
+      if(!blob) blob=await buildShareImage(n,false);
+      if(blob){ const file=new File([blob],"kala-kuteer.png",{type:"image/png"});
+        if(navigator.canShare({files:[file]})){ await navigator.share({ title:n.title||"Kala Kuteer", text, files:[file] }); return; } }
     }catch(e){ if(e&&e.name==="AbortError") return; }
   }
+  if(navigator.share){ try{ await navigator.share({ title:n.title||"Kala Kuteer", text }); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
   shareMenu(text);
 }
 function shareMenu(text){
