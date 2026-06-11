@@ -173,7 +173,7 @@ const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
-  student:[["🏠","Dashboard","dashboard"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
+  student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
 
@@ -208,6 +208,10 @@ async function loadApp(session){
   else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; pinSet=data[0].pin_set!==false; }
   state.role=role; state.name=name;
   if((role==="student"||role==="teacher"||role==="admin") && !pinSet){ renderSetPin(name, role); show("app"); return; }
+  if(role==="student"){
+    const { data:st } = await db.from("students").select("id,full_name,date_of_birth,is_minor,phone,parent_phone,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,goal,owns_instrument,health_notes,heard_via,intake_completed,branch_id,course_id,primary_teacher_id,branches(name),courses(name)").eq("profile_id", session.user.id).maybeSingle();
+    if(st && st.intake_completed!==true){ state._intakeSt=st; show("app"); renderStudentIntake(st); return; }
+  }
   renderShell(role, name, warn);
   show("app");
 }
@@ -240,6 +244,99 @@ async function saveNewPin(){
   loadApp(session);
 }
 
+async function renderStudentIntake(st){
+  try{ await loadClassRefs(); }catch(e){}
+  $("whoName").textContent="Hi, "+(((st.full_name||"").split(" ")[0])||"there");
+  $("whoRole").textContent="Student";
+  $("sideNav").innerHTML="";
+  const minor=!!st.is_minor;
+  const mobile=st.phone||st.parent_phone||"—";
+  const guru=st.primary_teacher_id?teacherName(st.primary_teacher_id):"—";
+  const cc=id=>`<select id="${id}_cc" style="max-width:150px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
+  const numIn=id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
+  const rv=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:8px 0;font-size:13px"><span style="color:var(--muted)">${esc(l)}</span><b style="text-align:right">${esc(v||"—")}</b></div>`;
+  $("mainArea").innerHTML=`<div style="max-width:620px;margin:2px auto">
+    <h2 style="font-size:21px;margin:0 0 4px">Welcome, ${esc((st.full_name||"").split(" ")[0]||"")} 👋</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px">Let's complete your enrolment. Please check the details below, fill in the rest, and sign.</p>
+    <div class="panel"><h3>Please check the details we've entered</h3>
+      <p class="mini" style="color:var(--muted);margin:-2px 0 10px">The school filled these in for you — have a quick look.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
+        ${rv("Name",st.full_name)}${rv("Date of birth",st.date_of_birth)}
+        ${rv("Mobile",mobile)}${rv("Branch",st.branches&&st.branches.name)}
+        ${rv("Course",st.courses&&st.courses.name)}${rv("Primary guru",guru)}
+        ${rv("Class level",st.level)}${rv("Joining date",st.join_date)}
+      </div>
+      <div style="margin-top:12px"><span class="rowbtn" onclick="document.getElementById('siFlag').style.display=''">⚠️ Something's wrong</span></div>
+      <div id="siFlag" style="display:none;margin-top:10px;background:#FBF1DA;border:1px solid var(--saffron);border-radius:9px;padding:12px">
+        <div class="kf" style="margin:0 0 8px"><label>What needs correcting? We'll fix it.</label><textarea id="si_flagnote" rows="2" placeholder="e.g. my date of birth is wrong"></textarea></div>
+        <button class="kbtn ghost" onclick="flagIntakeIssue()">Send to office</button>
+        <span class="mini" id="si_flagmsg" style="margin-left:8px"></span>
+      </div>
+    </div>
+    <div class="panel"><h3>Your details</h3>
+      ${minor?`<div class="kf"><label>Parent / guardian name *</label><input id="si_parent" value="${esc(st.parent_name||"")}"></div>`:""}
+      <div class="kf"><label>WhatsApp number *</label><div style="display:flex;gap:6px">${cc('si_wa')}${numIn('si_wa')}</div></div>
+      <div class="kf"><label>${minor?"Parent's email *":"Email *"}</label><input id="si_email" type="email" value="${esc((minor?st.parent_email:st.email)||"")}"></div>
+      <div class="kf"><label>Emergency contact *</label><div style="display:flex;gap:6px">${cc('si_emer')}${numIn('si_emer')}</div></div>
+      <div class="kf"><label>Health / safety — anything we should know? *</label><textarea id="si_health" rows="2" placeholder="e.g. asthma — or write NA">${esc(st.health_notes||"")}</textarea></div>
+      <div class="kf"><label>Goal *</label><select id="si_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
+      <div class="kf"><label>How did you hear about us? *</label><select id="si_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
+      <div class="kf"><label>Owns the instrument? *</label><select id="si_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+    </div>
+    <div class="panel"><h3>Consent &amp; signature</h3>
+      <div class="notice"><b>IMPORTANT NOTICE</b><br>
+        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
+        <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
+        <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
+        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your teacher and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
+        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
+      <div class="check"><input type="checkbox" id="si_terms"><label for="si_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
+      <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="si_signer" value="${esc(st.parent_name||st.full_name||"")}"></div>
+      <div class="mini" style="color:var(--muted);margin:-4px 0 10px">Date: ${esc(new Date().toLocaleDateString())}</div>
+      <div class="formmsg" id="si_msg"></div>
+      <button class="kbtn teal" id="si_submit" style="width:100%">Submit &amp; sign ✍️</button>
+    </div>
+  </div>`;
+  if(st.goal&&$("si_goal")) $("si_goal").value=st.goal;
+  if(st.heard_via&&$("si_heard")) $("si_heard").value=st.heard_via;
+  if(st.owns_instrument!=null&&$("si_owns")) $("si_owns").value=st.owns_instrument?"yes":"no";
+  $("si_submit").onclick=submitStudentIntake;
+}
+async function submitStudentIntake(){
+  const st=state._intakeSt||{}; const minor=!!st.is_minor; const m=$("si_msg");
+  const D=id=>((($(id)||{}).value)||"").toString().trim();
+  const digits=id=>D(id).replace(/\D/g,"");
+  const fail=(id,t)=>{ m.className="formmsg err"; m.textContent=t; const el=$(id); if(el){ el.focus(); el.scrollIntoView({block:"center",behavior:"smooth"}); } return false; };
+  if(minor && !D("si_parent")) return fail("si_parent","Please enter the parent/guardian name.");
+  const wc=$("si_wa_cc").value, wn=digits("si_wa");
+  if(!wn) return fail("si_wa","Please enter a WhatsApp number.");
+  if(!phoneOK(wc,wn)) return fail("si_wa","That WhatsApp number doesn't look right — "+wc+" needs "+phoneHint(wc)+".");
+  if(!D("si_email")) return fail("si_email","Please enter the email.");
+  const ec=$("si_emer_cc").value, en=digits("si_emer");
+  if(!en) return fail("si_emer","Please enter an emergency contact number.");
+  if(!phoneOK(ec,en)) return fail("si_emer","Emergency contact — "+ec+" needs "+phoneHint(ec)+".");
+  if(!D("si_health")) return fail("si_health","Please fill health/safety (write NA if none).");
+  if(!D("si_goal")) return fail("si_goal","Please choose a goal.");
+  if(!D("si_heard")) return fail("si_heard","Please choose how you found us.");
+  if(!D("si_owns")) return fail("si_owns","Please choose whether you own the instrument.");
+  if(!$("si_terms").checked){ m.className="formmsg err"; m.textContent="Please tick to acknowledge the IMPORTANT NOTICE."; $("si_terms").focus(); return; }
+  if(!D("si_signer")) return fail("si_signer","Please enter the name of the person consenting.");
+  const p={ parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
+    email: minor? null : D("si_email"), parent_email: minor? D("si_email") : null,
+    emergency_contact: ec+en, goal:D("si_goal"), owns_instrument:D("si_owns")==="yes",
+    health_notes:D("si_health"), heard_via:D("si_heard"), consent_signed_by:D("si_signer") };
+  $("si_submit").disabled=true; m.className="formmsg ok"; m.textContent="Submitting…";
+  const { error } = await db.rpc("submit_intake",{ p });
+  if(error){ $("si_submit").disabled=false; m.className="formmsg err"; m.textContent="Couldn't submit — "+error.message; return; }
+  m.className="formmsg ok"; m.textContent="✓ Thank you! Opening your app…";
+  const { data:{ session } } = await db.auth.getSession();
+  setTimeout(()=>loadApp(session), 700);
+}
+async function flagIntakeIssue(){
+  const note=((($("si_flagnote")||{}).value)||"").trim(); const fm=$("si_flagmsg");
+  const { error } = await db.rpc("flag_my_intake",{ p_note:note });
+  if(fm){ if(error){ fm.style.color="var(--warn)"; fm.textContent="Couldn't send — "+error.message; } else { fm.style.color="var(--good)"; fm.textContent="✓ Sent — the office will fix it. You can still finish below."; } }
+}
 function renderShell(role, name, warn){
   $("whoName").textContent = "Hi, " + (name||"").split(" ")[0];
   $("whoRole").textContent = ROLE_LABELS[role] || role;
@@ -268,7 +365,7 @@ function navigate(key, name, warn){
   if(key==="payouts")   return renderPayouts();
   if(key==="teachers")  return renderTeachers();
   if(key==="settings")  return renderSettings();
-  if(key==="intake")    return renderIntake();
+  if(key==="intake")    return (state._intakeMode==="full"?renderIntake():renderQuickRegister());
   if(key==="enquiries") return renderEnquiries();
   if(key==="inventory") return renderInventory();
   if(key==="news")      return renderNews();
@@ -280,6 +377,7 @@ function navigate(key, name, warn){
   if(key==="stucal")    return renderStudentCalendar();
   if(key==="journey")   return renderStudentJourney();
   if(key==="myfees")    return renderStudentFees();
+  if(key==="myprofile") return renderStudentProfile();
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
@@ -334,9 +432,10 @@ const MODDESC={
   journey:"Your attendance & your guru's feedback",
   stucal:"Your class schedule & school events",
   myfees:"View & pay your fees",
+  myprofile:"Your details & journey milestones",
   mynews:"Announcements & updates from the school"
 };
-function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey","myfees"].includes(k); }
+function modBuilt(k){ return !!LIVE[k] || ["mystudents","myattendance","earnings","mycalendar","reviews","notices","feedback","mynews","stucal","journey","myfees","myprofile"].includes(k); }
 async function renderDashboard(name, warn){
   const M=$("mainArea"); const admin=isAdmin();
   const items=(NAV[state.role]||[]).filter(it=>it[2]!=="dashboard"&&it[2]!=="home");
@@ -384,7 +483,7 @@ async function renderStudents(){
     <div id="stuList"><div class="empty">Loading students…</div></div>`;
   $("newStu").onclick = ()=> gotoNav("intake");
   const { data, error } = await db.from("students")
-    .select("id,full_name,level,status,join_date,date_of_birth,branches(name),courses(name)")
+    .select("id,full_name,level,status,join_date,date_of_birth,intake_completed,needs_review,branches(name),courses(name)")
     .order("created_at",{ascending:false});
   if(error){ $("stuList").innerHTML=`<div class="cfgwarn">Couldn't load students — ${esc(error.message)}</div>`; return; }
   state._students = data||[];
@@ -405,7 +504,7 @@ function drawStudents(list){
       <td>${esc(s.branches?.name||"—")}</td>
       <td>${esc(s.level||"—")}</td>
       <td>${s.join_date?esc(s.join_date):"—"}</td>
-      <td><span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></td>
+      <td><span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>${s.needs_review?` <span class="badge b-red">needs review</span>`:(s.intake_completed===false?` <span class="badge b-amber">intake pending</span>`:"")}</td>
       <td><span class="rowbtn" onclick="renderStudentDetail('${s.id}')">View →</span></td>
     </tr>`).join("")}</table>`;
 }
@@ -1264,6 +1363,7 @@ async function renderNews(){
       </div>
       <div id="n_preview" style="margin:4px 0 0"></div>
       <div class="kf"><label>Ask people to respond?</label><select id="n_resp"><option value="">No response needed</option><option value="ack">Acknowledge — "Got it ✓" (see who's seen it)</option><option value="rsvp">RSVP — Attending / Maybe / Can't make it</option></select></div>
+      <div class="kf"><label>Where should this appear?</label><select id="n_web"><option value="app">📱 App only — students &amp; parents</option><option value="web">🌐 App + Website — also on the public News &amp; Announcements page</option></select></div>
       <div class="formmsg" id="nMsg"></div>
       <button class="kbtn teal" id="postNews">Post announcement</button>
       <button class="kbtn ghost" id="newsCancelBtn" style="display:none;margin-left:6px" onclick="cancelNewsEdit()">Cancel</button>
@@ -1273,7 +1373,7 @@ async function renderNews(){
   loadNews();
 }
 async function loadNews(){
-  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,created_at").order("created_at",{ascending:false});
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,public_web,created_at").order("created_at",{ascending:false});
   if(error){ $("newsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._news=data||[];
   const ids=(data||[]).filter(n=>n.response_type).map(n=>n.id);
@@ -1306,7 +1406,7 @@ function drawNews(){
   $("newsList").innerHTML=list.map(n=>`<div class="panel" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><b style="font-size:15px">${esc(n.title)}</b>
-          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${n.response_type==="ack"?"Acknowledge":"RSVP"}</span>`:""}</div></div>
+          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${n.response_type==="ack"?"Acknowledge":"RSVP"}</span>`:""}${n.public_web?` · <span class="badge b-green">🌐 website</span>`:""}</div></div>
         <div style="white-space:nowrap"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
       </div>
       ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
@@ -1337,7 +1437,7 @@ async function saveNewsPost(){
     try{ media=await uploadImage(file); }
     catch(err){ $("postNews").disabled=false; return failMsg(m,"Image upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); }
   }
-  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null };
+  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null, public_web: !!($("n_web")&&$("n_web").value==="web") };
   let error;
   if(state._newsEdit){ ({ error } = await db.from("news_posts").update(rec).eq("id",state._newsEdit)); }
   else {
@@ -1353,7 +1453,7 @@ function editNewsPost(id){
   const n=(state._news||[]).find(x=>x.id===id); if(!n) return;
   state._newsEdit=id;
   $("n_title").value=n.title||""; $("n_body").value=n.body||"";
-  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||""; if($("n_resp")) $("n_resp").value=n.response_type||"";
+  $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||""; if($("n_resp")) $("n_resp").value=n.response_type||""; if($("n_web")) $("n_web").value=n.public_web?"web":"app";
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
   $("newsFormTitle").textContent="Edit announcement";
   $("postNews").textContent="Save changes"; $("newsCancelBtn").style.display="inline-block";
@@ -1363,7 +1463,7 @@ function cancelNewsEdit(){
   state._newsEdit=null;
   ["n_title","n_body","n_media"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
-  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value="";
+  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value=""; if($("n_web")) $("n_web").value="app";
   if($("newsFormTitle")) $("newsFormTitle").textContent="Post an announcement";
   if($("postNews")) $("postNews").textContent="Post announcement";
   if($("newsCancelBtn")) $("newsCancelBtn").style.display="none";
@@ -2422,6 +2522,85 @@ async function myStudent(){
   const { data } = await db.from("students").select("id,full_name,branch_id,course_id,level,join_date,goal,primary_teacher_id,upi_id,branches(name,upi_id),courses(name)").eq("profile_id",user.id).maybeSingle();
   state._stuRec=data||null; return state._stuRec;
 }
+/* ----- Journey milestones (shared: student + admin/guru) ----- */
+const MS_TYPES=[["exam","🎓 Exam","#E6F1FB","#0C447C"],["competition","🏆 Competition","#FAEEDA","#854F0B"],["performance","🎤 Performance","#FBEAF0","#993556"],["achievement","⭐ Achievement","#EAF3DE","#3B6D11"],["workshop","🛠 Workshop","#EEEDFE","#3C3489"],["other","📌 Other","#F1EFE8","#444441"]];
+function msMeta(t){ return MS_TYPES.find(x=>x[0]===t)||["other","📌 Other","#F1EFE8","#444441"]; }
+async function loadMilestonesInto(cid, studentId, mode){
+  state._ms={ cid, studentId, mode }; const C=$(cid); if(!C) return;
+  C.innerHTML=`<div class="panel"><h3>${mode==="student"?"My Journey":"Journey &amp; milestones"}</h3><div class="empty">Loading…</div></div>`;
+  const { data, error } = await db.from("student_milestones").select("id,type,title,milestone_date,note,source").eq("student_id",studentId).order("milestone_date",{ascending:false,nullsFirst:false}).order("created_at",{ascending:false});
+  const list=data||[];
+  const rows=list.length?list.map(m=>{ const mt=msMeta(m.type); const canDel=(mode!=="student")||m.source==="student"; const who=m.source==="student"?(mode==="student"?"you":"student"):"school";
+    return `<div style="display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);align-items:flex-start">
+      <span class="badge" style="background:${mt[2]};color:${mt[3]};white-space:nowrap">${mt[1]}</span>
+      <div style="flex:1"><b>${esc(m.title)}</b><div class="mini" style="color:var(--muted);margin-top:2px">${m.milestone_date?esc(m.milestone_date):""}${m.note?" · "+esc(m.note):""}</div></div>
+      <span class="mini" style="white-space:nowrap"><span class="badge ${m.source==="student"?"b-teal":"b-amber"}">${who}</span>${canDel?` <span class="rowbtn danger" onclick="delMilestone('${m.id}')">✕</span>`:""}</span>
+    </div>`; }).join(""):`<div class="mini" style="color:var(--muted)">No milestones yet — add the first one below.</div>`;
+  const typeOpts=MS_TYPES.map(t=>`<option value="${t[0]}">${t[1]}</option>`).join("");
+  C.innerHTML=`<div class="panel"><h3>${mode==="student"?"My Journey":"Journey &amp; milestones"}</h3>
+    ${error?`<div class="cfgwarn">${esc(error.message)}</div>`:rows}
+    <div style="background:#FBF1DA;border:1px solid var(--saffron);border-radius:10px;padding:13px;margin-top:14px">
+      <h3 style="font-size:13px;margin:0 0 8px">➕ Add a milestone</h3>
+      <div class="form2">
+        <div class="kf"><label>Type</label><select id="ms_type">${typeOpts}</select></div>
+        <div class="kf"><label>Date</label><input id="ms_date" type="date"></div>
+      </div>
+      <div class="kf"><label>Title</label><input id="ms_title" placeholder="e.g. Grade 2 Tabla exam"></div>
+      <div class="kf"><label>Note (optional)</label><input id="ms_note" placeholder="e.g. Result: Distinction"></div>
+      <div class="formmsg" id="ms_msg"></div>
+      <button class="kbtn teal" onclick="addMilestone()">Add to journey</button>
+    </div></div>`;
+}
+async function addMilestone(){
+  const ctx=state._ms||{}; const m=$("ms_msg"); const title=((($("ms_title")||{}).value)||"").trim();
+  if(!title){ if(m){ m.className="formmsg err"; m.textContent="Please enter a title."; } return; }
+  const rec={ student_id:ctx.studentId, type:$("ms_type").value, title, milestone_date:$("ms_date").value||null, note:((($("ms_note")||{}).value)||"").trim()||null, source:ctx.mode==="student"?"student":"school" };
+  if(m){ m.className="formmsg ok"; m.textContent="Adding…"; }
+  const { error } = await db.from("student_milestones").insert(rec);
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't add — "+error.message; } return; }
+  loadMilestonesInto(ctx.cid, ctx.studentId, ctx.mode);
+}
+async function delMilestone(id){
+  const ctx=state._ms||{}; if(!confirm("Remove this milestone?")) return;
+  const { error } = await db.from("student_milestones").delete().eq("id",id);
+  if(error){ alert("Couldn't remove — "+error.message); return; }
+  loadMilestonesInto(ctx.cid, ctx.studentId, ctx.mode);
+}
+/* ----- Student: My Profile ----- */
+async function renderStudentProfile(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const { data:{ user } } = await db.auth.getUser();
+  const { data:s } = await db.from("students").select("id,full_name,date_of_birth,is_minor,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,primary_teacher_id,needs_review,branches(name),courses(name)").eq("profile_id",user.id).maybeSingle();
+  if(!s){ M.innerHTML=`<div class="ph"><div><h2>My Profile</h2></div></div><div class="cfgwarn">We couldn't find your profile. Please contact the school office.</div>`; return; }
+  try{ await loadClassRefs(); }catch(e){}
+  const guru=s.primary_teacher_id?teacherName(s.primary_teacher_id):"—";
+  const rv=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:7px 0;font-size:13px"><span style="color:var(--muted)">${esc(l)}</span><b style="text-align:right">${esc(v||"—")}</b></div>`;
+  M.innerHTML=`<div class="ph"><div><h2>My Profile</h2><p>Your details &amp; your journey with Kala Kuteer</p></div></div>
+    <div class="panel"><h3>My details</h3>
+      <p class="mini" style="color:var(--muted);margin:-2px 0 10px">From your enrolment. Something need updating? <span class="rowbtn" onclick="document.getElementById('mpFix').style.display=''">Request a correction</span></p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
+        ${rv("Name",s.full_name)}${rv("Date of birth",s.date_of_birth)}
+        ${rv("Branch",s.branches&&s.branches.name)}${rv("Course",s.courses&&s.courses.name)}
+        ${rv("Primary guru",guru)}${rv("Level",s.level)}
+        ${rv("Joined",s.join_date)}${rv("WhatsApp",s.whatsapp)}
+        ${rv(s.is_minor?"Parent / guardian":"Email", s.is_minor?s.parent_name:s.email)}
+        ${rv("Emergency contact",s.emergency_contact)}
+      </div>
+      <div id="mpFix" style="display:${s.needs_review?"":"none"};margin-top:12px;background:#FBF1DA;border:1px solid var(--saffron);border-radius:9px;padding:12px">
+        ${s.needs_review?`<div class="mini" style="color:var(--good);margin-bottom:6px">✓ You've asked the office to check your details — they'll fix it soon. Add more below if needed.</div>`:""}
+        <div class="kf" style="margin:0 0 8px"><label>What needs correcting?</label><textarea id="mp_note" rows="2" placeholder="e.g. my date of birth is wrong"></textarea></div>
+        <button class="kbtn ghost" onclick="requestProfileFix()">Send to office</button>
+        <span class="mini" id="mp_msg" style="margin-left:8px"></span>
+      </div>
+    </div>
+    <div id="stuMilestones"></div>`;
+  loadMilestonesInto("stuMilestones", s.id, "student");
+}
+async function requestProfileFix(){
+  const note=((($("mp_note")||{}).value)||"").trim(); const fm=$("mp_msg");
+  const { error } = await db.rpc("flag_my_intake",{ p_note:note });
+  if(fm){ if(error){ fm.style.color="var(--warn)"; fm.textContent="Couldn't send — "+error.message; } else { fm.style.color="var(--good)"; fm.textContent="✓ Sent — the office will fix it."; } }
+}
 /* ----- Student: News ----- */
 async function renderStudentNews(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
@@ -2879,6 +3058,7 @@ async function renderStudentDetail(id){
       · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>${s.status!=="active"&&s.status_effective_date?` <span class="mini">${s.status_effective_date>todayS?"from":"since"} ${esc(s.status_effective_date)}</span>`:""}</p></div>
       <button class="kbtn" onclick="editStudent('${s.id}')">✏️ Edit details</button>
       <button class="kbtn ghost" style="margin-left:6px" onclick="gotoNav('students')">← Back to list</button></div>
+    ${s.needs_review?`<div class="cfgwarn" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>⚠️ This student asked the office to check their details${s.review_note?`: <b>"${esc(s.review_note)}"</b>`:""}. Edit to fix, then mark reviewed.</span><span class="rowbtn" onclick="clearNeedsReview('${s.id}')">✓ Mark reviewed</span></div>`:""}
     <div class="form2">
       <div class="panel"><h3>Contact &amp; personal</h3>
         <div class="dl"><span class="k">Date of birth / age</span><span>${esc(s.date_of_birth||"—")}${age!=null?" · "+age:""}</span></div>
@@ -2906,13 +3086,20 @@ async function renderStudentDetail(id){
       <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
       <div class="formmsg" id="manageMsg"></div>
       <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Delete</b> is permanent — use it only for mistakes or test entries.</p>
-    </div>`;
+    </div>
+    <div id="stuMilestones" style="margin-top:14px"></div>`;
+  loadMilestonesInto("stuMilestones", id, "school");
 }
 async function setStudentStatus(id, status){
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
   const eff = ($("mng_date")&&$("mng_date").value) || new Date().toISOString().slice(0,10);
   const { error } = await db.from("students").update({ status, status_effective_date: eff }).eq("id", id);
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
+  renderStudentDetail(id);
+}
+async function clearNeedsReview(id){
+  const { error } = await db.from("students").update({ needs_review:false, review_note:null }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
   renderStudentDetail(id);
 }
 async function deleteStudent(id){
@@ -2996,6 +3183,67 @@ function saveDraft(){ const f=$("intakeForm"); if(!f) return; const o={}; f.quer
 function restoreDraft(){ let o; try{ o=JSON.parse(localStorage.getItem(DRAFT_KEY)||"null"); }catch(e){} if(!o) return false; let any=false; Object.keys(o).forEach(id=>{ const el=$(id); if(!el) return; if(el.type==="checkbox") el.checked=o[id]; else el.value=o[id]; if(o[id]!==""&&o[id]!==false) any=true; }); return any; }
 function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
 
+async function renderQuickRegister(){
+  const M=$("mainArea"); await loadRef(); await loadClassRefs();
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  const cc=id=>`<select id="${id}_cc" style="max-width:150px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
+  const numIn=id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
+  M.innerHTML=`<div class="ph"><div><h2>Quick register</h2><p>Create a basic account once the ₹1,000 registration is paid. The student completes &amp; signs the rest on their first login.</p></div>
+      <button class="kbtn ghost" onclick="state._intakeMode='full';gotoNav('intake')">📝 Full intake form</button></div>
+    <div class="panel" style="max-width:640px">
+      <div class="form2">
+        <div class="kf"><label>Full name *</label><input id="q_name"></div>
+        <div class="kf"><label>Date of birth *</label><input id="q_dob" type="date"></div>
+      </div>
+      <div class="kf"><label>Mobile — used to log in *</label><div style="display:flex;gap:6px">${cc('q_phone')}${numIn('q_phone')}</div>
+        <div class="check" style="margin:6px 0 0"><input type="checkbox" id="q_minor"><label for="q_minor" style="margin:0;font-size:12px">Student is a minor (this is the parent's mobile)</label></div></div>
+      <div class="form2">
+        <div class="kf"><label>Branch *</label><select id="q_branch"><option value="">Select…</option>${branchOpts}</select></div>
+        <div class="kf"><label>Course *</label><select id="q_course"><option value="">Select…</option>${courseOpts}</select></div>
+        <div class="kf"><label>Primary guru *</label><select id="q_guru"><option value="">Select…</option>${guruOpts}</select></div>
+        <div class="kf"><label>Class level *</label><select id="q_level"><option value="">Select…</option><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
+      </div>
+      <div class="kf"><label>Joining date *</label><input id="q_join" type="date"></div>
+      <div class="formmsg" id="qMsg"></div>
+      <button class="kbtn teal" id="qSave" style="width:100%">Create account &amp; enable login</button>
+      <p class="footnote" style="margin-top:10px">🔑 Starting PIN is their date of birth — they set their own private PIN on first login, then complete the intake &amp; sign it.</p>
+    </div>`;
+  $("q_dob").onchange=()=>{ const a=ageFromDOB($("q_dob").value); if(a!=null) $("q_minor").checked=a<18; };
+  $("qSave").onclick=saveQuickStudent;
+}
+async function saveQuickStudent(){
+  const m=$("qMsg"); const D=id=>((($(id)||{}).value)||"").toString().trim(); const digits=id=>D(id).replace(/\D/g,"");
+  const fail=(id,t)=>{ m.className="formmsg err"; m.textContent=t; const el=$(id); if(el) el.focus(); return false; };
+  const minor=$("q_minor").checked;
+  if(!D("q_name")) return fail("q_name","Enter the student's name.");
+  if(!D("q_dob")) return fail("q_dob","Enter the date of birth.");
+  const pc=$("q_phone_cc").value, pn=digits("q_phone");
+  if(!pn) return fail("q_phone","Enter a mobile number.");
+  if(!phoneOK(pc,pn)) return fail("q_phone","That mobile doesn't look right — "+pc+" needs "+phoneHint(pc)+".");
+  if(!D("q_branch")) return fail("q_branch","Choose a branch.");
+  if(!D("q_course")) return fail("q_course","Choose a course.");
+  if(!D("q_guru")) return fail("q_guru","Choose the primary guru.");
+  if(!D("q_level")) return fail("q_level","Choose the class level.");
+  if(!D("q_join")) return fail("q_join","Set the joining date.");
+  const e164=pc+pn;
+  m.className="formmsg ok"; m.textContent="Creating…"; $("qSave").disabled=true;
+  const rec={ full_name:D("q_name"), date_of_birth:D("q_dob"), is_minor:minor,
+    phone: minor?null:e164, parent_phone: minor?e164:null,
+    branch_id:D("q_branch"), course_id:D("q_course"), primary_teacher_id:D("q_guru")||null,
+    level:D("q_level"), join_date:D("q_join"), status:"active", intake_completed:false };
+  const { data:ins, error } = await db.from("students").insert(rec).select("id").single();
+  if(error){ $("qSave").disabled=false; m.className="formmsg err"; m.textContent="Couldn't create — "+error.message; return; }
+  try{
+    const { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:ins.id, phone:e164, dob:D("q_dob"), name:D("q_name") } });
+    if(ferr||!(fn&&fn.ok)) m.textContent="✓ Student created. (Login will be set up shortly.)";
+    else m.textContent="✓ Account created — they log in with "+e164+" + date of birth, then complete the intake & sign.";
+  }catch(e){ m.textContent="✓ Student created."; }
+  m.className="formmsg ok";
+  ["q_name","q_dob","q_phone","q_branch","q_course","q_guru","q_level","q_join"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("q_minor")) $("q_minor").checked=false;
+  $("qSave").disabled=false;
+}
 async function renderIntake(){
   const M=$("mainArea");
   await loadRef(); await loadClassRefs();
@@ -3004,7 +3252,7 @@ async function renderIntake(){
   const guruOpts = (state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const cc = id=>`<select id="${id}_cc" style="max-width:160px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   const numIn = id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
-  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Numbers are validated; your draft is auto-saved as you type.</p></div></div>
+  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Fallback full form — most students now fill &amp; sign this themselves on first login.</p></div><button class="kbtn ghost" onclick="state._intakeMode='';gotoNav('intake')">⚡ Quick register</button></div>
   <div id="draftNote" class="hide" style="background:#fff7e8;border-radius:9px;padding:8px 10px;font-size:12px;margin-bottom:10px">📝 Restored your unsaved draft. <span onclick="clearDraft();renderIntake()" style="color:var(--saffron-deep);font-weight:700;cursor:pointer">Start fresh</span></div>
   <form id="intakeForm" class="form2" onsubmit="return false">
     <div class="panel"><h3>1 · Student &amp; contact</h3>
@@ -3030,12 +3278,12 @@ async function renderIntake(){
         <select id="f_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
       <div class="kf"><label>Owns the instrument? *</label><select id="f_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="kf"><label>Health / safety — any conditions we should know? *</label><textarea id="f_health" rows="2" placeholder="e.g. anxiety, panic attacks, cardiac issues, etc. — or write NA"></textarea></div>
-      <div class="kf"><label>📸 Media consent — may we use photos/videos? *</label><select id="f_media"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="notice"><b>IMPORTANT NOTICE</b><br>
         <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
         <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
         <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
-        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your teacher and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.</div>
+        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your teacher and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
+        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
       <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer"></div>
       <div class="formmsg" id="intakeMsg"></div>
@@ -3088,7 +3336,6 @@ async function submitIntake(){
   if(!D("f_heard"))  return fail("f_heard","Please choose how they found out about us.");
   if(!D("f_owns"))   return fail("f_owns","Please choose whether the student owns the instrument.");
   if(!D("f_health")) return fail("f_health","Please fill health/safety (write NA if none).");
-  if(!D("f_media"))  return fail("f_media","Please choose the media-consent option.");
   if(!$("f_terms").checked){ m.className="formmsg err"; m.textContent="The IMPORTANT NOTICE must be acknowledged."; $("f_terms").focus(); return; }
   if(!D("f_signer")) return fail("f_signer","Please enter the name of the person consenting.");
   const primaryE164 = pcode+pnum;
@@ -3114,9 +3361,9 @@ async function submitIntake(){
     goal: D("f_goal"),
     owns_instrument: D("f_owns")==="yes",
     health_notes: D("f_health"), heard_via: D("f_heard"),
-    consent_media: D("f_media")==="yes",
+    consent_media: true,
     consent_terms:true, consent_signed_by:D("f_signer"), consent_signed_at:new Date().toISOString(),
-    status:"active"
+    status:"active", intake_completed:true
   };
   $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
   const { data:ins, error } = await db.from("students").insert(rec).select("id").single();
