@@ -3082,6 +3082,7 @@ async function renderStudentDetail(id){
     <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
       <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
+      <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Intake form:</span>${s.intake_completed?`<span class="badge b-green">✓ completed${s.consent_signed_at?" · signed "+String(s.consent_signed_at).slice(0,10):""}</span>`:`<span class="badge b-amber">⏳ pending</span>`} <span class="rowbtn edit" onclick="askIntake('${s.id}')">📝 Ask to complete / refresh</span></div>
       <button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>
       <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
       <div class="formmsg" id="manageMsg"></div>
@@ -3100,6 +3101,13 @@ async function setStudentStatus(id, status){
 async function clearNeedsReview(id){
   const { error } = await db.from("students").update({ needs_review:false, review_note:null }).eq("id",id);
   if(error){ alert("Couldn't update — "+error.message); return; }
+  renderStudentDetail(id);
+}
+async function askIntake(id){
+  if(!confirm("Ask this student to complete (or refresh) their intake and re-sign on their next login?\n\nTheir current details stay and are shown for them to verify — nothing is deleted.")) return;
+  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
+  const { error } = await db.from("students").update({ intake_completed:false }).eq("id",id);
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
   renderStudentDetail(id);
 }
 async function deleteStudent(id){
