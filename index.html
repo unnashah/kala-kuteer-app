@@ -452,6 +452,7 @@ async function renderDashboard(name, warn){
   M.innerHTML=`<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
       <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
+    ${state.role==="student"?'<div id="dashFees"></div>':""}
     <div id="dashNotices" style="margin-top:16px"></div>
     ${admin?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
@@ -460,6 +461,7 @@ async function renderDashboard(name, warn){
     </div>`:""}
     ${admin?'<div id="dashBdays"></div>':""}
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
+  if(state.role==="student") loadDashFees();
   if(admin){
     const [act,gur]=await Promise.all([
       db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
@@ -481,6 +483,31 @@ async function renderDashboard(name, warn){
   }
 }
 
+async function loadDashFees(){
+  const C=$("dashFees"); if(!C) return;
+  const s=await myStudent(); if(!s) return;
+  const { data:invs } = await db.from("invoices").select("id,amount,due_date,status,student_response").eq("student_id",s.id).neq("status","paid");
+  const due=(invs||[]).filter(i=>i.status!=="paid");
+  if(!due.length) return;
+  const total=due.reduce((a,i)=>a+Number(i.amount||0),0);
+  const todayS=todayIST();
+  const overdue=due.some(i=>i.due_date && i.due_date<todayS);
+  const allSaidPaid=due.every(i=>i.student_response==="paid");
+  const dates=due.map(i=>i.due_date).filter(Boolean).sort(); const earliest=dates[0];
+  const color=overdue?"#9B2226":"var(--saffron-deep)";
+  const bg=overdue?"linear-gradient(180deg,#fdecea,#f8dcd8)":"linear-gradient(180deg,#FCF3DD,#F8EAC6)";
+  const msg=allSaidPaid
+    ? `You've marked your ${INR(total)} fee as paid — the office will confirm it shortly. 💛`
+    : (overdue
+      ? `Your fee of <b>${INR(total)}</b> is <b>overdue</b>${earliest?` (was due ${esc(earliest)})`:""}. Please pay to keep your classes going.`
+      : `You have <b>${INR(total)}</b> in fees due${earliest?` by <b>${esc(earliest)}</b>`:""}.`);
+  C.innerHTML=`<div class="panel" style="margin-top:16px;background:${bg};border:1.5px solid var(--saffron)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><h3 style="margin:0;color:${color}">${overdue?"⚠️ Fee overdue":"💰 Fee reminder"}</h3>
+        <div class="mini" style="margin-top:4px;color:#6b5836">${msg}</div></div>
+      <button class="kbtn teal" onclick="gotoNav('myfees')" style="flex:none">View &amp; pay →</button>
+    </div></div>`;
+}
 async function loadDashBdays(){
   const C=$("dashBdays"); if(!C) return;
   const { data } = await db.from("students").select("full_name,date_of_birth,status,branches(name)").eq("status","active");
@@ -752,6 +779,7 @@ async function renderFees(){
   const M=$("mainArea"); await loadRef();
   const thisMonth=new Date().toISOString().slice(0,7);
   M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
+    <div style="background:#fff7e8;border:1px solid #f0e2c0;border-radius:9px;padding:9px 12px;font-size:12.5px;color:#7a5e1f;margin-bottom:14px">💡 <b>Generate invoices</b> raises this month's fee for everyone, then record each payment as it comes in — or raise a <b>3/6-month plan</b> for a family paying ahead. What you collect here flows into <b>Finance &amp; P&amp;L</b> and each guru's <b>payout</b>.</div>
     <div class="searchbar"><span class="mini">Month</span><input id="feeMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:180px;flex:none"><button class="kbtn ghost" id="feeLoad">Load</button></div>
     <div class="formmsg" id="feeMsg"></div>
     <div class="kpis" id="feeKpis" style="margin-bottom:12px"></div>
@@ -3319,6 +3347,7 @@ async function renderQuickRegister(){
   M.innerHTML=`<div class="ph"><div><h2>Quick register</h2><p>Create a basic account once the ₹1,000 registration is paid. The student completes &amp; signs the rest on their first login.</p></div>
       <button class="kbtn ghost" onclick="state._intakeMode='full';gotoNav('intake')">📝 Full intake form</button></div>
     <div class="panel" style="max-width:640px">
+      <div style="background:#fff7e8;border:1px solid #f0e2c0;border-radius:9px;padding:9px 12px;font-size:12.5px;color:#7a5e1f;margin-bottom:14px">💡 Enter just the basics the school knows — name, the mobile they'll log in with, date of birth, course, branch and guru. The family fills their own contact details and signs the consent on first login. Saving this creates their login and adds them to <b>Students</b>.</div>
       <div class="form2">
         <div class="kf"><label>Full name *</label><input id="q_name"></div>
         <div class="kf"><label>Date of birth *</label><input id="q_dob" type="date"></div>
