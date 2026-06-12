@@ -482,12 +482,11 @@ async function loadDashBdays(){
   const { data } = await db.from("students").select("full_name,date_of_birth,status,branches(name)").eq("status","active");
   const now=new Date(); const mo=now.getMonth(); const today=now.getDate(); const yr=now.getFullYear();
   const list=(data||[]).filter(s=>s.date_of_birth).map(s=>{ const d=new Date(s.date_of_birth); return { name:s.full_name, day:d.getDate(), month:d.getMonth(), by:d.getFullYear(), branch:s.branches&&s.branches.name }; }).filter(s=>s.month===mo).sort((a,b)=>a.day-b.day);
-  if(!list.length){ C.innerHTML=""; return; }
+  const items = list.length ? list.map(s=>{ const turning=yr-s.by; const isToday=s.day===today; const soon=!isToday && s.day>=today && s.day<=today+7;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(s.name)}</b>${s.branch?` <span class="mini" style="color:var(--muted)">· ${esc(s.branch)}</span>`:""}${isToday?` <span class="badge b-green">🎉 today!</span>`:(soon?` <span class="badge b-amber">soon</span>`:"")}</div><span class="mini">${s.day} ${MONS[s.month]}${turning>0&&turning<120?` · turning ${turning}`:""}</span></div>`; }).join("")
+    : `<div class="mini" style="color:var(--muted);padding:4px 0">No student birthdays this month — they'll appear here in their birthday month. 🎂</div>`;
   C.innerHTML=`<div class="panel" style="margin-top:16px"><h3 style="margin:0 0 4px">🎂 Birthdays this month</h3>
-    <p class="mini" style="color:var(--muted);margin:0 0 8px">A little wish goes a long way 💛</p>
-    ${list.map(s=>{ const turning=yr-s.by; const isToday=s.day===today; const soon=!isToday && s.day>=today && s.day<=today+7;
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(s.name)}</b>${s.branch?` <span class="mini" style="color:var(--muted)">· ${esc(s.branch)}</span>`:""}${isToday?` <span class="badge b-green">🎉 today!</span>`:(soon?` <span class="badge b-amber">soon</span>`:"")}</div><span class="mini">${s.day} ${MONS[s.month]}${turning>0&&turning<120?` · turning ${turning}`:""}</span></div>`; }).join("")}
-  </div>`;
+    <p class="mini" style="color:var(--muted);margin:0 0 8px">A little wish goes a long way 💛</p>${items}</div>`;
 }
 /* ---------------- STUDENTS LIST ---------------- */
 async function renderStudents(){
