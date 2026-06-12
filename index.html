@@ -185,6 +185,8 @@ const $ = id => document.getElementById(id);
 const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const safeUrl = u => /^https?:\/\//i.test(u||"") ? u : "#";          // only allow real web links in href (blocks javascript: etc.)
 const todayIST = () => new Date(Date.now()+19800000).toISOString().slice(0,10); // today's date in IST (UTC+5:30)
+// Fetch ALL rows in 1000-row pages so client-side sums/percentages never silently truncate at Supabase's default cap.
+async function fetchAll(makeQuery){ const SIZE=1000; let from=0, all=[]; for(;;){ const { data, error } = await makeQuery().range(from, from+SIZE-1); if(error||!data||!data.length) break; all=all.concat(data); if(data.length<SIZE) break; from+=SIZE; } return all; }
 function show(v){ $("login").classList.toggle("hide", v!=="login"); $("app").classList.toggle("hide", v!=="app"); }
 function msg(t, ok){ const m=$("loginMsg"); m.textContent=t; m.className="msg "+(ok?"ok":"err"); }
 function ageFromDOB(d){ if(!d) return null; const b=new Date(d), n=new Date(); let a=n.getFullYear()-b.getFullYear(); const m=n.getMonth()-b.getMonth(); if(m<0||(m===0&&n.getDate()<b.getDate())) a--; return a; }
@@ -553,7 +555,7 @@ async function renderAttendance(){
 }
 async function loadAttendance(){
   const date=$("attDate").value, branch=$("attBranch").value;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   if(!date){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Please pick a date."; return; }
   if(date>today){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Attendance can only be marked for today or a past date."; $("attList").innerHTML=""; return; }
   $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
@@ -589,7 +591,7 @@ function drawAttendance(studs, map){
 function markAtt(id,status){ state._att[id]=status; drawAttendance(state._attStuds, state._att); }
 async function saveAttendance(){
   const m=$("attMsg"); const date=state._attDate;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   if(date>today){ m.className="formmsg err"; m.textContent="Attendance can only be saved for today or a past date."; return; }
   const rows=Object.keys(state._att||{}).filter(sid=>state._att[sid]).map(sid=>({ student_id:sid, class_date:date, status:state._att[sid] }));
   if(!rows.length){ m.className="formmsg err"; m.textContent="Mark at least one student first."; return; }
@@ -610,11 +612,11 @@ async function renderAttendanceByStudent(){
       <select id="absBranch" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
     <div id="absList"><div class="empty">Loading…</div></div>
     <div id="absDays"></div>`;
-  const [{ data:studs, error:se }, { data:marks, error:me }] = await Promise.all([
+  const [{ data:studs, error:se }, marks] = await Promise.all([
     db.from("students").select("id,full_name,status,branch_id,branches(name),courses(name)").order("full_name"),
-    db.from("attendance").select("student_id,status")
+    fetchAll(()=> db.from("attendance").select("student_id,status"))
   ]);
-  if(se||me){ $("absList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc((se||me).message)}</div>`; return; }
+  if(se){ $("absList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(se.message)}</div>`; return; }
   const agg={};
   (marks||[]).forEach(r=>{ const a=agg[r.student_id]||(agg[r.student_id]={p:0,a:0,e:0,t:0}); a.t++; if(r.status==="present")a.p++; else if(r.status==="absent")a.a++; else if(r.status==="excused")a.e++; });
   state._abs={ studs:studs||[], agg };
@@ -679,11 +681,11 @@ async function loadAttReport(){
   if(!from||!to){ $("arMsg").className="formmsg err"; $("arMsg").textContent="Pick a from and to date."; return; }
   if(from>to){ $("arMsg").className="formmsg err"; $("arMsg").textContent="\"From\" must be on or before \"To\"."; return; }
   $("arMsg").textContent=""; $("arOut").innerHTML=`<div class="empty">Loading…</div>`;
-  const [{ data:marks, error:me }, { data:studs, error:se }] = await Promise.all([
-    db.from("attendance").select("student_id,class_date,status").gte("class_date",from).lte("class_date",to),
+  const [marks, { data:studs, error:se }] = await Promise.all([
+    fetchAll(()=> db.from("attendance").select("student_id,class_date,status").gte("class_date",from).lte("class_date",to)),
     db.from("students").select("id,full_name,branch_id,primary_teacher_id,branches(name),courses(name)")
   ]);
-  if(me||se){ $("arOut").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc((me||se).message)}</div>`; return; }
+  if(se){ $("arOut").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(se.message)}</div>`; return; }
   const sMap={}; (studs||[]).forEach(s=>sMap[s.id]=s);
   const recs=(marks||[]).map(m=>{ const s=sMap[m.student_id]||{};
     return { date:m.class_date, status:m.status, studentId:m.student_id, sName:s.full_name||"(unknown)", branchId:s.branch_id||"", branchName:s.branches?.name||"—", course:s.courses?.name||"—", guruId:s.primary_teacher_id||"", guruName:s.primary_teacher_id?teacherName(s.primary_teacher_id):"—" };
@@ -771,7 +773,7 @@ async function loadFees(){
 }
 function drawFees(){
   const { studs, invMap, payMap, P } = state._fee;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   let billed=0, collected=0;
   const rows=studs.map(s=>{
     const inv=invMap[s.id]; const allow=!!(s.branches&&s.branches.allow_plans);
@@ -924,7 +926,7 @@ async function renderFinance(){
 async function loadFinance(){
   const P=finPeriod();
   $("finBody").innerHTML=`<div class="empty">Loading…</div>`;
-  const { data:pays } = await db.from("payments").select("amount,paid_at,invoices(students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next);
+  const pays = await fetchAll(()=> db.from("payments").select("amount,paid_at,invoices(students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next));
   const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note,frequency,recur_until").lte("spent_on",P.end).order("spent_on",{ascending:false});
   if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._fin={ pays:pays||[], exps:exps||[], P }; drawFinance();
@@ -1023,11 +1025,16 @@ async function loadPayouts(){
   const { data:studs } = await db.from("students").select("id,primary_teacher_id,status");
   const stuTeacher={}, activeByT={}; (studs||[]).forEach(s=>{ if(s.primary_teacher_id){ stuTeacher[s.id]=s.primary_teacher_id; if(s.status==="active") activeByT[s.primary_teacher_id]=(activeByT[s.primary_teacher_id]||0)+1; } });
   const sids=Object.keys(stuTeacher);
-  let invMap={};
-  if(sids.length){ const { data:invs } = await db.from("invoices").select("id,student_id").in("student_id",sids); (invs||[]).forEach(i=>{ invMap[i.id]=stuTeacher[i.student_id]; }); }
-  const invIds=Object.keys(invMap);
+  // Prefer the server-side aggregate (correct + fast at any scale). Falls back to the client calc if the DB function isn't deployed yet.
   const grossByT={};
-  if(invIds.length){ const { data:pays } = await db.from("payments").select("amount,invoice_id,paid_at").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next); (pays||[]).forEach(p=>{ const t=invMap[p.invoice_id]; if(t) grossByT[t]=(grossByT[t]||0)+Number(p.amount||0); }); }
+  const { data:gg, error:ggErr } = await db.rpc("guru_gross_in_range", { p_start:start, p_end:next });
+  if(!ggErr && Array.isArray(gg)){ gg.forEach(r=>{ grossByT[r.teacher_id]=Number(r.gross||0); }); }
+  else {
+    let invMap={};
+    if(sids.length){ const invs = await fetchAll(()=> db.from("invoices").select("id,student_id").in("student_id",sids)); (invs||[]).forEach(i=>{ invMap[i.id]=stuTeacher[i.student_id]; }); }
+    const invIds=Object.keys(invMap);
+    if(invIds.length){ const pays = await fetchAll(()=> db.from("payments").select("amount,invoice_id,paid_at").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next)); (pays||[]).forEach(p=>{ const t=invMap[p.invoice_id]; if(t) grossByT[t]=(grossByT[t]||0)+Number(p.amount||0); }); }
+  }
   const { data:paid } = await db.from("guru_payouts").select("teacher_id,amount").eq("period",v);
   const paidByT={}; (paid||[]).forEach(p=>{ paidByT[p.teacher_id]=(paidByT[p.teacher_id]||0)+Number(p.amount||0); });
   const { data:plans } = await db.from("guru_payout_plan").select("teacher_id,pct,bonus,bonus_reason,deduction,deduction_reason").eq("period",v);
@@ -1083,7 +1090,7 @@ function recordPayoutForm(tid){
   row.style.display="";
   const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); let defAmt=0;
   if(c){ const base=parseFloat(c.dataset.base)||0, paid=parseFloat(c.dataset.paid)||0, pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0; defAmt=Math.max(0,Math.round(base*pct/100+bonus-ded-paid)); }
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   row.innerHTML=`<div style="background:#FBF1DA;border:1px solid var(--saffron);border-radius:10px;padding:12px 14px">
     <div class="mini" style="margin-bottom:8px;color:var(--muted)">Save your %, bonus &amp; deduction first so the suggested amount is correct.</div>
     <div class="form2" style="margin:0 0 6px">
@@ -2137,7 +2144,7 @@ async function renderMyAttendance(){
   state._maTid=tid;
   const { data:gs } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
   state._maStu=gs||[];
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Tap the students who came in, then Save</p></div></div>
     ${state._maStu.length?`<div class="searchbar">
       <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:170px;flex:none">
@@ -2172,7 +2179,7 @@ function drawMyAtt(){
 function toggleAtt(sid){ const t=state._maToday; if(t.has(sid)) t.delete(sid); else t.add(sid); drawMyAtt(); }
 async function saveMyAtt(){
   const m=$("maMsg"); const date=state._maDate, tid=state._maTid;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   if(date>today){ m.className="formmsg err"; m.textContent="You can only mark today or a past date."; return; }
   const sids=state._maStu.map(s=>s.id); const attended=[...(state._maToday||[])];
   m.className="formmsg ok"; m.textContent="Saving…";
@@ -2225,7 +2232,7 @@ function genPayoutInvoice(monthKey){
   const r=(state._earnRows||[]).find(x=>x.k===monthKey); if(!r){ alert("Couldn't open the invoice."); return; }
   const num="KK-PAY-"+monthKey.replace("-","")+"-"+String(state._earnTid||"").slice(0,4).toUpperCase();
   const amt="₹"+Number(r.paid||0).toLocaleString("en-IN");
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Payout ${num}</title>
    <style>body{font-family:Georgia,'Times New Roman',serif;color:#16305A;max-width:600px;margin:30px auto;padding:0 22px}
    .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #16305A;padding-bottom:14px}
