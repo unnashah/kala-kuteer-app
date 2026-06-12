@@ -401,7 +401,7 @@ function navigate(key, name, warn){
 async function loadRef(){
   if(state.refLoaded) return;
   const [b,c] = await Promise.all([
-    db.from("branches").select("id,name,monthly_fee,registration_fee,upi_id").order("name"),
+    db.from("branches").select("id,name,monthly_fee,registration_fee,upi_id,allow_plans").order("name"),
     db.from("courses").select("id,name").eq("is_active",true).order("name")
   ]);
   state.branches = b.data||[]; state.courses = c.data||[]; state.refLoaded = true;
@@ -454,6 +454,7 @@ async function renderDashboard(name, warn){
       <div class="kpi"><div class="l">Gurus</div><div class="v" id="kpiGurus">…</div></div>
       <div class="kpi"><div class="l">Branches</div><div class="v" id="kpiBranch">…</div></div>
     </div>`:""}
+    ${admin?'<div id="dashBdays"></div>':""}
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(admin){
     const [act,gur]=await Promise.all([
@@ -464,6 +465,7 @@ async function renderDashboard(name, warn){
     if($("kpiActive")) $("kpiActive").textContent=act.count??0;
     if($("kpiGurus"))  $("kpiGurus").textContent=gur.count??0;
     if($("kpiBranch")) $("kpiBranch").textContent=state.branches.length;
+    loadDashBdays();
   }
   // latest notices section, right under the dashboard header
   const { data:notices } = await db.from("news_posts").select("id,title,body,media_url,created_at").eq("audience","all").order("created_at",{ascending:false}).limit(3);
@@ -475,6 +477,18 @@ async function renderDashboard(name, warn){
   }
 }
 
+async function loadDashBdays(){
+  const C=$("dashBdays"); if(!C) return;
+  const { data } = await db.from("students").select("full_name,date_of_birth,status,branches(name)").eq("status","active");
+  const now=new Date(); const mo=now.getMonth(); const today=now.getDate(); const yr=now.getFullYear();
+  const list=(data||[]).filter(s=>s.date_of_birth).map(s=>{ const d=new Date(s.date_of_birth); return { name:s.full_name, day:d.getDate(), month:d.getMonth(), by:d.getFullYear(), branch:s.branches&&s.branches.name }; }).filter(s=>s.month===mo).sort((a,b)=>a.day-b.day);
+  if(!list.length){ C.innerHTML=""; return; }
+  C.innerHTML=`<div class="panel" style="margin-top:16px"><h3 style="margin:0 0 4px">🎂 Birthdays this month</h3>
+    <p class="mini" style="color:var(--muted);margin:0 0 8px">A little wish goes a long way 💛</p>
+    ${list.map(s=>{ const turning=yr-s.by; const isToday=s.day===today; const soon=!isToday && s.day>=today && s.day<=today+7;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(s.name)}</b>${s.branch?` <span class="mini" style="color:var(--muted)">· ${esc(s.branch)}</span>`:""}${isToday?` <span class="badge b-green">🎉 today!</span>`:(soon?` <span class="badge b-amber">soon</span>`:"")}</div><span class="mini">${s.day} ${MONS[s.month]}${turning>0&&turning<120?` · turning ${turning}`:""}</span></div>`; }).join("")}
+  </div>`;
+}
 /* ---------------- STUDENTS LIST ---------------- */
 async function renderStudents(){
   const M=$("mainArea");
@@ -730,7 +744,7 @@ function genAttReport(){
 const PAD=n=>String(n).padStart(2,"0");
 const MONS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN");
-function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().toISOString().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01` }; }
+function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().toISOString().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01`, end:`${y}-${PAD(mm)}-${PAD(new Date(y,mm,0).getDate())}` }; }
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
   const thisMonth=new Date().toISOString().slice(0,7);
@@ -745,9 +759,9 @@ async function renderFees(){
 async function loadFees(){
   const P=feePeriod();
   $("feeList").innerHTML=`<div class="empty">Loading…</div>`;
-  const { data:studs, error } = await db.from("students").select("id,full_name,branches(name,monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`).order("full_name");
+  const { data:studs, error } = await db.from("students").select("id,full_name,join_date,branches(name,monthly_fee,allow_plans)").or(`status.eq.active,status_effective_date.gt.${P.start}`).order("full_name");
   if(error){ $("feeList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status,student_response").eq("period_label",P.label);
+  const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status,student_response,period_label,period_start,period_end,months").lte("period_start",P.end).gte("period_end",P.start);
   const invMap={}; (inv||[]).forEach(i=>invMap[i.student_id]=i);
   const invIds=(inv||[]).map(i=>i.id); let payMap={};
   if(invIds.length){ const { data:pays } = await db.from("payments").select("invoice_id,method").in("invoice_id",invIds); (pays||[]).forEach(p=>payMap[p.invoice_id]=p.method); }
@@ -759,38 +773,67 @@ function drawFees(){
   const today=new Date().toISOString().slice(0,10);
   let billed=0, collected=0;
   const rows=studs.map(s=>{
-    const inv=invMap[s.id];
-    if(inv){ billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount); }
-    let stHtml, action="";
-    if(!inv){ stHtml=`<span class="badge b-grey">No invoice</span>`; }
-    else if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>`; }
-    else { const overdue=inv.due_date<today;
-      stHtml = overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`;
-      if(inv.student_response==="says_paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
-      else if(inv.student_response==="will_pay_later") stHtml+=` <span class="badge b-grey">Student: will pay later</span>`;
-      action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
+    const inv=invMap[s.id]; const allow=!!(s.branches&&s.branches.allow_plans);
+    let stHtml, action="", amtCell="—";
+    if(inv){
+      const startsThis = inv.period_start? (inv.period_start>=P.start) : true;
+      const multi=(inv.months||1)>1;
+      if(startsThis){
+        billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount);
+        amtCell=INR(inv.amount)+(multi?` <span class="mini" style="color:var(--muted)">· ${inv.months}mo</span>`:"");
+        if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>${multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:""}`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>`; }
+        else { const overdue=inv.due_date<today;
+          stHtml=(overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`)+(multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:"");
+          if(inv.student_response==="says_paid"||inv.student_response==="paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
+          else if(inv.student_response==="will_pay_later") stHtml+=` <span class="badge b-grey">Student: will pay later</span>`;
+          action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
+        }
+      } else {
+        stHtml=`<span class="badge b-green">Covered · paid ahead${inv.period_end?" through "+esc(inv.period_end):""}</span>`;
+      }
+    } else {
+      stHtml=`<span class="badge b-grey">No invoice</span>`;
+      amtCell=(s.branches&&s.branches.monthly_fee)?INR(s.branches.monthly_fee):"—";
+      const opts= allow? `<option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option>` : `<option value="1">1 month</option>`;
+      action=`<select id="rp_${s.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">${opts}</select> <span class="rowbtn edit" onclick="adminRaisePlan('${s.id}')">Raise</span>`;
     }
-    const amt = inv?INR(inv.amount):(s.branches&&s.branches.monthly_fee?INR(s.branches.monthly_fee):"—");
-    return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amt}</td><td>${stHtml}</td><td>${action}</td></tr>`;
+    return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amtCell}</td><td>${stHtml}</td><td>${action}</td></tr>`;
   }).join("");
   const pending=billed-collected;
   $("feeKpis").innerHTML=`<div class="kpi"><div class="l">Billed (${esc(P.label)})</div><div class="v">${INR(billed)}</div></div>
     <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div></div>
     <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>`;
   $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Action</th></tr>${rows}</table>
-    <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px">Click <b>Generate invoices</b> to raise this month's fees for active students who don't have one yet. Overdue rows are flagged red — that's your follow-up list.</p>`:`<div class="empty">No active students.</div>`;
+    <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"><b>Generate invoices</b> raises this month's monthly fee for everyone not already covered. For a Gachibowli family paying ahead, pick <b>3</b> or <b>6 months</b> on their row and tap <b>Raise</b>. “Covered · paid ahead” means a multi-month invoice already covers this month.</p>`:`<div class="empty">No active students.</div>`;
+}
+async function adminRaisePlan(sid){
+  const sel=$("rp_"+sid); const months=Number(sel&&sel.value)||1;
+  const s=((state._fee&&state._fee.studs)||[]).find(x=>x.id===sid); if(!s||!s.branches){ alert("No branch set for this student."); return; }
+  const fee=Number(s.branches.monthly_fee)||0; if(!fee){ alert("This branch has no monthly fee set in Settings."); return; }
+  const P=state._fee.P; const sy=P.year, sm=P.monthIdx;
+  const endDate=new Date(sy, sm+months, 0);
+  const endd=`${endDate.getFullYear()}-${PAD(endDate.getMonth()+1)}-${PAD(endDate.getDate())}`;
+  let lbl=MONS[sm]+" "+sy; if(months>1) lbl+=" – "+MONS[endDate.getMonth()]+" "+endDate.getFullYear();
+  const dim=new Date(sy,sm+1,0).getDate(); const day=s.join_date?new Date(s.join_date).getDate():1;
+  const due=`${sy}-${PAD(sm+1)}-${PAD(Math.min(day,dim))}`;
+  const today=new Date().toISOString().slice(0,10);
+  const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Raising…";
+  const { error } = await db.from("invoices").insert({ student_id:sid, period_label:lbl, amount:fee*months, due_date:due, status: due<today?"overdue":"pending", months, period_start:P.start, period_end:endd });
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't raise — "+error.message; return; }
+  m.className="formmsg ok"; m.textContent="✓ Raised "+(months>1?months+"-month":"monthly")+" invoice for "+s.full_name+".";
+  loadFees();
 }
 async function generateInvoices(){
   const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
   const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`);
-  const { data:inv } = await db.from("invoices").select("student_id").eq("period_label",P.label);
+  const { data:inv } = await db.from("invoices").select("student_id").lte("period_start",P.end).gte("period_end",P.start);
   const have=new Set((inv||[]).map(i=>i.student_id));
   const today=new Date().toISOString().slice(0,10);
   const dim=new Date(P.year, P.monthIdx+1, 0).getDate();
   const rows=(studs||[]).filter(s=>!have.has(s.id) && s.branches && Number(s.branches.monthly_fee)>0).map(s=>{
     const day=s.join_date?new Date(s.join_date).getDate():1;
     const due=`${P.year}-${PAD(P.monthIdx+1)}-${PAD(Math.min(day,dim))}`;
-    return { student_id:s.id, period_label:P.label, amount:s.branches.monthly_fee, due_date:due, status: due<today?"overdue":"pending" };
+    return { student_id:s.id, period_label:P.label, amount:s.branches.monthly_fee, due_date:due, status: due<today?"overdue":"pending", months:1, period_start:P.start, period_end:P.end };
   });
   if(!rows.length){ m.className="formmsg ok"; m.textContent="Everyone already has an invoice for "+P.label+" (or has no branch fee set)."; loadFees(); return; }
   const { error } = await db.from("invoices").insert(rows);
@@ -2713,7 +2756,7 @@ async function renderStudentFees(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const s=await myStudent();
   if(!s){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
-  const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response").eq("student_id",s.id).order("due_date",{ascending:false});
+  const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response,period_start,period_end,months").eq("student_id",s.id).order("due_date",{ascending:false});
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const list=invs||[]; const todayS=new Date().toISOString().slice(0,10);
   const upiId=s.upi_id||(s.branches&&s.branches.upi_id)||SCHOOL_UPI.id;
@@ -2741,10 +2784,27 @@ async function renderStudentFees(){
         <button class="kbtn ghost" style="margin-left:6px" onclick="studentRespond('${i.id}','will_pay_later')">I'll pay later</button>
       </div></div>`;
   };
-  M.innerHTML=`<div class="ph"><div><h2>Fees</h2><p>View and pay your monthly fees</p></div></div>
+  let planHtml="";
+  const { data:br } = await db.from("branches").select("monthly_fee,allow_plans").eq("id",s.branch_id).maybeSingle();
+  const allow=!!(br&&br.allow_plans); const mfee=br?Number(br.monthly_fee)||0:0;
+  const cm=new Date(); const curStart=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-01`; const curEnd=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-${PAD(new Date(cm.getFullYear(),cm.getMonth()+1,0).getDate())}`;
+  const coveredNow=list.some(i=>i.period_start&&i.period_end&&i.period_start<=curEnd&&i.period_end>=curStart);
+  if(allow && mfee>0 && !coveredNow){
+    const pb=(mo,label)=>`<button class="kbtn ${mo===1?"teal":"ghost"}" style="margin:4px 8px 0 0" onclick="studentRaisePlan(${mo})">${label} — ${INR(mfee*mo)}</button>`;
+    planHtml=`<div class="panel" style="margin-bottom:14px"><h3>Choose your payment</h3>
+      <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — whatever suits you.</p>
+      <div style="display:flex;flex-wrap:wrap">${pb(1,"1 month")}${pb(3,"3 months")}${pb(6,"6 months")}</div></div>`;
+  }
+  M.innerHTML=`<div class="ph"><div><h2>Fees</h2><p>View and pay your fees</p></div></div>
     ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
-    <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Monthly fees are payable in full — see the attendance/make-up policy.</p>
-    ${list.length?list.map(card).join(""):`<div class="empty">No invoices yet.</div>`}`;
+    ${planHtml}
+    <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full — see the attendance/make-up policy.</p>
+    ${list.length?list.map(card).join(""):(planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
+}
+async function studentRaisePlan(months){
+  const { error } = await db.rpc("student_raise_plan",{ p_months:months });
+  if(error){ alert("Couldn't set up your invoice — "+error.message); return; }
+  renderStudentFees();
 }
 async function studentRespond(id, resp){
   const { error } = await db.rpc("student_respond_invoice",{ p_invoice:id, p_response:resp });
@@ -2922,8 +2982,8 @@ async function renderSettings(){
   const inp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v||0}" style="width:130px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
   M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
-      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th></tr>
-        ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td></tr>`).join("")}</table>
+      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th><th>3 / 6-mo plans</th></tr>
+        ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td style="text-align:center"><input type="checkbox" id="pl_${b.id}"${b.allow_plans?" checked":""}></td></tr>`).join("")}</table>
       <div class="formmsg" id="feeStructMsg"></div>
       <button class="kbtn teal" id="saveFees" style="margin-top:8px">Save fee structure</button>
       <p class="footnote" style="margin-top:8px">No GST is added to tuition. Each branch's <b>UPI ID</b> is what its students see when paying — give Tarnaka its own, and use the same handle for Gachibowli &amp; Online if you want them together.</p>
@@ -2971,7 +3031,7 @@ async function saveFeeStructure(){
     const mf=Number($("bf_"+b.id).value)||0, rf=Number($("br_"+b.id).value)||0;
     const upi=(($("bu_"+b.id)||{}).value||"").trim()||null;
     const nm=(($("bn_"+b.id)||{}).value||"").trim()||b.name;
-    const { error } = await db.from("branches").update({ name:nm, monthly_fee:mf, registration_fee:rf, upi_id:upi }).eq("id",b.id);
+    const { error } = await db.from("branches").update({ name:nm, monthly_fee:mf, registration_fee:rf, upi_id:upi, allow_plans: !!($("pl_"+b.id)&&$("pl_"+b.id).checked) }).eq("id",b.id);
     if(error){ m.className="formmsg err"; m.textContent="Couldn't save "+b.name+" — "+error.message; return; }
   }
   state.refLoaded=false; await loadRef();
