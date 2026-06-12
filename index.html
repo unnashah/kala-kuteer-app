@@ -182,7 +182,9 @@ let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const state = { role:"student", name:"", branches:[], courses:[], refLoaded:false };
 
 const $ = id => document.getElementById(id);
-const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const safeUrl = u => /^https?:\/\//i.test(u||"") ? u : "#";          // only allow real web links in href (blocks javascript: etc.)
+const todayIST = () => new Date(Date.now()+19800000).toISOString().slice(0,10); // today's date in IST (UTC+5:30)
 function show(v){ $("login").classList.toggle("hide", v!=="login"); $("app").classList.toggle("hide", v!=="app"); }
 function msg(t, ok){ const m=$("loginMsg"); m.textContent=t; m.className="msg "+(ok?"ok":"err"); }
 function ageFromDOB(d){ if(!d) return null; const b=new Date(d), n=new Date(); let a=n.getFullYear()-b.getFullYear(); const m=n.getMonth()-b.getMonth(); if(m<0||(m===0&&n.getDate()<b.getDate())) a--; return a; }
@@ -806,6 +808,8 @@ function drawFees(){
     <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"><b>Generate invoices</b> raises this month's monthly fee for everyone not already covered. For a Gachibowli family paying ahead, pick <b>3</b> or <b>6 months</b> on their row and tap <b>Raise</b>. “Covered · paid ahead” means a multi-month invoice already covers this month.</p>`:`<div class="empty">No active students.</div>`;
 }
 async function adminRaisePlan(sid){
+  if(state._busyMoney) return; state._busyMoney=true;
+  try{
   const sel=$("rp_"+sid); const months=Number(sel&&sel.value)||1;
   const s=((state._fee&&state._fee.studs)||[]).find(x=>x.id===sid); if(!s||!s.branches){ alert("No branch set for this student."); return; }
   const fee=Number(s.branches.monthly_fee)||0; if(!fee){ alert("This branch has no monthly fee set in Settings."); return; }
@@ -815,19 +819,22 @@ async function adminRaisePlan(sid){
   let lbl=MONS[sm]+" "+sy; if(months>1) lbl+=" – "+MONS[endDate.getMonth()]+" "+endDate.getFullYear();
   const dim=new Date(sy,sm+1,0).getDate(); const day=s.join_date?new Date(s.join_date).getDate():1;
   const due=`${sy}-${PAD(sm+1)}-${PAD(Math.min(day,dim))}`;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Raising…";
   const { error } = await db.from("invoices").insert({ student_id:sid, period_label:lbl, amount:fee*months, due_date:due, status: due<today?"overdue":"pending", months, period_start:P.start, period_end:endd });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't raise — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Raised "+(months>1?months+"-month":"monthly")+" invoice for "+s.full_name+".";
   loadFees();
+  } finally { state._busyMoney=false; }
 }
 async function generateInvoices(){
+  if(state._busyMoney) return; state._busyMoney=true;
+  try{
   const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
   const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`);
   const { data:inv } = await db.from("invoices").select("student_id").lte("period_start",P.end).gte("period_end",P.start);
   const have=new Set((inv||[]).map(i=>i.student_id));
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayIST();
   const dim=new Date(P.year, P.monthIdx+1, 0).getDate();
   const rows=(studs||[]).filter(s=>!have.has(s.id) && s.branches && Number(s.branches.monthly_fee)>0).map(s=>{
     const day=s.join_date?new Date(s.join_date).getDate():1;
@@ -839,8 +846,11 @@ async function generateInvoices(){
   if(error){ m.className="formmsg err"; m.textContent="Couldn't generate — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Created "+rows.length+" invoice(s) for "+P.label+".";
   loadFees();
+  } finally { state._busyMoney=false; }
 }
 async function recordPayment(invId, amount){
+  if(state._busyMoney) return; state._busyMoney=true;
+  try{
   const m=$("feeMsg"); const sel=$("pm_"+invId); const method=sel?sel.value:"cash";
   m.className="formmsg ok"; m.textContent="Recording…";
   const { error:pe } = await db.from("payments").insert({ invoice_id:invId, amount, method });
@@ -849,6 +859,7 @@ async function recordPayment(invId, amount){
   if(ie){ m.className="formmsg err"; m.textContent="Payment saved but status didn't update — "+ie.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Payment recorded ("+method+").";
   loadFees();
+  } finally { state._busyMoney=false; }
 }
 
 /* ---------------- FINANCE & P&L ---------------- */
@@ -1088,6 +1099,8 @@ function recordPayoutForm(tid){
     <button class="kbtn ghost" style="margin-left:6px" onclick="document.getElementById('poForm_${tid}').style.display='none'">Cancel</button></div>`;
 }
 async function savePayout(tid){
+  if(state._busyMoney) return; state._busyMoney=true;
+  try{
   const m=$("po_msg_"+tid); const amt=Number($("po_amt_"+tid).value); const date=$("po_date_"+tid).value;
   if(!amt||amt<=0){ m.className="formmsg err"; m.textContent="Enter an amount."; return; }
   if(!date){ m.className="formmsg err"; m.textContent="Pick a date."; return; }
@@ -1095,6 +1108,7 @@ async function savePayout(tid){
   const { error } = await db.from("guru_payouts").insert({ teacher_id:tid, period:state._poPeriod, amount:amt, paid_on:date, method:$("po_method_"+tid).value, note:$("po_note_"+tid).value.trim()||null });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
   loadPayouts();
+  } finally { state._busyMoney=false; }
 }
 async function savePlan(tid){
   const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); if(!c) return;
@@ -1457,7 +1471,7 @@ function drawNews(){
       </div>
       <div style="text-align:${n.align==="center"?"center":"left"}">
       ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-      ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="${n.img_full?"width:100%;max-width:100%":"max-width:320px;max-height:220px"};border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+      ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="${n.img_full?"width:100%;max-width:100%":"max-width:320px;max-height:220px"};border-radius:8px;margin:10px 0 0;border:1px solid var(--line)">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(safeUrl(n.media_url))}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
       </div>
       ${newsTally(n)}
     </div>`).join("");
@@ -1994,7 +2008,7 @@ async function renderMyClasses(){
             <div class="mini" style="margin-top:3px">${esc(classSchedule(c))} · ${esc(c.branches?.name||"—")}${c.mode&&c.mode!=="in_person"?` · <span class="badge b-teal">${esc(c.mode)}</span>`:""}</div></div>
           <span class="badge b-green">${counts[c.id]||0} student${(counts[c.id]||0)===1?"":"s"}</span>
         </div>
-        <div style="margin-top:10px"><span class="rowbtn edit" onclick="manageMyClass('${c.id}')">👥 Students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(c.zoom_link)}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
+        <div style="margin-top:10px"><span class="rowbtn edit" onclick="manageMyClass('${c.id}')">👥 Students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(safeUrl(c.zoom_link))}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
         <div id="roster_${c.id}"></div>
       </div>`).join(""):`<div class="empty">You don't have any classes yet. Schedule one above, or the admin can assign you a class.</div>`}`;
 }
@@ -2220,7 +2234,7 @@ function genPayoutInvoice(monthKey){
    table{width:100%;border-collapse:collapse;font-size:14px}td{padding:9px 4px;border-bottom:1px solid #eee}.k{color:#888;width:160px}
    .amt{font-size:26px;font-weight:bold;color:#2E8B57;margin:18px 0}
    .ft{margin-top:22px;font-size:12px;color:#666}@media print{button{display:none}}</style></head><body>
-   <div class="hd"><img src="kala-kuteer-logo.png" alt="Kala Kuteer"><div><h1>Kala Kuteer</h1><p>A blissful mind for well-being of all</p></div></div>
+   <div class="hd"><img src="https://app.kalakuteer.org/kala-kuteer-logo.png" alt="Kala Kuteer"><div><h1>Kala Kuteer</h1><p>A blissful mind for well-being of all</p></div></div>
    <h2>GURU PAYOUT STATEMENT</h2>
    <table>
      <tr><td class="k">Statement no.</td><td>${num}</td></tr>
@@ -2362,7 +2376,7 @@ function announceCardHTML(n, myResp){
     <div style="text-align:${al}">
     <b style="font-size:15px">${esc(n.title)}</b><div class="mini" style="margin-top:2px">${String(n.created_at).slice(0,10)}</div>
     ${n.body?`<p style="margin:10px 0 0;white-space:pre-wrap">${esc(n.body)}</p>`:""}
-    ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="${imgStyle}">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(n.media_url)}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
+    ${n.media_url?(/(\.(png|jpe?g|gif|webp|svg)(\?|$)|\/uploads\/)/i.test(n.media_url)?`<img src="${esc(n.media_url)}" style="${imgStyle}">`:`<p class="mini" style="margin:8px 0 0">🔗 <a href="${esc(safeUrl(n.media_url))}" target="_blank" rel="noopener">${esc(n.media_url)}</a></p>`):""}
     </div>
     ${respButtonsHTML(n, myResp)}
     ${state.role==="student"
@@ -2511,7 +2525,7 @@ function drawReviews(){
   const card=({s,info})=>{
     const sid=s.id; let line="", act="";
     if(info.state==="scheduled"){ const r=info.review;
-      line=`Scheduled for <b>${fmtDateTime(r.scheduled_at)}</b>${r.meeting_link?` · <a href="${esc(r.meeting_link)}" target="_blank" rel="noopener">link</a>`:""}`;
+      line=`Scheduled for <b>${fmtDateTime(r.scheduled_at)}</b>${r.meeting_link?` · <a href="${esc(safeUrl(r.meeting_link))}" target="_blank" rel="noopener">link</a>`:""}`;
       act=`<span class="rowbtn" onclick="togglePtmForm('${sid}','${info.cycle}')">Reschedule</span><span class="rowbtn edit" onclick="completePtm('${r.id}','${sid}')">✓ Mark done</span><span class="rowbtn danger" onclick="cancelPTM('${r.id}')">Cancel</span>`;
     } else if(info.state==="overdue"){ line=`Was due around <b>${fmtNiceDate(info.cycle)}</b> — not yet scheduled`; act=`<span class="rowbtn edit" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule Guru Samvaad</span>`;
     } else if(info.state==="due"){ line=`Due around <b>${fmtNiceDate(info.cycle)}</b>`; act=`<span class="rowbtn edit" onclick="togglePtmForm('${sid}','${info.cycle}')">📅 Schedule Guru Samvaad</span>`;
@@ -2843,12 +2857,14 @@ async function submitFeedback(){
 }
 
 async function genReceipt(invId){
-  const { data:i, error } = await db.from("invoices").select("id,period_label,amount,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
+  const { data:i, error } = await db.from("invoices").select("id,period_label,amount,registration,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
   if(error||!i){ alert("Couldn't load the receipt — "+(error?.message||"")); return; }
   const pay=(i.payments&&i.payments[0])||{};
   const paidOn = pay.paid_at?String(pay.paid_at).slice(0,10):new Date().toISOString().slice(0,10);
   const num="KK-"+String(i.id).slice(0,8).toUpperCase();
-  const amt="₹"+Number(i.amount||0).toLocaleString("en-IN");
+  const reg=Number(i.registration||0), fee=Number(i.amount||0);
+  const amt="₹"+(fee+reg).toLocaleString("en-IN");
+  const forText = reg>0 ? (fee>0 ? `Tuition fee — ${esc(i.period_label||"")} + ₹${reg.toLocaleString("en-IN")} registration` : "Registration fee (one-time)") : `Tuition fee — ${esc(i.period_label||"")}`;
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${num}</title>
    <style>body{font-family:Georgia,'Times New Roman',serif;color:#16305A;max-width:600px;margin:30px auto;padding:0 22px}
    .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #16305A;padding-bottom:14px}
@@ -2858,14 +2874,14 @@ async function genReceipt(invId){
    .amt{font-size:26px;font-weight:bold;color:#2E8B57;margin:18px 0}.k{color:#888;width:140px}
    .ft{margin-top:22px;font-size:12px;color:#666}
    @media print{button{display:none}}</style></head><body>
-   <div class="hd"><img src="kala-kuteer-logo.png" alt="Kala Kuteer"><div><h1>Kala Kuteer</h1><p>A blissful mind for well-being of all</p></div></div>
+   <div class="hd"><img src="https://app.kalakuteer.org/kala-kuteer-logo.png" alt="Kala Kuteer"><div><h1>Kala Kuteer</h1><p>A blissful mind for well-being of all</p></div></div>
    <h2>PAYMENT RECEIPT</h2>
    <table>
      <tr><td class="k">Receipt no.</td><td>${num}</td></tr>
      <tr><td class="k">Date</td><td>${paidOn}</td></tr>
      <tr><td class="k">Received from</td><td><b>${esc(i.student?.full_name||"")}</b></td></tr>
      <tr><td class="k">Branch</td><td>${esc(i.student?.branches?.name||"—")}</td></tr>
-     <tr><td class="k">For</td><td>Tuition fee — ${esc(i.period_label||"")}</td></tr>
+     <tr><td class="k">For</td><td>${forText}</td></tr>
      <tr><td class="k">Paid via</td><td>${esc(pay.method||"—")}</td></tr>
    </table>
    <div class="amt">${amt}</div>
@@ -3178,7 +3194,7 @@ async function renderStudentDetail(id){
       <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Intake form:</span>${s.intake_completed?`<span class="badge b-green">✓ completed${s.consent_signed_at?" · signed "+String(s.consent_signed_at).slice(0,10):""}</span>`:`<span class="badge b-amber">⏳ pending</span>`} <span class="rowbtn edit" onclick="askIntake('${s.id}')">📝 Ask to complete / refresh</span></div>
-      <button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>
+      ${state.role==="super_admin"?`<button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>`:""}
       <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
       <div class="formmsg" id="manageMsg"></div>
       <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Delete</b> is permanent — use it only for mistakes or test entries.</p>
@@ -3309,12 +3325,22 @@ async function renderQuickRegister(){
         <div class="kf"><label>Class level *</label><select id="q_level"><option value="">Select…</option><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
       </div>
       <div class="kf"><label>Joining date *</label><input id="q_join" type="date"></div>
+      <div style="border-top:1px solid var(--line);margin:14px 0 4px;padding-top:12px"><b>Registration fee</b></div>
+      <div class="check" style="margin:0 0 8px"><input type="checkbox" id="q_reghas" checked><label for="q_reghas" style="margin:0;font-size:13px">₹1,000 one-time registration has been collected</label></div>
+      <div class="form2" id="q_regfields">
+        <div class="kf"><label>Amount (₹)</label><input id="q_regamt" inputmode="numeric" value="1000" oninput="this.value=this.value.replace(/\\D/g,'')"></div>
+        <div class="kf"><label>Paid via</label><select id="q_regmethod"><option value="upi">UPI / QR</option><option value="cash">Cash</option><option value="card">Card</option><option value="netbanking">Net banking</option></select></div>
+        <div class="kf"><label>Date paid</label><input id="q_regdate" type="date"></div>
+      </div>
+      <p class="footnote" style="margin:2px 0 8px">Records a paid registration the family can download as a receipt. Untick only if you're waiving it (e.g. sibling / offer).</p>
       <div class="formmsg" id="qMsg"></div>
       <button class="kbtn teal" id="qSave" style="width:100%">Create account &amp; enable login</button>
       <p class="footnote" style="margin-top:10px">🔑 Starting PIN is their date of birth — they set their own private PIN on first login, then complete the intake &amp; sign it.</p>
     </div>`;
   $("q_dob").onchange=()=>{ const a=ageFromDOB($("q_dob").value); if(a!=null) $("q_minor").checked=a<18; };
   $("qSave").onclick=saveQuickStudent;
+  if($("q_regdate")) $("q_regdate").value=todayIST();
+  if($("q_reghas")) $("q_reghas").onchange=()=>{ const on=$("q_reghas").checked; ["q_regamt","q_regmethod","q_regdate"].forEach(i=>{ if($(i)) $(i).disabled=!on; }); if($("q_regfields")) $("q_regfields").style.opacity=on?"1":"0.45"; };
 }
 async function saveQuickStudent(){
   const m=$("qMsg"); const D=id=>((($(id)||{}).value)||"").toString().trim(); const digits=id=>D(id).replace(/\D/g,"");
@@ -3344,7 +3370,18 @@ async function saveQuickStudent(){
     else m.textContent="✓ Account created — they log in with "+e164+" + date of birth, then complete the intake & sign.";
   }catch(e){ m.textContent="✓ Student created."; }
   m.className="formmsg ok";
+  // record the one-time ₹1,000 registration as a PAID invoice (shows in income; family can download a receipt)
+  try{
+    const regHas=$("q_reghas")&&$("q_reghas").checked;
+    const regAmt=Number((($("q_regamt")||{}).value)||0);
+    if(regHas && regAmt>0){
+      const regDate=D("q_regdate")||todayIST();
+      const { data:rinv, error:rie } = await db.from("invoices").insert({ student_id:ins.id, period_label:"Registration", amount:0, registration:regAmt, due_date:regDate, status:"paid", months:0 }).select("id").single();
+      if(!rie && rinv) await db.from("payments").insert({ invoice_id:rinv.id, amount:regAmt, method:(($("q_regmethod")||{}).value)||"upi", paid_at:regDate+"T12:00:00+05:30" });
+    }
+  }catch(e){}
   ["q_name","q_dob","q_phone","q_branch","q_course","q_guru","q_level","q_join"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("q_minor")) $("q_minor").checked=false;
+  if($("q_regamt")) $("q_regamt").value="1000"; if($("q_regdate")) $("q_regdate").value=todayIST(); if($("q_reghas")) $("q_reghas").checked=true;
   $("qSave").disabled=false;
 }
 async function renderIntake(){
@@ -3500,7 +3537,7 @@ $("signinPhoneBtn").onclick = signInPhone;
 $("tabPhone").onclick=()=>{ $("tabPhone").classList.add("active"); $("tabEmail").classList.remove("active"); $("phoneForm").style.display=""; $("emailForm").style.display="none"; msg("",true); };
 $("tabEmail").onclick=()=>{ $("tabEmail").classList.add("active"); $("tabPhone").classList.remove("active"); $("emailForm").style.display=""; $("phoneForm").style.display="none"; msg("",true); };
 $("loginform").addEventListener("keydown", e=>{ if(e.key==="Enter"){ if($("phoneForm").style.display!=="none") signInPhone(); else signIn(); } });
-$("logoutBtn").onclick = async ()=>{ if(db) await db.auth.signOut(); show("login"); if($("password"))$("password").value=""; if($("lpin"))$("lpin").value=""; };
+$("logoutBtn").onclick = async ()=>{ try{clearDraft();}catch(e){} if(db) await db.auth.signOut(); location.reload(); }; // clears cached identity + any saved intake draft (shared-phone hygiene), then full reload
 init();
 </script>
 </body>
