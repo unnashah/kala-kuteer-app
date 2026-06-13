@@ -99,6 +99,10 @@
   /* form */
   .form2{display:grid;grid-template-columns:1fr 1fr;gap:20px 26px;margin-bottom:8px}
   .panel{border:1.5px solid var(--saffron);border-radius:14px;padding:26px;margin-bottom:28px;background:#fff;box-shadow:0 3px 14px rgba(43,32,24,.08)}
+  .tip{position:relative;display:inline-block;vertical-align:middle;font-weight:400}
+  .tipbtn{width:22px;height:22px;border-radius:50%;border:1px solid var(--saffron);background:#fff7e8;cursor:pointer;font-size:12px;line-height:20px;padding:0;vertical-align:middle}
+  .tipbub{display:none;position:absolute;top:30px;left:0;z-index:50;width:300px;max-width:78vw;background:#fff7e8;border:1px solid #f0e2c0;border-radius:11px;padding:11px 13px;font-size:12.5px;color:#7a5e1f;line-height:1.5;box-shadow:0 4px 14px rgba(43,32,24,.12);text-align:left;white-space:normal}
+  .tipbub.show{display:block}
   .panel h3{margin-bottom:14px}
   .footnote{background:#fdf3f1;border:1px solid #e7b9b0;border-left:4px solid var(--warn);color:#9e3b2a;border-radius:9px;padding:10px 13px;font-size:12.5px;line-height:1.55;margin:10px 0}
   .footnote b{color:#7d2c1e}
@@ -358,6 +362,9 @@ function renderShell(role, name, warn){
 }
 
 const isAdmin = ()=> state.role==="admin"||state.role==="super_admin";
+function tip(t){ return ` <span class="tip"><button type="button" class="tipbtn" onclick="toggleTip(event,this)" aria-label="What's this?">💡</button><span class="tipbub">${t}</span></span>`; }
+function toggleTip(e,b){ e.stopPropagation(); const bub=b.nextElementSibling; const open=bub.classList.contains("show"); document.querySelectorAll(".tipbub.show").forEach(x=>x.classList.remove("show")); if(!open) bub.classList.add("show"); }
+if(!window._tipInit){ window._tipInit=true; document.addEventListener("click",function(){ document.querySelectorAll(".tipbub.show").forEach(function(x){ x.classList.remove("show"); }); }); }
 
 function navigate(key, name, warn){
   const M = $("mainArea");
@@ -453,6 +460,7 @@ async function renderDashboard(name, warn){
       <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
     ${state.role==="student"?'<div id="dashFees"></div>':""}
+    ${state.role==="super_admin"?'<div id="ownerStats"></div>':""}
     <div id="dashNotices" style="margin-top:16px"></div>
     ${admin?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
@@ -462,6 +470,7 @@ async function renderDashboard(name, warn){
     ${admin?'<div id="dashBdays"></div>':""}
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(state.role==="student") loadDashFees();
+  if(state.role==="super_admin") loadOwnerStats();
   if(admin){
     const [act,gur]=await Promise.all([
       db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
@@ -507,6 +516,52 @@ async function loadDashFees(){
         <div class="mini" style="margin-top:4px;color:#6b5836">${msg}</div></div>
       <button class="kbtn teal" onclick="gotoNav('myfees')" style="flex:none">View &amp; pay →</button>
     </div></div>`;
+}
+async function loadOwnerStats(){
+  const C=$("ownerStats"); if(!C) return;
+  const t=todayIST(); const [Y,Mo]=t.split("-").map(Number);
+  const mStart=`${Y}-${PAD(Mo)}-01`;
+  const mEnd=`${Y}-${PAD(Mo)}-${PAD(new Date(Y,Mo,0).getDate())}`;
+  const mNext=`${Mo===12?Y+1:Y}-${PAD(Mo===12?1:Mo+1)}-01`;
+  const weekEnd=new Date(Date.now()+19800000+7*86400000).toISOString().slice(0,10);
+  const [invMonth, unpaid, pays, newCnt, breakCnt, activeCnt] = await Promise.all([
+    fetchAll(()=> db.from("invoices").select("amount,status,period_start,period_end").lte("period_start",mEnd).gte("period_end",mStart)),
+    fetchAll(()=> db.from("invoices").select("amount,due_date,status").neq("status","paid")),
+    fetchAll(()=> db.from("payments").select("amount,invoices(students(branch_id))").gte("paid_at",mStart).lt("paid_at",mNext)),
+    db.from("students").select("id",{count:"exact",head:true}).gte("join_date",mStart).lte("join_date",mEnd),
+    db.from("students").select("id",{count:"exact",head:true}).eq("status","on_break"),
+    db.from("students").select("id",{count:"exact",head:true}).eq("status","active")
+  ]);
+  let billed=0, collected=0;
+  (invMonth||[]).forEach(i=>{ const starts=i.period_start?(i.period_start>=mStart):true; if(!starts) return; billed+=Number(i.amount||0); if(i.status==="paid") collected+=Number(i.amount||0); });
+  const pending=billed-collected;
+  const rate=billed>0?Math.round(collected/billed*100):null;
+  let overdueAmt=0, overdueN=0, weekAmt=0, weekN=0;
+  (unpaid||[]).forEach(i=>{ if(!i.due_date) return; if(i.due_date<t){ overdueAmt+=Number(i.amount||0); overdueN++; } else if(i.due_date<=weekEnd){ weekAmt+=Number(i.amount||0); weekN++; } });
+  const byBranch={};
+  (pays||[]).forEach(p=>{ const b=p.invoices&&p.invoices.students&&p.invoices.students.branch_id; if(b) byBranch[b]=(byBranch[b]||0)+Number(p.amount||0); });
+  const bname=id=>{ const x=(state.branches||[]).find(b=>b.id===id); return x?x.name:"—"; };
+  const branchRows=Object.keys(byBranch).sort((a,b)=>byBranch[b]-byBranch[a]).map(id=>{
+    const amt=byBranch[id]; const pct=collected>0?Math.round(amt/collected*100):0;
+    return `<div style="margin-top:8px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${esc(bname(id))}</span><b>${INR(amt)}</b></div><div style="height:6px;background:#f0e6cf;border-radius:4px;margin-top:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--saffron-deep)"></div></div></div>`;
+  }).join("")||`<div class="mini" style="color:var(--muted)">No payments recorded yet this month.</div>`;
+  const rateColor=rate==null?"var(--muted)":(rate>=80?"var(--good)":(rate>=50?"var(--saffron-deep)":"var(--warn)"));
+  C.innerHTML=`<div class="panel" style="margin-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">📊 This month — ${MONS[Mo-1]} ${Y}</h3><span class="rowbtn edit" onclick="gotoNav('fees')">Open Fees →</span></div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div>${rate!=null?`<div class="mini" style="color:${rateColor}">${rate}% of ${INR(billed)} billed</div>`:""}</div>
+      <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>
+      <div class="kpi"><div class="l">Overdue now</div><div class="v" style="color:${overdueN?'var(--warn)':'var(--good)'}">${INR(overdueAmt)}</div><div class="mini">${overdueN} invoice${overdueN===1?'':'s'}</div></div>
+      <div class="kpi"><div class="l">New students</div><div class="v">${newCnt.count??0}</div><div class="mini">joined this month</div></div>
+    </div>
+    ${overdueN?`<div style="margin-top:10px;background:#fdecea;border:1px solid #f3c0b8;border-radius:9px;padding:9px 12px;font-size:13px;color:#9B2226">⚠️ <b>${overdueN}</b> overdue invoice${overdueN===1?'':'s'} (${INR(overdueAmt)}) — reminders go out automatically; <span class="rowbtn edit" onclick="gotoNav('fees')" style="margin-left:4px">review</span></div>`:""}
+    <div style="margin-top:14px"><div class="mini" style="color:var(--muted);margin-bottom:2px">Collected by branch</div>${branchRows}</div>
+    <div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)">
+      <span>👥 <b>${activeCnt.count??0}</b> active</span>
+      <span>⏸ <b>${breakCnt.count??0}</b> on break</span>
+      <span>🗓 <b>${weekN}</b> due this week (${INR(weekAmt)})</span>
+    </div>
+  </div>`;
 }
 async function loadDashBdays(){
   const C=$("dashBdays"); if(!C) return;
@@ -563,7 +618,7 @@ async function renderAttendance(){
   const M=$("mainArea");
   await loadRef();
   const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  M.innerHTML = `<div class="ph"><div><h2>Attendance</h2><p>Mark who attended on a given day</p></div></div>
+  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Mark who came on a day, view a student’s full record, or pull a filtered report. Gurus mark their own students from the teacher app.")}</h2><p>Mark who attended on a given day</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar">
       <span class="mini">Date</span><input id="attDate" type="date" style="max-width:170px;flex:none">
@@ -778,8 +833,7 @@ function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().t
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
   const thisMonth=new Date().toISOString().slice(0,7);
-  M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
-    <div style="background:#fff7e8;border:1px solid #f0e2c0;border-radius:9px;padding:9px 12px;font-size:12.5px;color:#7a5e1f;margin-bottom:14px">💡 <b>Generate invoices</b> raises this month's fee for everyone, then record each payment as it comes in — or raise a <b>3/6-month plan</b> for a family paying ahead. What you collect here flows into <b>Finance &amp; P&amp;L</b> and each guru's <b>payout</b>.</div>
+  M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices${tip("‘Generate invoices’ raises this month’s fee for everyone, then record each payment as it’s received — or raise a 3/6-month plan for a family paying ahead. Collections here flow into Finance &amp; P&amp;L and each guru’s payout.")}</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
     <div class="searchbar"><span class="mini">Month</span><input id="feeMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:180px;flex:none"><button class="kbtn ghost" id="feeLoad">Load</button></div>
     <div class="formmsg" id="feeMsg"></div>
     <div class="kpis" id="feeKpis" style="margin-bottom:12px"></div>
@@ -812,7 +866,7 @@ function drawFees(){
       if(startsThis){
         billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount);
         amtCell=INR(inv.amount)+(multi?` <span class="mini" style="color:var(--muted)">· ${inv.months}mo</span>`:"");
-        if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>${multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:""}`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>`; }
+        if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>${multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:""}`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>${state.role==="super_admin"?` <span class="rowbtn edit" onclick="voidPayment('${inv.id}')">↩︎ Undo</span>`:""}`; }
         else { const overdue=inv.due_date<today;
           stHtml=(overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`)+(multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:"");
           if(inv.student_response==="says_paid"||inv.student_response==="paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
@@ -878,6 +932,19 @@ async function generateInvoices(){
   loadFees();
   } finally { state._busyMoney=false; }
 }
+async function voidPayment(invId){
+  if(state.role!=="super_admin"){ alert("Only the owner can undo a payment."); return; }
+  if(state._busyMoney) return;
+  if(!confirm("Undo this payment?\n\nThis removes the recorded payment and sets the fee back to unpaid. Use this ONLY to correct a recording mistake (e.g. wrong student or amount) — it is NOT a refund.")) return;
+  state._busyMoney=true;
+  const m=$("feeMsg"); if(m){ m.className="formmsg ok"; m.textContent="Undoing…"; }
+  try{
+    const { error } = await db.rpc("void_payment",{ p_invoice:invId });
+    if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't undo — "+error.message; } else alert("Couldn't undo — "+error.message); return; }
+    if(m){ m.className="formmsg ok"; m.textContent="✓ Payment undone — the fee is back to unpaid."; }
+    loadFees();
+  } finally { state._busyMoney=false; }
+}
 async function recordPayment(invId, amount){
   if(state._busyMoney) return; state._busyMoney=true;
   try{
@@ -923,7 +990,7 @@ async function renderFinance(){
   const thisMonth=new Date().toISOString().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const cats=["Rent","Salaries","Teacher payouts","Utilities","Marketing","Water & pantry","Celebrations","Instruments","Maintenance","Other"];
-  M.innerHTML=`<div class="ph"><div><h2>Finance &amp; P&amp;L</h2><p>Income from fees · your expenses · profit/loss per centre</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Finance &amp; P&amp;L${tip("Log every expense (one-time or recurring) and tag its branch. Income comes from fees automatically — together this gives each centre’s profit/loss and a category breakdown. Each expense row has an ✏️ Edit button.")}</h2><p>Income from fees · your expenses · profit/loss per centre</p></div></div>
     <div class="searchbar"><span class="mini">Month</span><input id="finMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="finLoad">Load</button></div>
     <div class="kpis" id="finKpis" style="margin-bottom:12px"></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="expFormTitle">Record an expense</h3>
@@ -1037,7 +1104,7 @@ async function delExpense(id){
 async function renderPayouts(){
   const M=$("mainArea"); await loadClassRefs();
   const thisMonth=new Date().toISOString().slice(0,7);
-  M.innerHTML=`<div class="ph"><div><h2>Guru Payouts</h2><p>What each guru has earned vs what's been paid</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Guru Payouts${tip("For each guru: their share % of the fees collected, plus any bonus or deduction, makes the final payout. Record what you actually pay to track paid vs due.")}</h2><p>What each guru has earned vs what's been paid</p></div></div>
     <div class="searchbar"><span class="mini">Month</span><input id="poMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="poLoad">Load</button></div>
     <div class="kpis" id="poKpis" style="margin-bottom:14px"></div>
     <div id="poBody"><div class="empty">Loading…</div></div>`;
@@ -1182,7 +1249,7 @@ async function renderEnquiries(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const srcOpts=ENQ_SOURCES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Enquiries</h2><p>Track every lead from first call to enrolment</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Enquiries${tip("Log every lead, then move it along: New → Following up → Trial booked → Converted. ‘Convert’ opens Intake to enrol them. Website enquiries land here automatically.")}</h2><p>Track every lead from first call to enrolment</p></div></div>
     <div class="kpis" id="enqKpis" style="margin-bottom:12px"></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="enqFormTitle">Log a new enquiry</h3>
       <div class="form2">
@@ -1320,7 +1387,7 @@ async function renderInventory(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const typeOpts=INV_TYPES.map(t=>`<option>${t}</option>`).join("");
   const condOpts=INV_CONDS.map(c=>`<option>${c}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Inventory</h2><p>Instruments, props, costumes &amp; equipment — across every centre</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Inventory${tip("Track the instruments, props and equipment the school owns — condition and repair-vs-replace — per branch.")}</h2><p>Instruments, props, costumes &amp; equipment — across every centre</p></div></div>
     <div class="kpis" id="invKpis" style="margin-bottom:12px"></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="invFormTitle">Add an item</h3>
       <div class="form2">
@@ -1440,7 +1507,7 @@ async function renderNews(){
   const audOpts=`<option value="all">Everyone</option>`
     + state.branches.map(b=>`<option value="branch:${b.id}">Branch · ${esc(b.name)}</option>`).join("")
     + state.courses.map(c=>`<option value="course:${c.id}">Course · ${esc(c.name)}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Announcements</h2><p>Post updates for students &amp; parents — competitions, events &amp; notices</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Announcements${tip("Post updates for students &amp; parents. Choose App-only or App + Website, optionally ask for a Got-it/RSVP response, and Share the branded post to WhatsApp.")}</h2><p>Post updates for students &amp; parents — competitions, events &amp; notices</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="newsFormTitle">Post an announcement</h3>
       <div class="kf"><label>Title *</label><input id="n_title" placeholder="e.g. Annual Day — 15 Aug"></div>
       <div class="kf"><label>Message</label><textarea id="n_body" rows="3" placeholder="Write the details students &amp; parents should see…"></textarea></div>
@@ -2236,7 +2303,7 @@ async function renderMyEarnings(){
   for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); const k=`${d.getFullYear()}-${PAD(d.getMonth()+1)}`; const paid=Math.round(paidByMonth[k]||0); total+=paid; rows.push({ k, label:MONS[d.getMonth()]+" "+d.getFullYear(), paid }); }
   state._earnRows=rows;
   const last3=rows.slice(0,3);
-  M.innerHTML=`<div class="ph"><div><h2>My Earnings</h2><p>What Kala Kuteer has paid you each month</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Earnings${tip("This shows only the amount Kala Kuteer has paid you each month, with a statement you can download.")}</h2><p>What Kala Kuteer has paid you each month</p></div></div>
     <div class="panel"><h3>Last 3 months</h3>
       <table><tr><th>Month</th><th>Amount paid</th><th>Status</th><th></th></tr>
         ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td><b>${INR(r.paid)}</b></td><td>${r.paid>0?`<span class="badge b-green">paid</span>`:`<span class="badge b-grey">awaiting</span>`}</td><td class="mini">${r.paid>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Statement</span>`:"—"}</td></tr>`).join("")}</table>
@@ -2576,7 +2643,7 @@ function drawReviews(){
       ${doneCount?`<div style="margin-top:8px"><span class="rowbtn" onclick="viewPtmHistory('${sid}')">📖 Past Guru Samvaad (${doneCount})</span></div>`:""}
       <div id="ptmHist_${sid}"></div></div>`;
   };
-  M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad</h2><p>A quarterly one-on-one between student &amp; guru — feedback &amp; progress — timed from each student's joining date</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad${tip("A quarterly 1:1 with each student, timed from their joining date. Schedule it, then mark it done with feedback notes (required) that the student can see.")}</h2><p>A quarterly one-on-one between student &amp; guru — feedback &amp; progress — timed from each student's joining date</p></div></div>
     <div style="background:#fff7e8;border-radius:10px;padding:13px 15px;margin-bottom:14px;line-height:1.6;font-size:13.5px">
       Who understands your progress better than your guru — the one who quietly watches you grow, day after day, as you find your voice on this journey? A <b>Guru Samvaad</b> is your moment to pause together and truly see how you're performing, where you're growing, and what to work on next.<br><br>
       We warmly encourage every student to sit with their guru at least <b>once a quarter</b>. It's a small, honest conversation — but the kind that can shape the months ahead. And if you'd like a parent or family member to be part of this conversation, they are always most welcome. Your guru sees you, and is always cheering you on. 💛
@@ -2702,7 +2769,7 @@ async function renderStudentProfile(){
   try{ await loadClassRefs(); }catch(e){}
   const guru=s.primary_teacher_id?teacherName(s.primary_teacher_id):"—";
   const rv=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:7px 0;font-size:13px"><span style="color:var(--muted)">${esc(l)}</span><b style="text-align:right">${esc(v||"—")}</b></div>`;
-  M.innerHTML=`<div class="ph"><div><h2>My Profile</h2><p>Your details &amp; your journey with Kala Kuteer</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Profile${tip("Your enrolment details — tap Request a correction if anything’s wrong — and My Journey, where you add milestones like exams, competitions and performances.")}</h2><p>Your details &amp; your journey with Kala Kuteer</p></div></div>
     <div class="panel"><h3>My details</h3>
       <p class="mini" style="color:var(--muted);margin:-2px 0 10px">From your enrolment. Something need updating? <span class="rowbtn" onclick="document.getElementById('mpFix').style.display=''">Request a correction</span></p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
@@ -2843,7 +2910,7 @@ async function renderStudentFees(){
       <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — whatever suits you.</p>
       <div style="display:flex;flex-wrap:wrap">${pb(1,"1 month")}${pb(3,"3 months")}${pb(6,"6 months")}</div></div>`;
   }
-  M.innerHTML=`<div class="ph"><div><h2>Fees</h2><p>View and pay your fees</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Fees${tip("See and pay your invoices via UPI/QR, then tap ‘I’ve paid’. Pick a 1/3/6-month plan if your branch offers it, and download your receipt once the office confirms.")}</h2><p>View and pay your fees</p></div></div>
     ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
     ${planHtml}
     <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full — see the attendance/make-up policy.</p>
@@ -3030,7 +3097,7 @@ async function fnErr(ferr){ let d=ferr.message||"error"; try{ const b=await ferr
 async function renderSettings(){
   const M=$("mainArea"); state.refLoaded=false; await loadRef();
   const inp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v||0}" style="width:130px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
-  M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles${tip("Set each branch’s monthly fee, registration, UPI and whether it offers 3/6-month plans; manage your courses; and create front-desk admin logins.")}</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
       <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th><th>3 / 6-mo plans</th></tr>
         ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td style="text-align:center"><input type="checkbox" id="pl_${b.id}"${b.allow_plans?" checked":""}></td></tr>`).join("")}</table>
@@ -3344,10 +3411,9 @@ async function renderQuickRegister(){
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const cc=id=>`<select id="${id}_cc" style="max-width:150px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   const numIn=id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
-  M.innerHTML=`<div class="ph"><div><h2>Quick register</h2><p>Create a basic account once the ₹1,000 registration is paid. The student completes &amp; signs the rest on their first login.</p></div>
+  M.innerHTML=`<div class="ph"><div><h2>Quick register${tip("Enter just the basics the school knows — name, login mobile, date of birth, course, branch and guru. The family fills their contact details and signs the consent on first login. This creates their login and adds them to <b>Students</b>.")}</h2><p>Create a basic account once the ₹1,000 registration is paid. The student completes &amp; signs the rest on their first login.</p></div>
       <button class="kbtn ghost" onclick="state._intakeMode='full';gotoNav('intake')">📝 Full intake form</button></div>
     <div class="panel" style="max-width:640px">
-      <div style="background:#fff7e8;border:1px solid #f0e2c0;border-radius:9px;padding:9px 12px;font-size:12.5px;color:#7a5e1f;margin-bottom:14px">💡 Enter just the basics the school knows — name, the mobile they'll log in with, date of birth, course, branch and guru. The family fills their own contact details and signs the consent on first login. Saving this creates their login and adds them to <b>Students</b>.</div>
       <div class="form2">
         <div class="kf"><label>Full name *</label><input id="q_name"></div>
         <div class="kf"><label>Date of birth *</label><input id="q_dob" type="date"></div>
@@ -3428,7 +3494,7 @@ async function renderIntake(){
   const guruOpts = (state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const cc = id=>`<select id="${id}_cc" style="max-width:160px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   const numIn = id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
-  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form</h2><p><b>All fields are required.</b> Fallback full form — most students now fill &amp; sign this themselves on first login.</p></div><button class="kbtn ghost" onclick="state._intakeMode='';gotoNav('intake')">⚡ Quick register</button></div>
+  M.innerHTML = `<div class="ph"><div><h2>Student Intake Form${tip("The fallback full form — fill every detail and sign on the family’s behalf. For most students, use ⚡ Quick register and let them complete and sign it themselves.")}</h2><p><b>All fields are required.</b> Fallback full form — most students now fill &amp; sign this themselves on first login.</p></div><button class="kbtn ghost" onclick="state._intakeMode='';gotoNav('intake')">⚡ Quick register</button></div>
   <div id="draftNote" class="hide" style="background:#fff7e8;border-radius:9px;padding:8px 10px;font-size:12px;margin-bottom:10px">📝 Restored your unsaved draft. <span onclick="clearDraft();renderIntake()" style="color:var(--saffron-deep);font-weight:700;cursor:pointer">Start fresh</span></div>
   <form id="intakeForm" class="form2" onsubmit="return false">
     <div class="panel"><h3>1 · Student &amp; contact</h3>
