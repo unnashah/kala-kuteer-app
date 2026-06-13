@@ -1149,9 +1149,10 @@ async function loadPayouts(){
   if(!ggErr && Array.isArray(gg)){ gg.forEach(r=>{ grossByT[r.teacher_id]=Number(r.gross||0); }); }
   else {
     let invMap={};
-    if(sids.length){ const invs = await fetchAll(()=> db.from("invoices").select("id,student_id").in("student_id",sids)); (invs||[]).forEach(i=>{ invMap[i.id]=stuTeacher[i.student_id]; }); }
+    if(sids.length){ const invs = await fetchAll(()=> db.from("invoices").select("id,student_id,amount").in("student_id",sids)); (invs||[]).forEach(i=>{ invMap[i.id]={t:stuTeacher[i.student_id], amt:Number(i.amount||0)}; }); }
     const invIds=Object.keys(invMap);
-    if(invIds.length){ const pays = await fetchAll(()=> db.from("payments").select("amount,invoice_id,paid_at").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next)); (pays||[]).forEach(p=>{ const t=invMap[p.invoice_id]; if(t) grossByT[t]=(grossByT[t]||0)+Number(p.amount||0); }); }
+    // guru share is on TUITION only (invoice.amount); registration invoices have amount 0, so they're excluded. Count each invoice once.
+    if(invIds.length){ const pays = await fetchAll(()=> db.from("payments").select("invoice_id,paid_at").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next)); const counted=new Set(); (pays||[]).forEach(p=>{ if(counted.has(p.invoice_id)) return; counted.add(p.invoice_id); const mp=invMap[p.invoice_id]; if(mp&&mp.t) grossByT[mp.t]=(grossByT[mp.t]||0)+mp.amt; }); }
   }
   const { data:paid } = await db.from("guru_payouts").select("teacher_id,amount").eq("period",v);
   const paidByT={}; (paid||[]).forEach(p=>{ paidByT[p.teacher_id]=(paidByT[p.teacher_id]||0)+Number(p.amount||0); });
@@ -1388,10 +1389,12 @@ async function logEnqNote(id){
   drawEnquiries();
 }
 async function convertEnq(id){
-  if(!confirm("Mark this lead as Converted and open the Intake form to enrol them?")) return;
+  if(!confirm("Mark this lead as Converted and open Quick Register, pre-filled with their details?")) return;
+  const { data:eq } = await db.from("enquiries").select("id,name,phone,whatsapp,branch_id,course_id").eq("id",id).maybeSingle();
   const { error } = await db.from("enquiries").update({ stage:"converted" }).eq("id",id);
   if(error){ alert("Couldn't update — "+error.message); return; }
   const e=(state._enq||[]).find(x=>x.id===id); if(e) e.stage="converted";
+  state._convertEnq=eq||null; state._intakeMode='';   // prefill Quick Register + remember which lead to link
   gotoNav("intake");
 }
 async function delEnquiry(id){
@@ -3488,6 +3491,13 @@ async function renderQuickRegister(){
     </div>`;
   $("q_dob").onchange=()=>{ const a=ageFromDOB($("q_dob").value); if(a!=null) $("q_minor").checked=a<18; };
   $("qSave").onclick=saveQuickStudent;
+  if(state._convertEnq){ const c=state._convertEnq;
+    if($("q_name")) $("q_name").value=c.name||"";
+    if(c.branch_id && $("q_branch")) $("q_branch").value=c.branch_id;
+    if(c.course_id && $("q_course")) $("q_course").value=c.course_id;
+    const ph=String(c.phone||c.whatsapp||"").replace(/\D/g,""); if(ph && $("q_phone")) $("q_phone").value=ph.length>10?ph.slice(-10):ph;
+    const qm=$("qMsg"); if(qm){ qm.className="formmsg ok"; qm.textContent="Pre-filled from the enquiry — complete the rest and create the account."; }
+  }
   if($("q_regdate")) $("q_regdate").value=todayIST();
   if($("q_reghas")) $("q_reghas").onchange=()=>{ const on=$("q_reghas").checked; ["q_regamt","q_regmethod","q_regdate"].forEach(i=>{ if($(i)) $(i).disabled=!on; }); if($("q_regfields")) $("q_regfields").style.opacity=on?"1":"0.45"; };
 }
@@ -3519,6 +3529,7 @@ async function saveQuickStudent(){
     else m.textContent="✓ Account created — they log in with "+e164+" + date of birth, then complete the intake & sign.";
   }catch(e){ m.textContent="✓ Student created."; }
   m.className="formmsg ok";
+  if(state._convertEnq && state._convertEnq.id){ try{ await db.from("enquiries").update({ converted_student_id: ins.id }).eq("id", state._convertEnq.id); }catch(e){} state._convertEnq=null; }
   // record the one-time ₹1,000 registration as a PAID invoice (shows in income; family can download a receipt)
   try{
     const regHas=$("q_reghas")&&$("q_reghas").checked;
