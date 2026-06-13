@@ -1,0 +1,9 @@
+{
+  "name": "kala-kuteer-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kala Kuteer ERP (single-file app). The tests in /tests guard the fee, due-date and guru-payout money logic so a future edit can't silently break it.",
+  "scripts": {
+    "test": "node tests/run.js"
+  }
+}
