@@ -120,7 +120,7 @@
   .formmsg.err{color:var(--warn)} .formmsg.ok{color:var(--good)}
   .dl{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1ead9;font-size:13.5px}
   .dl .k{color:var(--muted)} .dl .hl{background:#fff7e8}
-  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2{grid-template-columns:1fr}}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2{grid-template-columns:1fr}.main table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}}
 </style>
 </head>
 <body>
@@ -174,12 +174,12 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["⚙️","Settings & Roles","settings"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -376,6 +376,7 @@ function navigate(key, name, warn){
   if(key==="payouts")   return renderPayouts();
   if(key==="teachers")  return renderTeachers();
   if(key==="settings")  return renderSettings();
+  if(key==="activity")  return renderActivityLog();
   if(key==="intake")    return (state._intakeMode==="full"?renderIntake():renderQuickRegister());
   if(key==="enquiries") return renderEnquiries();
   if(key==="inventory") return renderInventory();
@@ -461,6 +462,7 @@ async function renderDashboard(name, warn){
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
     ${state.role==="student"?'<div id="dashFees"></div>':""}
     ${state.role==="super_admin"?'<div id="ownerStats"></div>':""}
+    ${state.role==="super_admin"?'<div id="atRisk"></div>':""}
     <div id="dashNotices" style="margin-top:16px"></div>
     ${admin?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
@@ -471,6 +473,7 @@ async function renderDashboard(name, warn){
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(state.role==="student") loadDashFees();
   if(state.role==="super_admin") loadOwnerStats();
+  if(state.role==="super_admin") loadAtRisk();
   if(admin){
     const [act,gur]=await Promise.all([
       db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
@@ -516,6 +519,23 @@ async function loadDashFees(){
         <div class="mini" style="margin-top:4px;color:#6b5836">${msg}</div></div>
       <button class="kbtn teal" onclick="gotoNav('myfees')" style="flex:none">View &amp; pay →</button>
     </div></div>`;
+}
+async function loadAtRisk(){
+  const C=$("atRisk"); if(!C) return;
+  const cutoff=new Date(Date.now()+19800000-21*86400000).toISOString().slice(0,10); // 21 days ago (IST)
+  const [studs, att] = await Promise.all([
+    db.from("students").select("id,full_name,join_date,branches(name)").eq("status","active"),
+    fetchAll(()=> db.from("attendance").select("student_id,class_date").eq("status","present"))
+  ]);
+  const lastSeen={}; (att||[]).forEach(a=>{ const d=String(a.class_date).slice(0,10); if(!lastSeen[a.student_id]||d>lastSeen[a.student_id]) lastSeen[a.student_id]=d; });
+  const risk=((studs&&studs.data)||[]).map(s=>({ name:s.full_name, branch:s.branches&&s.branches.name, last:lastSeen[s.id]||null, join:s.join_date?String(s.join_date).slice(0,10):null }))
+    .filter(s=>{ if(s.last) return s.last<cutoff; return s.join ? s.join<cutoff : true; })
+    .sort((a,b)=>String(a.last||"").localeCompare(String(b.last||"")));
+  if(!risk.length){ C.innerHTML=`<div class="panel" style="margin-top:14px"><h3 style="margin:0">🌟 Retention</h3><div class="mini" style="color:var(--good);margin-top:6px">Every active student has attended within the last 3 weeks. 💛</div></div>`; return; }
+  C.innerHTML=`<div class="panel" style="margin-top:14px"><h3 style="margin:0">⚠️ At-risk — no class in 3+ weeks (${risk.length})</h3>
+    <p class="mini" style="color:var(--muted);margin:4px 0 8px">Active students who haven't attended recently — a quiet warning before they drift away. A quick call often saves them.</p>
+    ${risk.slice(0,25).map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span><b>${esc(s.name)}</b>${s.branch?` <span class="mini" style="color:var(--muted)">· ${esc(s.branch)}</span>`:""}</span><span class="mini" style="color:var(--warn)">${s.last?"last seen "+esc(s.last):"never attended"}</span></div>`).join("")}
+    ${risk.length>25?`<div class="mini" style="margin-top:6px;color:var(--muted)">…and ${risk.length-25} more</div>`:""}</div>`;
 }
 async function loadOwnerStats(){
   const C=$("ownerStats"); if(!C) return;
@@ -996,7 +1016,7 @@ async function renderFinance(){
     <div class="panel" style="margin-bottom:14px"><h3 id="expFormTitle">Record an expense</h3>
       <div class="form2">
         <div><div class="kf"><label>Category *</label><input id="x_cat" list="x_cats" placeholder="e.g. Rent"><datalist id="x_cats">${cats.map(c=>`<option>${c}</option>`).join("")}</datalist></div>
-          <div class="kf"><label>Sub-category (optional)</label><input id="x_sub" placeholder="e.g. Repair / New purchase"></div></div>
+          <div class="kf"><label>Sub-category (optional)</label><input id="x_sub" list="x_subs" placeholder="e.g. Repair / New purchase"><datalist id="x_subs"><option>Repair</option><option>New purchase</option></datalist></div></div>
         <div><div class="kf"><label>Amount (₹) *</label><input id="x_amt" type="number" min="0"></div>
           <div class="kf"><label>Branch (optional)</label><select id="x_branch"><option value="">— not branch-specific —</option>${branchOpts}</select></div></div>
       </div>
@@ -1034,7 +1054,7 @@ function drawFinance(){
   const tuitionIncome=income-regIncome;
   let expense=0; const expByBranch={}, expByCat={};
   const erows=[]; // {e, amt} contributing to this month
-  exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; const c=e.category||"Other"; expByCat[c]=(expByCat[c]||0)+a; });
+  exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; let c=e.category||"Other"; if(/instrument/i.test(c) && e.subcategory) c=c+" · "+e.subcategory; expByCat[c]=(expByCat[c]||0)+a; });
   const net=income-expense;
   $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Registration ${INR(regIncome)}</div></div>
     <div class="kpi"><div class="l">Registration fees</div><div class="v">${INR(regIncome)}</div><div class="mini">${regCount} new student${regCount===1?'':'s'} this month</div></div>
@@ -1384,6 +1404,18 @@ async function delEnquiry(id){
 const INV_TYPES=["Instrument","Prop","Costume","Equipment","Other"];
 const INV_CONDS=["Good","Needs service","Under repair","Retired"];
 const INV_COND_BADGE={ "Good":"b-green", "Needs service":"b-amber", "Under repair":"b-red", "Retired":"b-grey" };
+async function renderActivityLog(){
+  const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
+  const { data, error } = await db.from("audit_log").select("at,actor_name,action,entity,detail").order("at",{ascending:false}).limit(200);
+  if(error){ M.innerHTML=`<div class="ph"><div><h2>Activity log</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const aLabel={INSERT:"added",UPDATE:"edited",DELETE:"deleted"};
+  const aBadge={INSERT:"b-green",UPDATE:"b-amber",DELETE:"b-red"};
+  const eLabel={students:"student",invoices:"fee/invoice",payments:"payment"};
+  const rows=(data||[]).map(r=>{ const ist=new Date(new Date(r.at).getTime()+19800000).toISOString().slice(0,16).replace("T"," ");
+    return `<tr><td class="mini">${esc(ist)}</td><td>${esc(r.actor_name||"—")}</td><td><span class="badge ${aBadge[r.action]||"b-grey"}">${aLabel[r.action]||r.action}</span> ${esc(eLabel[r.entity]||r.entity)}</td><td class="mini">${esc(r.detail||"")}</td></tr>`; }).join("");
+  M.innerHTML=`<div class="ph"><div><h2>Activity log</h2><p>Who changed or deleted what — students, fees &amp; payments (most recent first)</p></div></div>
+    ${data&&data.length?`<table><tr><th>When (IST)</th><th>Who</th><th>What</th><th>Detail</th></tr>${rows}</table>`:`<div class="empty">No activity recorded yet. New changes will appear here.</div>`}`;
+}
 async function renderInventory(){
   const M=$("mainArea"); await loadRef(); state._invEdit=null;
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
@@ -2822,7 +2854,7 @@ async function loadStudentCalendar(){
   const [y,mo]=state._scalMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
   const { data:ev } = await db.from("events").select("id,title,event_date,end_date").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
-  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time").gte("session_date",start).lte("session_date",end).order("session_date");
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
   state._scalEvents=ev||[]; state._scalSess=sess||[]; drawStudentCalendar();
 }
 function drawStudentCalendar(){
@@ -2840,7 +2872,9 @@ function drawStudentCalendar(){
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
     cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
   }
-  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>`;
+  const online=(state._scalSess||[]).filter(c=>(c.mode==="online"||c.mode==="hybrid")&&c.zoom_link).sort((a,b)=>String((a.session_date||"")+(a.start_time||"")).localeCompare(String((b.session_date||"")+(b.start_time||""))));
+  const onlineHtml=online.length?`<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 8px">🔴 Online classes — Join links</h3>${online.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(c.title)}</b><div class="mini" style="color:var(--muted)">${esc(String(c.session_date).slice(0,10))}${c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""}</div></div><a class="kbtn teal" href="${esc(safeUrl(c.zoom_link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`).join("")}</div>`:"";
+  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>${onlineHtml}`;
 }
 function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); state._scalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadStudentCalendar(); }
 function scalToday(){ state._scalMonth=new Date().toISOString().slice(0,7); loadStudentCalendar(); }
@@ -2961,11 +2995,11 @@ async function submitFeedback(){
 }
 
 async function genReceipt(invId){
-  const { data:i, error } = await db.from("invoices").select("id,period_label,amount,registration,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
+  const { data:i, error } = await db.from("invoices").select("id,receipt_no,period_label,amount,registration,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
   if(error||!i){ alert("Couldn't load the receipt — "+(error?.message||"")); return; }
   const pay=(i.payments&&i.payments[0])||{};
   const paidOn = pay.paid_at?String(pay.paid_at).slice(0,10):new Date().toISOString().slice(0,10);
-  const num="KK-"+String(i.id).slice(0,8).toUpperCase();
+  const num=i.receipt_no?`KK-${String(paidOn).slice(0,4)}-${String(i.receipt_no).padStart(5,"0")}`:"KK-"+String(i.id).slice(0,8).toUpperCase();
   const reg=Number(i.registration||0), fee=Number(i.amount||0);
   const amt="₹"+(fee+reg).toLocaleString("en-IN");
   const forText = reg>0 ? (fee>0 ? `Tuition fee — ${esc(i.period_label||"")} + ₹${reg.toLocaleString("en-IN")} registration` : "Registration fee (one-time)") : `Tuition fee — ${esc(i.period_label||"")}`;
