@@ -1021,7 +1021,7 @@ async function renderFinance(){
 async function loadFinance(){
   const P=finPeriod();
   $("finBody").innerHTML=`<div class="empty">Loading…</div>`;
-  const pays = await fetchAll(()=> db.from("payments").select("amount,paid_at,invoices(students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next));
+  const pays = await fetchAll(()=> db.from("payments").select("amount,paid_at,invoices(registration,students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next));
   const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note,frequency,recur_until").lte("spent_on",P.end).order("spent_on",{ascending:false});
   if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._fin={ pays:pays||[], exps:exps||[], P }; drawFinance();
@@ -1029,13 +1029,15 @@ async function loadFinance(){
 function drawFinance(){
   const { pays, exps, P } = state._fin;
   const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
-  let income=0; const incByBranch={};
-  pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; });
+  let income=0, regIncome=0, regCount=0; const incByBranch={};
+  pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; if(Number(p.invoices?.registration||0)>0){ regIncome+=a; regCount++; } });
+  const tuitionIncome=income-regIncome;
   let expense=0; const expByBranch={}, expByCat={};
   const erows=[]; // {e, amt} contributing to this month
   exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; const c=e.category||"Other"; expByCat[c]=(expByCat[c]||0)+a; });
   const net=income-expense;
-  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div></div>
+  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Registration ${INR(regIncome)}</div></div>
+    <div class="kpi"><div class="l">Registration fees</div><div class="v">${INR(regIncome)}</div><div class="mini">${regCount} new student${regCount===1?'':'s'} this month</div></div>
     <div class="kpi"><div class="l">Expenses</div><div class="v" style="color:var(--warn)">${INR(expense)}</div></div>
     <div class="kpi"><div class="l">Net (P/L)</div><div class="v" style="color:${net<0?"var(--warn)":"var(--ink)"}">${INR(net)}</div></div>`;
   const branchRows=state.branches.map(b=>{ const inc=incByBranch[b.id]||0, ex=expByBranch[b.id]||0; return `<tr><td><b>${esc(b.name)}</b></td><td>${INR(inc)}</td><td>${INR(ex)}</td><td>${INR(inc-ex)}</td></tr>`; }).join("");
