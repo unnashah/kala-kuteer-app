@@ -174,12 +174,12 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Classes","classes"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Classes","classes"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1, classes:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -376,6 +376,7 @@ function navigate(key, name, warn){
   if(key==="payouts")   return renderPayouts();
   if(key==="teachers")  return renderTeachers();
   if(key==="settings")  return renderSettings();
+  if(key==="classes")   return renderClasses();
   if(key==="activity")  return renderActivityLog();
   if(key==="intake")    return (state._intakeMode==="full"?renderIntake():renderQuickRegister());
   if(key==="enquiries") return renderEnquiries();
@@ -1933,7 +1934,7 @@ async function delEvent(id){
 /* ---------------- CLASSES (batches) ---------------- */
 const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 function fmtTime(t){ if(!t) return ""; const [h,mi]=t.split(":"); let H=Number(h); const ap=H<12?"AM":"PM"; H=H%12||12; return `${H}:${mi} ${ap}`; }
-function classSchedule(b){ const d=(b.day_of_week!=null)?DOW[b.day_of_week]:null; const t=b.start_time?fmtTime(b.start_time.slice(0,5)):""; return d?`${d}${t?" · "+t:""}`:(t||"—"); }
+function classSchedule(b){ const d=(b.day_of_week!=null)?DOW[b.day_of_week]:null; const t=b.start_time?fmtTime(b.start_time.slice(0,5)):""; const base=d?`${d}${t?" · "+t:""}`:(t||"—"); return base+(b.room?" · "+b.room:""); }
 async function loadClassRefs(){
   const { data:t } = await db.from("teachers").select("id,profiles(full_name)").eq("is_active",true);
   state._classTeachers=(t||[]).map(x=>({ id:x.id, name:x.profiles?.full_name||"(unnamed)" }));
@@ -1959,6 +1960,8 @@ async function renderClasses(){
         <div class="kf"><label>Day</label><select id="cl_dow"><option value="">—</option>${dowOpts}</select></div>
         <div class="kf"><label>Start time</label><input id="cl_time" type="time"></div>
       </div>
+      <div class="kf"><label>Room / space</label><input id="cl_room" list="cl_rooms" placeholder="e.g. Room 1"><datalist id="cl_rooms"><option>Room 1</option><option>Room 2</option><option>Room 3</option><option>Room 4</option><option>Dance Hall</option></datalist>
+        <span class="mini" style="color:var(--muted)">The system blocks two classes in the same room at the same day &amp; time.</span></div>
       <div class="form2">
         <div class="kf"><label>Mode</label><select id="cl_mode" onchange="onClassMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
         <div class="kf"><label>Capacity</label><input id="cl_cap" type="number" min="1" value="8"></div>
@@ -1977,7 +1980,7 @@ async function renderClasses(){
 }
 function onClassMode(){ const m=$("cl_mode")?$("cl_mode").value:"in_person"; if($("cl_zoomWrap")) $("cl_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
 async function loadClasses(){
-  const { data, error } = await db.from("batches").select("id,name,course_id,teacher_id,branch_id,mode,day_of_week,start_time,capacity,zoom_link,is_active,is_published,published_at,courses(name),branches(name)").order("name");
+  const { data, error } = await db.from("batches").select("id,name,room,course_id,teacher_id,branch_id,mode,day_of_week,start_time,capacity,zoom_link,is_active,is_published,published_at,courses(name),branches(name)").order("name");
   if(error){ $("clsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:enr } = await db.from("enrollments").select("batch_id").eq("status","confirmed");
   const counts={}; (enr||[]).forEach(e=>counts[e.batch_id]=(counts[e.batch_id]||0)+1);
@@ -2016,9 +2019,17 @@ async function saveClass(){
   const m=$("clMsg"); const name=$("cl_name").value.trim();
   if(!name) return failMsg(m,"Enter a class name.");
   const dow=$("cl_dow").value; const mode=$("cl_mode").value||"in_person";
+  const room=$("cl_room")?$("cl_room").value.trim():"";
   const rec={ name, course_id:$("cl_course").value||null, teacher_id:$("cl_teacher").value||null, branch_id:$("cl_branch").value||null,
-    mode, day_of_week: dow===""?null:Number(dow), start_time:$("cl_time").value||null,
+    mode, day_of_week: dow===""?null:Number(dow), start_time:$("cl_time").value||null, room:room||null,
     capacity:Number($("cl_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("cl_zoom").value.trim())||null };
+  // room clash guard: no two classes in the same branch + room + day + time
+  if(rec.branch_id && room && rec.day_of_week!=null && rec.start_time){
+    let cq=db.from("batches").select("id,name").eq("branch_id",rec.branch_id).eq("day_of_week",rec.day_of_week).eq("start_time",rec.start_time).ilike("room",room).eq("is_active",true);
+    if(state._clsEdit) cq=cq.neq("id",state._clsEdit);
+    const { data:clash } = await cq;
+    if(clash&&clash.length) return failMsg(m,`Room clash: "${clash[0].name}" already uses ${room} on that day & time. Pick another room or time.`);
+  }
   m.className="formmsg ok"; m.textContent="Saving…"; $("addCls").disabled=true;
   let error;
   if(state._clsEdit){ ({ error } = await db.from("batches").update(rec).eq("id",state._clsEdit)); }
@@ -2033,14 +2044,14 @@ function editClass(id){
   state._clsEdit=id;
   $("cl_name").value=b.name||""; $("cl_course").value=b.course_id||""; $("cl_teacher").value=b.teacher_id||"";
   $("cl_branch").value=b.branch_id||""; $("cl_dow").value=(b.day_of_week!=null)?b.day_of_week:""; $("cl_time").value=b.start_time?b.start_time.slice(0,5):"";
-  $("cl_mode").value=b.mode||"in_person"; $("cl_cap").value=b.capacity||8; if($("cl_zoom")) $("cl_zoom").value=b.zoom_link||"";
+  $("cl_mode").value=b.mode||"in_person"; $("cl_cap").value=b.capacity||8; if($("cl_zoom")) $("cl_zoom").value=b.zoom_link||""; if($("cl_room")) $("cl_room").value=b.room||"";
   onClassMode();
   $("clsFormTitle").textContent="Edit class"; $("addCls").textContent="Save changes"; $("clsCancelBtn").style.display="inline-block";
   window.scrollTo({top:0,behavior:"smooth"});
 }
 function cancelClsEdit(){
   state._clsEdit=null;
-  ["cl_name","cl_time","cl_zoom"].forEach(x=>{ if($(x)) $(x).value=""; });
+  ["cl_name","cl_time","cl_zoom","cl_room"].forEach(x=>{ if($(x)) $(x).value=""; });
   ["cl_course","cl_teacher","cl_branch","cl_dow"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("cl_mode")) $("cl_mode").value="in_person"; if($("cl_cap")) $("cl_cap").value=8; onClassMode();
   if($("clsFormTitle")) $("clsFormTitle").textContent="Add a class";
