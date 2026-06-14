@@ -64,3 +64,5 @@ It means a money rule changed. Either it was an **accident** (revert/fix it), or
 it was **on purpose** (then the rule here needs updating to match). Send me the
 red ✗ message and I'll sort out which it is — the message says exactly which
 number or formula moved.
+
+
