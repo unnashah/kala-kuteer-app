@@ -178,7 +178,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Guru", 
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Gurus","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
-  teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["🎵","My Classes","myclasses"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1, classes:1 }; // built modules
@@ -400,6 +400,7 @@ function navigate(key, name, warn){
   if(key==="myattendance") return renderMyAttendance();
   if(key==="earnings")  return renderMyEarnings();
   if(key==="mycalendar") return renderMyCalendar();
+  if(key==="myclasses") return renderMyClasses();
   if(key==="reviews")   return renderReviews();
   if(key==="calendar")  return renderCalendar();
   if(key==="home")      return renderDashboard(name, warn);
@@ -1031,7 +1032,7 @@ async function renderFinance(){
   const M=$("mainArea"); state.refLoaded=false; await loadRef(); state._expEdit=null;
   const thisMonth=todayIST().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  const cats=["Rent","Salaries","Teacher payouts","Utilities","Marketing","Water & pantry","Celebrations","Instruments","Maintenance","Other"];
+  const cats=["Rent","Salaries","Utilities","Marketing","Water & pantry","Celebrations","Instruments","Maintenance","Other"];
   M.innerHTML=`<div class="ph"><div><h2>Finance &amp; P&amp;L${tip("Log every expense (one-time or recurring) and tag its branch. Income comes from fees automatically — together this gives each centre’s profit/loss and a category breakdown. Each expense row has an ✏️ Edit button.")}</h2><p>Income from fees · your expenses · profit/loss per centre</p></div></div>
     <div class="searchbar"><span class="mini">Month</span><input id="finMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="finLoad">Load</button></div>
     <div class="kpis" id="finKpis" style="margin-bottom:12px"></div>
@@ -1051,7 +1052,7 @@ async function renderFinance(){
         <div class="kf"><label>Note (optional)</label><input id="x_note"></div>
       </div>
       <p class="footnote" id="x_recurHint" style="display:none">↻ Recurring expenses are counted automatically in every month from the start date — enter once, no need to re-add. Leave "Repeat until" blank to keep it going.</p>
-      <p class="footnote" style="margin-top:2px">💡 Guru payouts are tracked separately in <b>Guru Payouts</b> and do not appear here automatically. Log a <b>"Teacher payouts"</b> expense only if you want them in this P&amp;L — and just once, to avoid double-counting.</p>
+      <p class="footnote" style="margin-top:2px">💡 Guru payouts flow into this P&amp;L automatically from the <b>Guru Payouts</b> screen — no need to add them here.</p>
       <div class="formmsg" id="xMsg"></div>
       <button class="kbtn teal" id="addExpense">Add expense</button>
       <button class="kbtn ghost" id="expCancelBtn" style="display:none;margin-left:6px" onclick="cancelExpEdit()">Cancel</button>
@@ -1067,10 +1068,11 @@ async function loadFinance(){
   const pays = await fetchAll(()=> db.from("payments").select("amount,paid_at,invoices(registration,months,students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next));
   const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note,frequency,recur_until").lte("spent_on",P.end).order("spent_on",{ascending:false});
   if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  state._fin={ pays:pays||[], exps:exps||[], P }; drawFinance();
+  const { data:gpays } = await db.from("guru_payouts").select("amount,paid_on").gte("paid_on",P.start).lte("paid_on",P.end);
+  state._fin={ pays:pays||[], exps:exps||[], gpays:gpays||[], P }; drawFinance();
 }
 function drawFinance(){
-  const { pays, exps, P } = state._fin;
+  const { pays, exps, gpays, P } = state._fin;
   const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
   let income=0, regIncome=0, regCount=0, advancePaid=0; const incByBranch={};
   pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; const reg=Number(p.invoices?.registration||0); if(reg>0){ regIncome+=Math.min(reg,a); regCount++; } if(Number(p.invoices?.months||0)>1) advancePaid+=a; });
@@ -1078,6 +1080,8 @@ function drawFinance(){
   let expense=0; const expByBranch={}, expByCat={};
   const erows=[]; // {e, amt} contributing to this month
   exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; let c=e.category||"Other"; if(/instrument/i.test(c) && e.subcategory) c=c+" · "+e.subcategory; expByCat[c]=(expByCat[c]||0)+a; });
+  const gpTot=(gpays||[]).reduce((a,g)=>a+Number(g.amount||0),0);
+  if(gpTot>0){ expense+=gpTot; expByBranch["none"]=(expByBranch["none"]||0)+gpTot; expByCat["Guru payouts"]=(expByCat["Guru payouts"]||0)+gpTot; }
   const net=income-expense;
   $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Registration ${INR(regIncome)}${advancePaid>0?` · incl. ${INR(advancePaid)} paid ahead`:""}</div></div>
     <div class="kpi"><div class="l">Registration fees</div><div class="v">${INR(regIncome)}</div><div class="mini">${regCount} new student${regCount===1?'':'s'} this month</div></div>
@@ -2253,12 +2257,12 @@ async function submitProposedClass(){
   const rec={ name, teacher_id:tid, course_id:$("pc_course").value||null, branch_id:$("pc_branch").value||null,
     mode, day_of_week: dow===""?null:Number(dow), start_time:$("pc_time").value||null,
     capacity:Number($("pc_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("pc_zoom").value.trim())||null,
-    is_published:true };
+    is_published:true, published_at:new Date().toISOString() };
   m.className="formmsg ok"; m.textContent="Saving…"; $("proposeCls").disabled=true;
   const { error } = await db.from("batches").insert(rec);
   $("proposeCls").disabled=false;
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
-  m.className="formmsg ok"; m.textContent="✓ Your class is active now and has been sent to the super admin to review.";
+  m.className="formmsg ok"; m.textContent="✓ Your class is live and on the schedule.";
   renderMyClasses();
 }
 async function manageMyClass(id){
@@ -2451,8 +2455,17 @@ async function renderMyEarnings(){
   const now=new Date(); const rows=[]; let total=0;
   for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); const k=`${d.getFullYear()}-${PAD(d.getMonth()+1)}`; const paid=Math.round(paidByMonth[k]||0); total+=paid; rows.push({ k, label:MONS[d.getMonth()]+" "+d.getFullYear(), paid }); }
   state._earnRows=rows;
+  const cmK=rows[0].k; const [cy,cmo]=cmK.split("-").map(Number);
+  const cmStart=`${cy}-${PAD(cmo)}-01`, cmNext=`${cmo===12?cy+1:cy}-${PAD(cmo===12?1:cmo+1)}-01`;
+  let earnedNow=0; try{ const { data:ge } = await db.rpc("my_guru_earnings",{ p_start:cmStart, p_end:cmNext }); const g=Array.isArray(ge)?ge[0]:ge; if(g) earnedNow=Math.round(Number(g.gross||0)*Number(g.pct||0)/100); }catch(e){}
+  const paidNow=Math.round(paidByMonth[cmK]||0);
   const last3=rows.slice(0,3);
-  M.innerHTML=`<div class="ph"><div><h2>My Earnings${tip("This shows only the amount Kala Kuteer has paid you each month, with a statement you can download.")}</h2><p>What Kala Kuteer has paid you each month</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Earnings${tip("Earned = your share of the tuition collected from your students this month. Paid = what the school has actually paid you. Download a statement for any paid month.")}</h2><p>What you have earned and what has been paid</p></div></div>
+    <div class="kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="l">Earned this month (your share)</div><div class="v">${INR(earnedNow)}</div><div class="mini" style="color:var(--muted)">${MONS[cmo-1]} ${cy}</div></div>
+      <div class="kpi"><div class="l">Paid so far this month</div><div class="v" style="color:var(--good)">${INR(paidNow)}</div></div>
+      <div class="kpi"><div class="l">Yet to be paid</div><div class="v" style="color:${earnedNow-paidNow>0?'var(--warn)':'var(--ink)'}">${INR(Math.max(0,earnedNow-paidNow))}</div></div>
+    </div>
     <div class="panel"><h3>Last 3 months</h3>
       <table><tr><th>Month</th><th>Amount paid</th><th>Status</th><th></th></tr>
         ${last3.map(r=>`<tr><td><b>${esc(r.label)}</b></td><td><b>${INR(r.paid)}</b></td><td>${r.paid>0?`<span class="badge b-green">paid</span>`:`<span class="badge b-grey">awaiting</span>`}</td><td class="mini">${r.paid>0?`<span class="rowbtn edit" onclick="genPayoutInvoice('${r.k}')">📄 Statement</span>`:"—"}</td></tr>`).join("")}</table>
