@@ -516,7 +516,7 @@ async function loadDashFees(){
   const msg=allSaidPaid
     ? `You've marked your ${INR(total)} fee as paid — the office will confirm it shortly. 💛`
     : (overdue
-      ? `Your fee of <b>${INR(total)}</b> is <b>overdue</b>${earliest?` (was due ${esc(earliest)})`:""}. Please pay to keep your classes going.`
+      ? `Your fee of <b>${INR(total)}</b> is <b>overdue</b>${earliest?` (was due ${esc(earliest)})`:""}. Please pay to keep your classes going. A late fee may apply.`
       : `You have <b>${INR(total)}</b> in fees due${earliest?` by <b>${esc(earliest)}</b>`:""}.`);
   C.innerHTML=`<div class="panel" style="margin-top:16px;background:${bg};border:1.5px solid var(--saffron)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -3033,6 +3033,7 @@ async function renderStudentFees(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><b style="font-size:15px">${esc(i.period_label||"Fees")}</b> ${overdue?`<span class="badge b-red">Overdue</span>`:`<span class="badge b-amber">Due</span>`}
           <div class="mini" style="margin-top:3px">Amount: <b>${INR(i.amount)}</b>${i.due_date?` · due ${esc(i.due_date)}`:""}</div>
+          ${overdue?`<div class="mini" style="color:#9B2226;margin-top:2px">⚠️ Past the due date — a late fee may apply.</div>`:""}
           <div style="margin-top:6px">${respBadge}</div></div>
         <img src="${qr}" alt="Pay QR" style="width:120px;height:120px;border:1px solid var(--line);border-radius:8px;background:#fff">
       </div>
@@ -3042,8 +3043,7 @@ async function renderStudentFees(){
         <span class="mini" style="display:block;margin-top:6px;color:var(--muted)">Or scan the QR with any UPI app (Google Pay, PhonePe, Paytm…)</span>
       </div>
       <div style="margin-top:12px">
-        <button class="kbtn teal" onclick="studentRespond('${i.id}','paid')">✓ I've paid</button>
-        <button class="kbtn ghost" style="margin-left:6px" onclick="studentRespond('${i.id}','will_pay_later')">I'll pay later</button>
+        <button class="kbtn teal" onclick="studentRespond('${i.id}','paid')">✓ I've paid (cash / UPI)</button>
       </div></div>`;
   };
   let planHtml="";
@@ -3060,7 +3060,7 @@ async function renderStudentFees(){
   M.innerHTML=`<div class="ph"><div><h2>Fees${tip("See and pay your invoices via UPI/QR, then tap ‘I’ve paid’. Pick a 1/3/6-month plan if your branch offers it, and download your receipt once the office confirms.")}</h2><p>View and pay your fees</p></div></div>
     ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
     ${planHtml}
-    <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full — see the attendance/make-up policy.</p>
+    <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full, and a <b>late fee may apply</b> once the due date is crossed — see the attendance/make-up policy.</p>
     ${visible.length?visible.map(card).join(""):(planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
 }
 async function studentRaisePlan(months){
