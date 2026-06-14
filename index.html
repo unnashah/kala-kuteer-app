@@ -174,8 +174,8 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Classes","classes"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Classes","classes"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Weekly template","classes"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Weekly template","classes"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
@@ -1967,7 +1967,12 @@ async function renderClasses(){
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Classes</h2><p>Set up each class, assign a teacher &amp; enrol students</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Weekly class template</h2><p>Set up your usual weekly classes once, then fill any month onto the Calendar</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3>📅 Fill a month from this template</h3>
+      <p class="footnote" style="margin:0 0 10px">Places every weekly class below onto the month you pick, as calendar classes. Already-scheduled days are skipped (safe to run again). Afterwards you can move or cancel individual days on the Calendar.</p>
+      <div class="searchbar"><input id="tplMonth" type="month" style="max-width:200px;flex:none">
+        <button class="kbtn teal" id="tplFillBtn" onclick="fillMonthFromTemplate()">Fill month →</button></div>
+      <div class="formmsg" id="tplMsg"></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="clsFormTitle">Add a class</h3>
       <div class="form2">
         <div class="kf"><label>Class name *</label><input id="cl_name" placeholder="e.g. Tabla — Beginners"></div>
@@ -1997,6 +2002,7 @@ async function renderClasses(){
       <select id="clsBranchF" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
     <div id="clsList"><div class="empty">Loading…</div></div>`;
   $("clsSearch").oninput=drawClasses; $("clsBranchF").onchange=drawClasses;
+  if($("tplMonth")) $("tplMonth").value=new Date().toISOString().slice(0,7);
   loadClasses();
 }
 function onClassMode(){ const m=$("cl_mode")?$("cl_mode").value:"in_person"; if($("cl_zoomWrap")) $("cl_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
@@ -2035,6 +2041,34 @@ async function markClassReviewed(id){
   const { error } = await db.from("batches").update({ is_published:true, published_at:new Date().toISOString() }).eq("id",id);
   if(error){ alert("Couldn't update — "+error.message); return; }
   loadClasses();
+}
+async function fillMonthFromTemplate(){
+  if(state._busyTpl) return; state._busyTpl=true;
+  const m=$("tplMsg"); const mv=$("tplMonth")&&$("tplMonth").value;
+  try{
+    if(!mv){ if(m){ m.className="formmsg err"; m.textContent="Pick a month first."; } return; }
+    const [y,mo]=mv.split("-").map(Number);
+    const cls=(state._classes||[]).filter(b=>b.is_active!==false && b.day_of_week!=null);
+    if(!cls.length){ m.className="formmsg err"; m.textContent="No weekly classes with a Day set yet — add classes below first."; return; }
+    m.className="formmsg ok"; m.textContent="Filling…"; $("tplFillBtn").disabled=true;
+    const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
+    const { data:existing } = await db.from("class_sessions").select("title,session_date,start_time").gte("session_date",start).lte("session_date",end);
+    const seen=new Set((existing||[]).map(x=>`${x.title}|${x.session_date}|${(x.start_time||"").slice(0,5)}`));
+    const dim=new Date(y,mo,0).getDate(); const rows=[];
+    for(let d=1;d<=dim;d++){
+      const dow=new Date(y,mo-1,d).getDay(); const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
+      cls.forEach(b=>{
+        if(b.day_of_week!==dow) return;
+        const key=`${b.name}|${ds}|${(b.start_time||"").slice(0,5)}`;
+        if(seen.has(key)) return; seen.add(key);
+        rows.push({ title:b.name, teacher_id:b.teacher_id||null, branch_id:b.branch_id||null, session_date:ds, start_time:b.start_time||null, mode:b.mode||"in_person", capacity:b.capacity||8, zoom_link:b.zoom_link||null, room:b.room||null });
+      });
+    }
+    if(!rows.length){ m.className="formmsg ok"; m.textContent="Nothing to add — that month is already filled from the template."; return; }
+    const { error } = await db.from("class_sessions").insert(rows);
+    if(error){ m.className="formmsg err"; m.textContent="Couldn't fill — "+error.message; return; }
+    m.className="formmsg ok"; m.textContent=`✓ Added ${rows.length} class${rows.length===1?"":"es"} to ${MONS[mo-1]} ${y}. Open the Calendar to see or adjust them.`;
+  } finally { state._busyTpl=false; if($("tplFillBtn")) $("tplFillBtn").disabled=false; }
 }
 async function saveClass(){
   const m=$("clMsg"); const name=$("cl_name").value.trim();
