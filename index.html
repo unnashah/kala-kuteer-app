@@ -1586,7 +1586,11 @@ async function renderNews(){
         </div>
       </div>
       <div id="n_preview" style="margin:4px 0 0"></div>
-      <div class="kf"><label>Ask people to respond?</label><select id="n_resp"><option value="">No response needed</option><option value="ack">Acknowledge — "Got it ✓" (see who's seen it)</option><option value="rsvp">RSVP — Attending / Maybe / Can't make it</option></select></div>
+      <div class="kf"><label>Ask people to respond?</label><select id="n_resp"><option value="">No response needed</option><option value="ack">Acknowledge — "Got it ✓" (see who's seen it)</option><option value="yesno">Yes / No</option><option value="rsvp">RSVP — Attending / Maybe / Can't make it</option><option value="interested">Interested / Not interested</option></select></div>
+      <div class="kf"><label>Show on the Calendar? (optional)</label><span class="mini" style="color:var(--muted);display:block;margin:-2px 0 6px">Give it a date and it appears on everyone's Calendar (holiday, Annual Day, competition…).</span>
+        <div class="form2"><div class="kf"><label>Date</label><input id="n_evdate" type="date"></div><div class="kf"><label>End date (optional)</label><input id="n_evend" type="date"></div></div>
+        <div class="kf"><label>Type</label><input id="n_evtype" list="n_evtypes" placeholder="e.g. Holiday, Competition, Annual Day"><datalist id="n_evtypes">${EV_TYPES.map(t=>`<option>${t}</option>`).join("")}</datalist></div>
+      </div>
       <div class="kf"><label>Where should this appear?</label><select id="n_web"><option value="app">📱 App only — students &amp; parents</option><option value="web">🌐 App + Website — also on the public News &amp; Announcements page</option></select></div>
       <div class="form2">
         <div class="kf"><label>Alignment</label><select id="n_align"><option value="left">Left</option><option value="center">Centered</option></select></div>
@@ -1601,7 +1605,7 @@ async function renderNews(){
   loadNews();
 }
 async function loadNews(){
-  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,public_web,align,img_full,created_at").order("created_at",{ascending:false});
+  const { data, error } = await db.from("news_posts").select("id,title,body,media_url,audience,response_type,public_web,align,img_full,event_date,event_end,event_type,created_at").order("created_at",{ascending:false});
   if(error){ $("newsList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._news=data||[];
   const ids=(data||[]).filter(n=>n.response_type).map(n=>n.id);
@@ -1610,22 +1614,28 @@ async function loadNews(){
     (rs||[]).forEach(r=>{ const t=state._newsResp[r.news_post_id]||(state._newsResp[r.news_post_id]={}); const name=(r.profiles&&r.profiles.full_name)||"(unknown)"; (t[r.response]=t[r.response]||[]).push(name); }); }
   drawNews();
 }
+const RESP_OPTS={
+  ack:{prompt:"",opts:[["ack","Got it ✓","b-green"]]},
+  yesno:{prompt:"Your response",opts:[["yes","✅ Yes","b-green"],["no","🚫 No","b-grey"]]},
+  rsvp:{prompt:"Will you attend?",opts:[["attending","✅ Attending","b-green"],["maybe","🤔 Maybe","b-amber"],["not","🚫 Can't make it","b-grey"]]},
+  interested:{prompt:"Are you interested?",opts:[["interested","✅ Interested","b-green"],["notint","🚫 Not interested","b-grey"]]}
+};
+const RESP_LABEL={ack:"Got it",yesno:"Yes / No",rsvp:"RSVP",interested:"Interested?"};
 function newsTally(n){
-  if(!n.response_type) return "";
+  const cfg=RESP_OPTS[n.response_type]; if(!cfg) return "";
   const t=(state._newsResp||{})[n.id]||{}; const c=k=>(t[k]||[]).length;
-  const badges = n.response_type==="ack"
-    ? `<span class="badge b-green">✓ ${c("ack")} acknowledged</span>`
-    : `<span class="badge b-green">✅ ${c("attending")} attending</span> <span class="badge b-amber">🤔 ${c("maybe")} maybe</span> <span class="badge b-grey">🚫 ${c("not")} can't</span>`;
-  const any=c("ack")+c("attending")+c("maybe")+c("not");
+  const badges=cfg.opts.map(o=>`<span class="badge ${o[2]}">${c(o[0])} ${esc(o[1])}</span>`).join(" ");
+  const any=cfg.opts.reduce((a,o)=>a+c(o[0]),0);
   return `<div class="mini" style="margin-top:8px">${badges}${any?` <span class="rowbtn" onclick="toggleWho('${n.id}')">👥 Who responded</span>`:""}</div><div id="who_${n.id}"></div>`;
 }
 function toggleWho(id){
   const P=$("who_"+id); if(!P) return;
   if(P.dataset.open==="1"){ P.innerHTML=""; P.dataset.open="0"; return; }
   P.dataset.open="1";
+  const n=(state._news||[]).find(x=>x.id===id)||{}; const cfg=RESP_OPTS[n.response_type]||{opts:[]};
   const t=(state._newsResp||{})[id]||{};
-  const grp=(label,arr)=>(arr&&arr.length)?`<div style="margin-top:8px"><b class="mini">${label} (${arr.length})</b><div class="mini" style="color:var(--muted)">${arr.map(esc).join(", ")}</div></div>`:"";
-  P.innerHTML=`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px">${grp("✓ Acknowledged",t.ack)}${grp("✅ Attending",t.attending)}${grp("🤔 Maybe",t.maybe)}${grp("🚫 Can't make it",t.not)}</div>`;
+  const grp=(label,arr)=>(arr&&arr.length)?`<div style="margin-top:8px"><b class="mini">${esc(label)} (${arr.length})</b><div class="mini" style="color:var(--muted)">${arr.map(esc).join(", ")}</div></div>`:"";
+  P.innerHTML=`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px">${cfg.opts.map(o=>grp(o[1],t[o[0]])).join("")}</div>`;
 }
 function drawNews(){
   const list=state._news||[];
@@ -1634,7 +1644,7 @@ function drawNews(){
   $("newsList").innerHTML=list.map(n=>`<div class="panel" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div><b style="font-size:15px">${esc(n.title)}</b>
-          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${n.response_type==="ack"?"Acknowledge":"RSVP"}</span>`:""}${n.public_web?` · <span class="badge b-green">🌐 website</span>`:""}</div></div>
+          <div class="mini" style="margin-top:2px"><span class="badge b-teal">${esc(audienceLabel(n.audience))}</span> · ${String(n.created_at).slice(0,10)}${n.response_type?` · <span class="badge b-amber">${RESP_LABEL[n.response_type]||"Response"}</span>`:""}${n.event_date?` · <span class="badge b-teal">🗓 ${esc(String(n.event_date).slice(0,10))}</span>`:""}${n.public_web?` · <span class="badge b-green">🌐 website</span>`:""}</div></div>
         <div style="white-space:nowrap"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span><span class="rowbtn edit" onclick="editNewsPost('${n.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delNewsPost('${n.id}')">Delete</span></div>
       </div>
       <div style="text-align:${n.align==="center"?"center":"left"}">
@@ -1667,7 +1677,7 @@ async function saveNewsPost(){
     try{ media=await uploadImage(file); }
     catch(err){ $("postNews").disabled=false; return failMsg(m,"Image upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); }
   }
-  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null, public_web: !!($("n_web")&&$("n_web").value==="web"), align:($("n_align")&&$("n_align").value)||"left", img_full: !!($("n_imgfull")&&$("n_imgfull").value) };
+  const rec={ title, body:$("n_body").value.trim()||null, audience:$("n_aud").value||"all", media_url:media, response_type:($("n_resp")&&$("n_resp").value)||null, public_web: !!($("n_web")&&$("n_web").value==="web"), align:($("n_align")&&$("n_align").value)||"left", img_full: !!($("n_imgfull")&&$("n_imgfull").value), event_date:($("n_evdate")&&$("n_evdate").value)||null, event_end:($("n_evend")&&$("n_evend").value)||null, event_type:($("n_evtype")&&$("n_evtype").value.trim())||null };
   let error;
   if(state._newsEdit){ ({ error } = await db.from("news_posts").update(rec).eq("id",state._newsEdit)); }
   else {
@@ -1684,6 +1694,7 @@ function editNewsPost(id){
   state._newsEdit=id;
   $("n_title").value=n.title||""; $("n_body").value=n.body||"";
   $("n_aud").value=n.audience||"all"; $("n_media").value=n.media_url||""; if($("n_resp")) $("n_resp").value=n.response_type||""; if($("n_web")) $("n_web").value=n.public_web?"web":"app"; if($("n_align")) $("n_align").value=n.align||"left"; if($("n_imgfull")) $("n_imgfull").value=n.img_full?"1":"";
+  if($("n_evdate")) $("n_evdate").value=n.event_date||""; if($("n_evend")) $("n_evend").value=n.event_end||""; if($("n_evtype")) $("n_evtype").value=n.event_type||"";
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
   $("newsFormTitle").textContent="Edit announcement";
   $("postNews").textContent="Save changes"; $("newsCancelBtn").style.display="inline-block";
@@ -1693,7 +1704,7 @@ function cancelNewsEdit(){
   state._newsEdit=null;
   ["n_title","n_body","n_media"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("n_file")) $("n_file").value=""; if($("n_preview")) $("n_preview").innerHTML="";
-  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value=""; if($("n_web")) $("n_web").value="app"; if($("n_align")) $("n_align").value="left"; if($("n_imgfull")) $("n_imgfull").value="";
+  if($("n_aud")) $("n_aud").value="all"; if($("n_resp")) $("n_resp").value=""; if($("n_web")) $("n_web").value="app"; if($("n_align")) $("n_align").value="left"; if($("n_imgfull")) $("n_imgfull").value=""; ["n_evdate","n_evend","n_evtype"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("newsFormTitle")) $("newsFormTitle").textContent="Post an announcement";
   if($("postNews")) $("postNews").textContent="Post announcement";
   if($("newsCancelBtn")) $("newsCancelBtn").style.display="none";
@@ -1794,23 +1805,7 @@ async function renderCalendar(){
       <button class="kbtn teal" id="addCs" onclick="saveSession()">Add class to calendar</button>
       <button class="kbtn ghost" id="csCancelBtn" style="display:none;margin-left:6px" onclick="cancelSessEdit()">Cancel</button>
     </div>
-    <details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:13px">＋ Add a school event (competition, holiday, Chirag-e-Mehfil…)</summary>
-      <div style="margin-top:12px">
-      <div class="form2">
-        <div class="kf"><label>Event title *</label><input id="ev_title" placeholder="e.g. Annual Day"></div>
-        <div class="kf"><label>Type</label><select id="ev_type">${EV_TYPES.map(t=>`<option>${t}</option>`).join("")}</select></div>
-      </div>
-      <div class="form2">
-        <div class="kf"><label>Start date *</label><input id="ev_date" type="date"></div>
-        <div class="kf"><label>End date (optional)</label><input id="ev_end" type="date"></div>
-      </div>
-      <div class="kf"><label>Poster (optional)</label><input id="ev_file" type="file" accept="image/*" style="font-size:12.5px"></div>
-      <div class="kf"><label>Details (optional)</label><textarea id="ev_desc" rows="2"></textarea></div>
-      <div class="formmsg" id="evMsg"></div>
-      <button class="kbtn teal" id="addEv" onclick="saveEvent()">Add event</button>
-      <button class="kbtn ghost" id="evCancelBtn" style="display:none;margin-left:6px" onclick="cancelEvEdit()">Cancel</button>
-      </div>
-    </details>
+    <p class="footnote" style="margin:0 0 14px">📣 To put a holiday, event or competition on this calendar, post it in <b>Announcements</b> and give it a date — it appears here automatically.</p>
     <details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:13px">🔁 Weekly classes &amp; auto-fill a month (set up once)</summary>
       <div style="margin-top:12px">${weeklyClassesHTML()}</div>
     </details>
@@ -1823,17 +1818,17 @@ async function renderCalendar(){
     <div id="calGrid"><div class="empty">Loading…</div></div>
     <div id="calList"></div>`;
   const t=todayIST();
-  $("cs_date").value=t; $("ev_date").value=t;
+  if($("cs_date")) $("cs_date").value=t;
   wireWeeklyClasses();
   loadCalendar();
 }
 async function loadCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
-  const { data:ev, error } = await db.from("events").select("id,title,event_type,event_date,end_date,description,poster_url").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  const { data:annc, error } = await db.from("news_posts").select("id,title,event_type,event_date,event_end,body").not("event_date","is",null).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link,room").gte("session_date",start).lte("session_date",end).order("session_date");
-  state._events=ev||[]; state._calSess=sess||[];
+  state._events=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end, event_type:e.event_type, description:e.body })); state._calSess=sess||[];
   const { data:bd } = await db.from("students").select("full_name,date_of_birth").eq("status","active").not("date_of_birth","is",null);
   state._calBdays=(bd||[]).filter(s=>Number(String(s.date_of_birth).slice(5,7))===mo).map(s=>({ name:s.full_name, day:Number(String(s.date_of_birth).slice(8,10)) }));
   drawCalendar();
@@ -1858,7 +1853,7 @@ function drawCalendar(){
   for(let d=1;d<=dim;d++){
     const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
     const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" onclick="event.stopPropagation();editSession('${c.id}')" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
-    const evs=(byDay[d]||[]).map(e=>`<div class="calev" onclick="event.stopPropagation();editEvent('${e.id}')" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
+    const evs=(byDay[d]||[]).map(e=>`<div class="calev" style="background:#E1F0EA;color:#1d6b4f;border-color:#bfe0d2" onclick="event.stopPropagation();gotoNav('news')" title="${esc(e.title)} — manage in Announcements">${esc(e.title)}</div>`).join("");
     const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FBEAF0;color:#993556;border-color:#EDC9D7" title="${esc(b.name)}'s birthday">\u{1F382} ${esc(b.name)}</div>`).join("");
     cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
   }
@@ -1879,7 +1874,7 @@ function drawCalendar(){
       <td>${esc(e.event_date)}${e.end_date&&e.end_date!==e.event_date?`<br><span class="mini">to ${esc(e.end_date)}</span>`:""}</td>
       <td><b>${esc(e.title)}</b>${e.description?`<br><span class="mini">${esc(e.description)}</span>`:""}${e.poster_url?` <span class="mini">📎 poster</span>`:""}</td>
       <td>${esc(e.event_type||"—")}</td>
-      <td class="mini"><span class="rowbtn edit" onclick="editEvent('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delEvent('${e.id}')">Delete</span></td>
+      <td class="mini"><span class="rowbtn edit" onclick="gotoNav('news')">✏️ In Announcements</span></td>
     </tr>`).join("")}</table></div>`:"";
   $("calList").innerHTML=sessList+evList;
   const _rooms=[...new Set((state._calSess||[]).map(c=>c.room).filter(Boolean))];
@@ -2553,9 +2548,9 @@ async function renderMyCalendar(){
 async function loadMyCalendar(){
   const [y,mo]=state._mcalMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
-  const { data:ev } = await db.from("events").select("id,title,event_type,event_date,end_date,description").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  const { data:annc } = await db.from("news_posts").select("id,title,event_type,event_date,event_end").not("event_date","is",null).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,capacity,zoom_link,branch_id").gte("session_date",start).lte("session_date",end).order("session_date");
-  state._mcalEvents=ev||[]; state._mcalSess=sess||[]; drawMyCalendar();
+  state._mcalEvents=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end, event_type:e.event_type })); state._mcalSess=sess||[]; drawMyCalendar();
 }
 function drawMyCalendar(){
   const tid=state._mcalTid;
@@ -2628,11 +2623,10 @@ function mcalToday(){ state._mcalMonth=todayIST().slice(0,7); loadMyCalendar(); 
 /* ---------------- ANNOUNCEMENTS — shared response helpers ---------------- */
 async function myUid(){ if(state._uid) return state._uid; const { data:{ user } } = await db.auth.getUser(); state._uid=user?user.id:null; return state._uid; }
 function respButtonsHTML(n, myResp){
-  if(!n.response_type) return "";
+  const cfg=RESP_OPTS[n.response_type]; if(!cfg) return "";
   if(n.response_type==="ack") return `<div style="margin-top:12px">${myResp==="ack"?`<span class="badge b-green">✓ You've got it</span> <span class="rowbtn" onclick="respondNews('${n.id}','')">undo</span>`:`<button class="kbtn teal" onclick="respondNews('${n.id}','ack')">Got it ✓</button>`}</div>`;
-  if(n.response_type==="rsvp"){ const b=(v,l)=>`<button class="kbtn ${myResp===v?"teal":"ghost"}" style="margin:4px 6px 0 0" onclick="respondNews('${n.id}','${v}')">${l}</button>`;
-    return `<div style="margin-top:12px"><div class="mini" style="margin-bottom:4px">Will you attend?</div>${b("attending","✅ Attending")}${b("maybe","🤔 Maybe")}${b("not","🚫 Can't make it")}</div>`; }
-  return "";
+  const b=(v,l)=>`<button class="kbtn ${myResp===v?"teal":"ghost"}" style="margin:4px 6px 0 0" onclick="respondNews('${n.id}','${v}')">${esc(l)}</button>`;
+  return `<div style="margin-top:12px"><div class="mini" style="margin-bottom:4px">${esc(cfg.prompt)}</div>${cfg.opts.map(o=>b(o[0],o[1])).join("")}</div>`;
 }
 function announceCardHTML(n, myResp){
   regAnn(n);
@@ -2983,9 +2977,10 @@ async function renderStudentCalendar(){
 async function loadStudentCalendar(){
   const [y,mo]=state._scalMonth.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
-  const { data:ev } = await db.from("events").select("id,title,event_date,end_date").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
+  const me=await myStudent(); const aud=["all"]; if(me){ if(me.branch_id) aud.push("branch:"+me.branch_id); if(me.course_id) aud.push("course:"+me.course_id); }
+  const { data:annc } = await db.from("news_posts").select("id,title,event_date,event_end,audience").not("event_date","is",null).in("audience",aud).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
-  state._scalEvents=ev||[]; state._scalSess=sess||[]; drawStudentCalendar();
+  state._scalEvents=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end })); state._scalSess=sess||[]; drawStudentCalendar();
 }
 function drawStudentCalendar(){
   const [y,mo]=state._scalMonth.split("-").map(Number);
