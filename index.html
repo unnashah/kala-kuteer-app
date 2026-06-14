@@ -500,8 +500,11 @@ async function renderDashboard(name, warn){
 async function loadDashFees(){
   const C=$("dashFees"); if(!C) return;
   const s=await myStudent(); if(!s) return;
-  const { data:invs } = await db.from("invoices").select("id,amount,due_date,status,student_response").eq("student_id",s.id).neq("status","paid");
-  const due=(invs||[]).filter(i=>i.status!=="paid");
+  const { data:invs } = await db.from("invoices").select("id,amount,due_date,status,student_response,period_start,period_end").eq("student_id",s.id);
+  const all=invs||[];
+  const paidRanges=all.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).map(i=>[i.period_start,i.period_end]);
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; return ref && paidRanges.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const due=all.filter(i=>i.status!=="paid" && !coveredFee(i));
   if(!due.length) return;
   const total=due.reduce((a,i)=>a+Number(i.amount||0),0);
   const todayS=todayIST();
@@ -1041,6 +1044,7 @@ async function renderFinance(){
         <div class="kf"><label>Note (optional)</label><input id="x_note"></div>
       </div>
       <p class="footnote" id="x_recurHint" style="display:none">↻ Recurring expenses are counted automatically in every month from the start date — enter once, no need to re-add. Leave "Repeat until" blank to keep it going.</p>
+      <p class="footnote" style="margin-top:2px">💡 Guru payouts are tracked separately in <b>Guru Payouts</b> and do not appear here automatically. Log a <b>"Teacher payouts"</b> expense only if you want them in this P&amp;L — and just once, to avoid double-counting.</p>
       <div class="formmsg" id="xMsg"></div>
       <button class="kbtn teal" id="addExpense">Add expense</button>
       <button class="kbtn ghost" id="expCancelBtn" style="display:none;margin-left:6px" onclick="cancelExpEdit()">Cancel</button>
@@ -1053,7 +1057,7 @@ async function renderFinance(){
 async function loadFinance(){
   const P=finPeriod();
   $("finBody").innerHTML=`<div class="empty">Loading…</div>`;
-  const pays = await fetchAll(()=> db.from("payments").select("amount,paid_at,invoices(registration,students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next));
+  const pays = await fetchAll(()=> db.from("payments").select("amount,paid_at,invoices(registration,months,students(branch_id))").gte("paid_at",P.start).lt("paid_at",P.next));
   const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note,frequency,recur_until").lte("spent_on",P.end).order("spent_on",{ascending:false});
   if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._fin={ pays:pays||[], exps:exps||[], P }; drawFinance();
@@ -1061,14 +1065,14 @@ async function loadFinance(){
 function drawFinance(){
   const { pays, exps, P } = state._fin;
   const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
-  let income=0, regIncome=0, regCount=0; const incByBranch={};
-  pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; if(Number(p.invoices?.registration||0)>0){ regIncome+=a; regCount++; } });
+  let income=0, regIncome=0, regCount=0, advancePaid=0; const incByBranch={};
+  pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; const reg=Number(p.invoices?.registration||0); if(reg>0){ regIncome+=Math.min(reg,a); regCount++; } if(Number(p.invoices?.months||0)>1) advancePaid+=a; });
   const tuitionIncome=income-regIncome;
   let expense=0; const expByBranch={}, expByCat={};
   const erows=[]; // {e, amt} contributing to this month
   exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; let c=e.category||"Other"; if(/instrument/i.test(c) && e.subcategory) c=c+" · "+e.subcategory; expByCat[c]=(expByCat[c]||0)+a; });
   const net=income-expense;
-  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Registration ${INR(regIncome)}</div></div>
+  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Registration ${INR(regIncome)}${advancePaid>0?` · incl. ${INR(advancePaid)} paid ahead`:""}</div></div>
     <div class="kpi"><div class="l">Registration fees</div><div class="v">${INR(regIncome)}</div><div class="mini">${regCount} new student${regCount===1?'':'s'} this month</div></div>
     <div class="kpi"><div class="l">Expenses</div><div class="v" style="color:var(--warn)">${INR(expense)}</div></div>
     <div class="kpi"><div class="l">Net (P/L)</div><div class="v" style="color:${net<0?"var(--warn)":"var(--ink)"}">${INR(net)}</div></div>`;
@@ -2065,8 +2069,8 @@ async function fillMonthFromTemplate(){
   try{
     if(!mv){ if(m){ m.className="formmsg err"; m.textContent="Pick a month first."; } return; }
     const [y,mo]=mv.split("-").map(Number);
-    const cls=(state._classes||[]).filter(b=>b.is_active!==false && b.day_of_week!=null);
-    if(!cls.length){ m.className="formmsg err"; m.textContent="No weekly classes with a Day set yet — add classes below first."; return; }
+    const cls=(state._classes||[]).filter(b=>b.is_active!==false && b.day_of_week!=null && b.published_at);
+    if(!cls.length){ m.className="formmsg err"; m.textContent="No weekly classes ready yet — add one below (any a guru added need a quick ✅ ‘Mark reviewed’ first)."; return; }
     m.className="formmsg ok"; m.textContent="Filling…"; $("tplFillBtn").disabled=true;
     const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
     const { data:existing } = await db.from("class_sessions").select("title,session_date,start_time").gte("session_date",start).lte("session_date",end);
@@ -3015,7 +3019,10 @@ async function renderStudentFees(){
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const list=invs||[]; const todayS=new Date().toISOString().slice(0,10);
   const upiId=s.upi_id||(s.branches&&s.branches.upi_id)||SCHOOL_UPI.id;
-  const due=list.filter(i=>i.status!=="paid"); const totalDue=due.reduce((a,i)=>a+Number(i.amount||0),0);
+  const paidRanges=list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).map(i=>[i.period_start,i.period_end]);
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; return ref && paidRanges.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const visible=list.filter(i=>i.status==="paid" || !coveredFee(i));
+  const due=visible.filter(i=>i.status!=="paid"); const totalDue=due.reduce((a,i)=>a+Number(i.amount||0),0);
   const card=i=>{
     const paid=i.status==="paid"; const overdue=!paid && i.due_date && i.due_date<todayS;
     if(paid) return `<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(i.period_label||"Fees")}</b> <span class="badge b-green">Paid</span><div class="mini" style="margin-top:3px">${INR(i.amount)}</div></div><span class="rowbtn edit" onclick="genReceipt('${i.id}')">📄 Download receipt</span></div></div>`;
@@ -3054,7 +3061,7 @@ async function renderStudentFees(){
     ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
     ${planHtml}
     <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full — see the attendance/make-up policy.</p>
-    ${list.length?list.map(card).join(""):(planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
+    ${visible.length?visible.map(card).join(""):(planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
 }
 async function studentRaisePlan(months){
   const { error } = await db.rpc("student_raise_plan",{ p_months:months });
