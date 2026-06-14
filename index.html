@@ -636,74 +636,84 @@ function gotoNav(key){
 
 /* ---------------- ATTENDANCE ---------------- */
 async function renderAttendance(){
-  const M=$("mainArea");
-  await loadRef();
-  const branchOpts = state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Mark who came on a day, view a student’s full record, or pull a filtered report. Gurus mark their own students from the teacher app.")}</h2><p>Mark who attended on a given day</p></div></div>
-    <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
+  const M=$("mainArea"); await loadRef();
+  const today=todayIST();
+  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Pick a day and a class, then mark who attended. Gurus also mark their own classes from the teacher app.")}</h2><p>Mark who attended each class</p></div></div>
+    <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a class</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar">
-      <span class="mini">Date</span><input id="attDate" type="date" style="max-width:170px;flex:none">
-      <span class="mini">Branch</span><select id="attBranch" style="max-width:170px;flex:none"><option value="">All</option>${branchOpts}</select>
-      <button class="kbtn ghost" id="attLoad">Load</button>
+      <span class="mini">Date</span><input id="attDate" type="date" max="${today}" value="${today}" style="max-width:150px;flex:none">
+      <span class="mini">Class</span><select id="attSession" style="flex:1;min-width:160px"><option value="">—</option></select>
       <button class="kbtn teal" id="attSave">Save attendance</button>
     </div>
     <div class="formmsg" id="attMsg"></div>
-    <div id="attList"><div class="empty">Loading…</div></div>`;
-  const today = new Date().toISOString().slice(0,10);
-  $("attDate").value = today; $("attDate").max = today;
-  $("attLoad").onclick = loadAttendance;
-  $("attSave").onclick = saveAttendance;
-  $("attBranch").onchange = loadAttendance;
+    <div id="attList"><div class="empty">Pick a date and class above.</div></div>`;
+  $("attDate").onchange=loadAttSessions; $("attSession").onchange=loadAttendance; $("attSave").onclick=saveAttendance;
+  loadAttSessions();
+}
+async function loadAttSessions(){
+  const date=$("attDate")?$("attDate").value:""; const sel=$("attSession"); if(!sel) return;
+  state._attDate=date;
+  if(!date){ sel.innerHTML=`<option value="">—</option>`; return; }
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,start_time,room").eq("session_date",date).order("start_time");
+  state._attSessions=sess||[];
+  if(!sess||!sess.length){
+    sel.innerHTML=`<option value="">— no classes scheduled —</option>`;
+    $("attList").innerHTML=`<div class="empty">No classes scheduled on ${esc(date)}. Schedule them on the Calendar (or use the Weekly template) first.</div>`;
+    return;
+  }
+  sel.innerHTML=sess.map(x=>`<option value="${x.id}">${esc(x.title)}${x.start_time?" · "+fmtTime(x.start_time.slice(0,5)):""}${x.room?" · "+esc(x.room):""}</option>`).join("");
   loadAttendance();
 }
 async function loadAttendance(){
-  const date=$("attDate").value, branch=$("attBranch").value;
-  const today=todayIST();
-  if(!date){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Please pick a date."; return; }
-  if(date>today){ $("attMsg").className="formmsg err"; $("attMsg").textContent="Attendance can only be marked for today or a past date."; $("attList").innerHTML=""; return; }
-  $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
-  // show students who were active on this date: currently active, OR went inactive AFTER this date — and joined on/before it
-  let q=db.from("students").select("id,full_name,branches(name),courses(name)")
-    .lte("join_date",date)
-    .or(`status.eq.active,status_effective_date.gt.${date}`)
-    .order("full_name");
-  if(branch) q=q.eq("branch_id",branch);
+  const sessId=$("attSession")?$("attSession").value:""; if(!sessId){ $("attList").innerHTML=`<div class="empty">Pick a class.</div>`; return; }
+  const sess=(state._attSessions||[]).find(x=>x.id===sessId); state._attSession=sessId; state._attSessRow=sess||{};
+  const date=state._attDate; if($("attMsg")) $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
+  let q=db.from("students").select("id,full_name,branches(name),courses(name)").eq("status","active").lte("join_date",date).order("full_name");
+  if(sess&&sess.branch_id) q=q.eq("branch_id",sess.branch_id);
   const { data:studs, error } = await q;
   if(error){ $("attList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const ids=studs.map(s=>s.id);
-  let map={};
+  const ids=(studs||[]).map(s=>s.id); let map={}, mc={};
   if(ids.length){
-    const { data:marks } = await db.from("attendance").select("student_id,status").eq("class_date",date).is("batch_id",null).in("student_id",ids);
+    const { data:marks } = await db.from("attendance").select("student_id,status").eq("session_id",sessId).in("student_id",ids);
     (marks||[]).forEach(m=>map[m.student_id]=m.status);
+    const ym=String(date).slice(0,7);
+    const { data:moMarks } = await db.from("attendance").select("student_id").eq("status","present").gte("class_date",ym+"-01").lte("class_date",ym+"-31").in("student_id",ids);
+    (moMarks||[]).forEach(m=>{ mc[m.student_id]=(mc[m.student_id]||0)+1; });
   }
-  state._att=map; state._attStuds=studs; state._attDate=date;
-  drawAttendance(studs, map);
+  state._att=map; state._attStuds=studs||[]; state._attMonth=mc;
+  drawAttendance(state._attStuds, map);
 }
 function drawAttendance(studs, map){
-  if(!studs.length){ $("attList").innerHTML=`<div class="empty">No active students here.</div>`; return; }
+  if(!studs.length){ $("attList").innerHTML=`<div class="empty">No active students for this class.</div>`; return; }
+  const mc=state._attMonth||{}; const tgt=8;
   const n=studs.length, p=Object.values(map).filter(v=>v==="present").length;
   const btn=(id,v,label,cls)=>`<span class="rowbtn" onclick="markAtt('${id}','${v}')" style="margin-right:4px${map[id]===v?(';'+cls):''}">${label}</span>`;
-  $("attList").innerHTML=`<div class="mini" style="margin-bottom:8px">${n} active student${n===1?"":"s"} · marked present: ${p}</div>
-    <table><tr><th>Student</th><th>Course · Branch</th><th>Mark</th></tr>${studs.map(s=>`<tr>
-      <td><b>${esc(s.full_name)}</b></td>
-      <td class="mini">${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")}</td>
+  $("attList").innerHTML=`<div class="mini" style="margin-bottom:8px">${n} student${n===1?"":"s"} · marked present: ${p}</div>
+    <table><tr><th>Student</th><th>This month</th><th>Mark</th></tr>${studs.map(s=>{ const cnt=mc[s.id]||0; const col=cnt>=tgt?"b-green":(cnt>=Math.ceil(tgt/2)?"b-amber":"b-grey"); return `<tr>
+      <td><b>${esc(s.full_name)}</b><br><span class="mini">${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")}</span></td>
+      <td><span class="badge ${col}">${cnt}/${tgt}</span></td>
       <td>${btn(s.id,"present","Present","background:var(--good);color:#fff;border-color:var(--good)")}${btn(s.id,"absent","Absent","background:var(--warn);color:#fff;border-color:var(--warn)")}${btn(s.id,"excused","Excused","background:var(--saffron);color:#3a2c00;border-color:var(--saffron)")}</td>
-    </tr>`).join("")}</table>
-    <p class="footnote" style="margin-top:26px;border-top:1px solid var(--line);padding-top:14px">Tap Present / Absent / Excused for each student, then click <b>Save attendance</b>.</p>`;
+    </tr>`;}).join("")}</table>
+    <p class="footnote" style="margin-top:26px;border-top:1px solid var(--line);padding-top:14px">Tap Present / Absent / Excused for each student who attended <b>this class</b>, then <b>Save attendance</b>. The badge shows their classes so far this month.</p>`;
 }
-function markAtt(id,status){ state._att[id]=status; drawAttendance(state._attStuds, state._att); }
+function markAtt(id,status){ if(state._att[id]===status) delete state._att[id]; else state._att[id]=status; drawAttendance(state._attStuds, state._att); }
 async function saveAttendance(){
-  const m=$("attMsg"); const date=state._attDate;
+  const m=$("attMsg"); const sessId=state._attSession; const date=state._attDate;
+  if(!sessId){ m.className="formmsg err"; m.textContent="Pick a class first."; return; }
   const today=todayIST();
   if(date>today){ m.className="formmsg err"; m.textContent="Attendance can only be saved for today or a past date."; return; }
-  const rows=Object.keys(state._att||{}).filter(sid=>state._att[sid]).map(sid=>({ student_id:sid, class_date:date, status:state._att[sid] }));
-  if(!rows.length){ m.className="formmsg err"; m.textContent="Mark at least one student first."; return; }
+  if((new Date(today)-new Date(date))>30*864e5){ m.className="formmsg err"; m.textContent="Attendance can only be marked within the last 30 days."; return; }
+  const marked=Object.keys(state._att||{}).filter(sid=>state._att[sid]);
+  const rows=marked.map(sid=>({ student_id:sid, session_id:sessId, class_date:date, status:state._att[sid] }));
   m.className="formmsg ok"; m.textContent="Saving…";
-  const ids=rows.map(r=>r.student_id);
-  await db.from("attendance").delete().eq("class_date",date).is("batch_id",null).in("student_id",ids);
-  const { error } = await db.from("attendance").insert(rows);
-  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
-  m.className="formmsg ok"; m.textContent="✓ Saved attendance for "+date+" ("+rows.length+" students).";
+  const ids=(state._attStuds||[]).map(s=>s.id);
+  await db.from("attendance").delete().eq("session_id",sessId).in("student_id",ids);
+  if(rows.length){
+    const { error } = await db.from("attendance").insert(rows);
+    if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  }
+  m.className="formmsg ok"; m.textContent="✓ Saved attendance for this class ("+rows.length+" marked).";
+  loadAttendance();
 }
 /* ----- Attendance: student-wise report ----- */
 async function renderAttendanceByStudent(){
@@ -2342,52 +2352,71 @@ async function renderMyAttendance(){
   const { data:gs } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
   state._maStu=gs||[];
   const today=todayIST();
-  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Tap the students who came in, then Save</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Pick your class, then tap the students who came</p></div></div>
     ${state._maStu.length?`<div class="searchbar">
-      <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:170px;flex:none">
+      <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:150px;flex:none">
+      <span class="mini">Class</span><select id="maSession" style="flex:1;min-width:150px"><option value="">—</option></select>
       <button class="kbtn teal" id="maSave">Save</button></div>
     <div class="formmsg" id="maMsg"></div>
-    <div id="maList"><div class="empty">Loading…</div></div>`
+    <div id="maList"><div class="empty">Pick a date and class above.</div></div>`
     :`<div class="empty">No students are assigned to you yet. The admin sets a student's primary guru on their profile.</div>`}`;
-  if(state._maStu.length){ $("maDate").onchange=loadMyAtt; $("maSave").onclick=saveMyAtt; loadMyAtt(); }
+  if(state._maStu.length){ $("maDate").onchange=loadMySessions; $("maSession").onchange=loadMyAtt; $("maSave").onclick=saveMyAtt; loadMySessions(); }
 }
 function weekRange(dateStr){ const d=parseD(dateStr); const diffToMon=(d.getDay()+6)%7; const mon=new Date(d); mon.setDate(d.getDate()-diffToMon); const sun=new Date(mon); sun.setDate(mon.getDate()+6); return { start:isoLocal(mon), end:isoLocal(sun) }; }
+async function loadMySessions(){
+  const date=$("maDate")?$("maDate").value:""; const tid=state._maTid; const sel=$("maSession"); if(!sel) return;
+  state._maDate=date;
+  if(!date){ sel.innerHTML=`<option value="">—</option>`; return; }
+  const { data:sess } = await db.from("class_sessions").select("id,title,start_time,room").eq("teacher_id",tid).eq("session_date",date).order("start_time");
+  state._maSessions=sess||[];
+  if(!sess||!sess.length){
+    sel.innerHTML=`<option value="">— no class scheduled —</option>`;
+    $("maList").innerHTML=`<div class="empty">No class scheduled for you on ${esc(date)}. Add it on the Calendar (or use the Weekly template), then come back to mark attendance.</div>`;
+    return;
+  }
+  sel.innerHTML=sess.map(x=>`<option value="${x.id}">${esc(x.title)}${x.start_time?" · "+fmtTime(x.start_time.slice(0,5)):""}${x.room?" · "+esc(x.room):""}</option>`).join("");
+  loadMyAtt();
+}
 async function loadMyAtt(){
-  const date=$("maDate").value; if(!date) return;
-  state._maDate=date; $("maList").innerHTML=`<div class="empty">Loading…</div>`;
-  const sids=state._maStu.map(s=>s.id); const wk=weekRange(date); state._maWeekRange=wk;
-  const { data:dayMarks } = await db.from("attendance").select("student_id").is("batch_id",null).eq("class_date",date).eq("status","present").in("student_id",sids);
-  const { data:wkMarks } = await db.from("attendance").select("student_id,class_date").is("batch_id",null).gte("class_date",wk.start).lte("class_date",wk.end).eq("status","present").in("student_id",sids);
-  state._maToday=new Set((dayMarks||[]).map(m=>m.student_id));
-  const wc={}; (wkMarks||[]).forEach(m=>{ wc[m.student_id]=(wc[m.student_id]||0)+1; }); state._maWeek=wc;
+  const sessId=$("maSession")?$("maSession").value:""; if(!sessId){ $("maList").innerHTML=`<div class="empty">Pick a class.</div>`; return; }
+  state._maSession=sessId; const date=state._maDate||($("maDate")&&$("maDate").value)||todayIST();
+  const sids=state._maStu.map(s=>s.id); $("maList").innerHTML=`<div class="empty">Loading…</div>`;
+  if(!sids.length){ state._maHere=new Set(); state._maMonth={}; drawMyAtt(); return; }
+  const { data:sessMarks } = await db.from("attendance").select("student_id").eq("session_id",sessId).eq("status","present").in("student_id",sids);
+  state._maHere=new Set((sessMarks||[]).map(m=>m.student_id));
+  const ym=String(date).slice(0,7); const mStart=ym+"-01", mEnd=ym+"-31";
+  const { data:moMarks } = await db.from("attendance").select("student_id").eq("status","present").gte("class_date",mStart).lte("class_date",mEnd).in("student_id",sids);
+  const mc={}; (moMarks||[]).forEach(m=>{ mc[m.student_id]=(mc[m.student_id]||0)+1; }); state._maMonth=mc;
   drawMyAtt();
 }
 function drawMyAtt(){
-  const studs=state._maStu||[]; const today=state._maToday||new Set(); const wc=state._maWeek||{};
-  $("maList").innerHTML=`<div class="mini" style="margin-bottom:8px">Tap a student to mark them present · ${today.size} marked for this day</div>
-    <table><tr><th>Student</th><th>This week</th><th>Came in?</th></tr>${studs.map(s=>{ const n=wc[s.id]||0; const here=today.has(s.id); const wcol=n>=2?"b-green":(n===1?"b-amber":"b-grey");
+  const studs=state._maStu||[]; const here=state._maHere||new Set(); const mc=state._maMonth||{}; const tgt=state._maTarget||8;
+  $("maList").innerHTML=`<div class="mini" style="margin-bottom:8px">Tap a student to mark them present for this class · ${here.size} marked</div>
+    <table><tr><th>Student</th><th>This month</th><th>Came in?</th></tr>${studs.map(s=>{ const n=mc[s.id]||0; const hereNow=here.has(s.id); const col=n>=tgt?"b-green":(n>=Math.ceil(tgt/2)?"b-amber":"b-grey");
       return `<tr>
         <td><b>${esc(s.full_name)}</b></td>
-        <td><span class="badge ${wcol}">${n}/2</span></td>
-        <td><span class="rowbtn${here?" edit":""}" onclick="toggleAtt('${s.id}')">${here?"✓ Present":"Mark present"}</span></td>
+        <td><span class="badge ${col}">${n}/${tgt}</span></td>
+        <td><span class="rowbtn${hereNow?" edit":""}" onclick="toggleAtt('${s.id}')">${hereNow?"✓ Present":"Mark present"}</span></td>
       </tr>`; }).join("")}</table>
-    <p class="footnote">Each student attends <b>2 sessions a week</b>. The badge shows their count for this week (${esc(state._maWeekRange?state._maWeekRange.start:"")} – ${esc(state._maWeekRange?state._maWeekRange.end:"")}). Just mark whoever came in — <b>any day counts</b>, so a make-up needs nothing special. <span class="badge b-green">2/2</span> done · <span class="badge b-amber">1 left</span> · <span class="badge b-grey">none yet</span></p>`;
+    <p class="footnote">Mark whoever attended <b>this class</b>, then Save. Each student aims for about <b>${tgt} classes a month</b> (~2 a week). Extra classes in a catch-up week just add to the count — <span class="badge b-green">target met</span> · <span class="badge b-amber">on the way</span> · <span class="badge b-grey">just started</span>.</p>`;
 }
-function toggleAtt(sid){ const t=state._maToday; if(t.has(sid)) t.delete(sid); else t.add(sid); drawMyAtt(); }
+function toggleAtt(sid){ const t=state._maHere; if(!t) return; if(t.has(sid)) t.delete(sid); else t.add(sid); drawMyAtt(); }
 async function saveMyAtt(){
-  const m=$("maMsg"); const date=state._maDate, tid=state._maTid;
+  const m=$("maMsg"); const tid=state._maTid; const sessId=state._maSession; const date=state._maDate||($("maDate")&&$("maDate").value);
+  if(!sessId){ m.className="formmsg err"; m.textContent="Pick a class first."; return; }
   const today=todayIST();
   if(date>today){ m.className="formmsg err"; m.textContent="You can only mark today or a past date."; return; }
-  const sids=state._maStu.map(s=>s.id); const attended=[...(state._maToday||[])];
+  if((new Date(today)-new Date(date))>30*864e5){ m.className="formmsg err"; m.textContent="Attendance can only be marked within the last 30 days."; return; }
+  const sids=state._maStu.map(s=>s.id); const attended=[...(state._maHere||[])];
   m.className="formmsg ok"; m.textContent="Saving…";
-  const { error:de } = await db.from("attendance").delete().is("batch_id",null).eq("class_date",date).in("student_id",sids);
+  const { error:de } = await db.from("attendance").delete().eq("session_id",sessId).in("student_id",sids);
   if(de){ m.className="formmsg err"; m.textContent="Couldn't save — "+de.message; return; }
   if(attended.length){
-    const rows=attended.map(sid=>({ student_id:sid, class_date:date, status:"present", marked_by:tid }));
+    const rows=attended.map(sid=>({ student_id:sid, session_id:sessId, class_date:date, status:"present", marked_by:tid }));
     const { error:ie } = await db.from("attendance").insert(rows);
     if(ie){ m.className="formmsg err"; m.textContent="Couldn't save — "+ie.message; return; }
   }
-  m.className="formmsg ok"; m.textContent="✓ Saved for "+date+".";
+  m.className="formmsg ok"; m.textContent="✓ Saved attendance for this class.";
   loadMyAtt();
 }
 
