@@ -611,7 +611,7 @@ async function loadDashBdays(){
 async function renderStudents(){
   const M=$("mainArea");
   M.innerHTML = `<div class="ph"><div><h2>Students</h2><p>Loading…</p></div><button class="kbtn" id="newStu">+ New Student</button></div>
-    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…" style="flex:1"><button class="kbtn ghost" id="stuExport" onclick="exportStudentsCSV()" style="flex:none">⬇ Export CSV</button></div>
+    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…" style="flex:1"><select id="stuStatus" style="max-width:160px;flex:none"><option value="">All statuses</option><option value="active">Active</option><option value="on_break">On break</option><option value="completed">Completed</option><option value="alumni">Alumni</option><option value="suspended">Suspended</option></select><button class="kbtn ghost" id="stuExport" onclick="exportStudentsCSV()" style="flex:none">⬇ Export CSV</button></div>
     <div id="stuList"><div class="empty">Loading students…</div></div>`;
   $("newStu").onclick = ()=> gotoNav("intake");
   const { data, error } = await db.from("students")
@@ -620,13 +620,22 @@ async function renderStudents(){
   if(error){ $("stuList").innerHTML=`<div class="cfgwarn">Couldn't load students — ${esc(error.message)}</div>`; return; }
   state._students = data||[];
   M.querySelector(".ph p").textContent = `${state._students.length} student${state._students.length===1?"":"s"}`;
-  drawStudents(state._students);
-  $("stuSearch").oninput = e=>{
-    const q=e.target.value.toLowerCase();
-    drawStudents(state._students.filter(s=>(s.full_name||"").toLowerCase().includes(q)));
-  };
+  filterStudents();
+  $("stuSearch").oninput = filterStudents;
+  if($("stuStatus")) $("stuStatus").onchange = filterStudents;
 }
 const STATUS_BADGE = { active:"b-green", on_break:"b-amber", suspended:"b-red", alumni:"b-grey", completed:"b-teal" };
+function filterStudents(){
+  const q=(($("stuSearch")&&$("stuSearch").value)||"").toLowerCase().trim();
+  const st=($("stuStatus")&&$("stuStatus").value)||"";
+  let list=(state._students||[]);
+  if(st) list=list.filter(s=>(s.status||"")===st);
+  if(q) list=list.filter(s=>(s.full_name||"").toLowerCase().includes(q));
+  state._studentsView=list;
+  const pe=$("mainArea")&&$("mainArea").querySelector(".ph p");
+  if(pe) pe.textContent=(st||q)?`${list.length} of ${(state._students||[]).length} students`:`${list.length} student${list.length===1?"":"s"}`;
+  drawStudents(list);
+}
 function drawStudents(list){
   if(!list.length){ $("stuList").innerHTML=`<div class="empty">No students yet. Click <b>+ New Student</b> to add your first.</div>`; return; }
   $("stuList").innerHTML = `<table><tr><th>Name</th><th>Course</th><th>Branch</th><th>Level</th><th>Joined</th><th>Status</th><th></th></tr>
@@ -873,7 +882,7 @@ const PAD=n=>String(n).padStart(2,"0");
 const MONS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN");
 function downloadCSV(filename, rows){ const q=v=>{ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }; const csv=rows.map(r=>r.map(q).join(",")).join("\r\n"); const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); }
-function exportStudentsCSV(){ const list=state._students||[]; if(!list.length){ alert("No students to export."); return; } const rows=[["Name","Branch","Course","Level","Status","Joined","Date of birth"]]; list.forEach(s=>rows.push([s.full_name, s.branches&&s.branches.name, s.courses&&s.courses.name, s.level, s.status, s.join_date, s.date_of_birth])); downloadCSV("kala-kuteer-students-"+todayIST()+".csv", rows); }
+function exportStudentsCSV(){ const list=state._studentsView||state._students||[]; if(!list.length){ alert("No students to export."); return; } const rows=[["Name","Branch","Course","Level","Status","Joined","Date of birth"]]; list.forEach(s=>rows.push([s.full_name, s.branches&&s.branches.name, s.courses&&s.courses.name, s.level, s.status, s.join_date, s.date_of_birth])); downloadCSV("kala-kuteer-students-"+todayIST()+".csv", rows); }
 function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||todayIST().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01`, end:`${y}-${PAD(mm)}-${PAD(new Date(y,mm,0).getDate())}` }; }
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
