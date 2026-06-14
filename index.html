@@ -121,7 +121,8 @@
   .formmsg.err{color:var(--warn)} .formmsg.ok{color:var(--good)}
   .dl{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1ead9;font-size:13.5px}
   .dl .k{color:var(--muted)} .dl .hl{background:#fff7e8}
-  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2{grid-template-columns:1fr}.main table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}}
+  .menuBtn{display:none;background:#fff;border:1px solid var(--line);border-radius:9px;font-size:20px;line-height:1;padding:3px 11px;cursor:pointer;color:#7A2233}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2{grid-template-columns:1fr}.main table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}.menuBtn{display:inline-flex;align-items:center}.side{display:none}#app.nav-open .side{display:block;margin-bottom:12px}}
 </style>
 </head>
 <body>
@@ -145,14 +146,14 @@
         <button class="signin" id="signinBtn">Sign in</button>
       </div>
       <div class="msg" id="loginMsg"></div>
-      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.</div>
+      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.<br>Forgot your PIN or password? Please contact the school office.</div>
     </form>
   </div>
 
   <!-- ===================== APP ===================== -->
   <div id="app" class="hide">
     <div class="top">
-      <div class="brand"><span class="badge"><img src="kala-kuteer-logo.png" alt="Kala Kuteer"></span></div>
+      <div style="display:flex;align-items:center;gap:10px"><button class="menuBtn" id="menuBtn" aria-label="Menu" onclick="document.getElementById('app').classList.toggle('nav-open')">☰</button><div class="brand"><span class="badge"><img src="kala-kuteer-logo.png" alt="Kala Kuteer"></span></div></div>
       <div class="who"><span id="whoName"></span><span class="rolechip" id="whoRole"></span><button class="logout" id="logoutBtn">Log out</button></div>
     </div>
     <div class="layout">
@@ -172,10 +173,10 @@ const SUPABASE_ANON_KEY = "sb_publishable_47E2wJ-O69-mFJY5gLzhwA_QZpBbF7d";
 const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 /* ===================================================================== */
 
-const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
+const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Guru", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Gurus","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
@@ -310,6 +311,8 @@ async function renderStudentIntake(st){
   if(st.heard_via&&$("si_heard")) $("si_heard").value=st.heard_via;
   if(st.owns_instrument!=null&&$("si_owns")) $("si_owns").value=st.owns_instrument?"yes":"no";
   $("si_submit").onclick=submitStudentIntake;
+  try{ const _d=JSON.parse(localStorage.getItem("kk_si_draft_v1")||"null"); if(_d) $("mainArea").querySelectorAll('[id^="si_"]').forEach(el=>{ if(el.id==="si_flagnote") return; if(el.id in _d){ if(el.type==="checkbox") el.checked=_d[el.id]; else el.value=_d[el.id]; } }); }catch(e){}
+  $("mainArea").addEventListener("input", ()=>{ const o={}; $("mainArea").querySelectorAll('[id^="si_"]').forEach(el=>{ if(el.id==="si_flagnote") return; o[el.id]=el.type==="checkbox"?el.checked:el.value; }); try{ localStorage.setItem("kk_si_draft_v1", JSON.stringify(o)); }catch(e){} });
 }
 async function submitStudentIntake(){
   const st=state._intakeSt||{}; const minor=!!st.is_minor; const m=$("si_msg");
@@ -337,6 +340,7 @@ async function submitStudentIntake(){
   $("si_submit").disabled=true; m.className="formmsg ok"; m.textContent="Submitting…";
   const { error } = await db.rpc("submit_intake",{ p });
   if(error){ $("si_submit").disabled=false; m.className="formmsg err"; m.textContent="Couldn't submit — "+error.message; return; }
+  try{ localStorage.removeItem("kk_si_draft_v1"); }catch(e){}
   m.className="formmsg ok"; m.textContent="✓ Thank you! Opening your app…";
   const { data:{ session } } = await db.auth.getSession();
   setTimeout(()=>loadApp(session), 700);
@@ -357,6 +361,7 @@ function renderShell(role, name, warn){
       $("sideNav").querySelectorAll(".navitem").forEach(x=>x.classList.remove("active"));
       n.classList.add("active");
       navigate(n.dataset.key, name, warn);
+      var _app=document.getElementById("app"); if(_app) _app.classList.remove("nav-open");
     };
   });
   navigate(items[0][2], name, warn);
@@ -603,7 +608,7 @@ async function loadDashBdays(){
 async function renderStudents(){
   const M=$("mainArea");
   M.innerHTML = `<div class="ph"><div><h2>Students</h2><p>Loading…</p></div><button class="kbtn" id="newStu">+ New Student</button></div>
-    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…"></div>
+    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…" style="flex:1"><button class="kbtn ghost" id="stuExport" onclick="exportStudentsCSV()" style="flex:none">⬇ Export CSV</button></div>
     <div id="stuList"><div class="empty">Loading students…</div></div>`;
   $("newStu").onclick = ()=> gotoNav("intake");
   const { data, error } = await db.from("students")
@@ -864,10 +869,12 @@ function genAttReport(){
 const PAD=n=>String(n).padStart(2,"0");
 const MONS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN");
-function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||new Date().toISOString().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01`, end:`${y}-${PAD(mm)}-${PAD(new Date(y,mm,0).getDate())}` }; }
+function downloadCSV(filename, rows){ const q=v=>{ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }; const csv=rows.map(r=>r.map(q).join(",")).join("\r\n"); const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); }
+function exportStudentsCSV(){ const list=state._students||[]; if(!list.length){ alert("No students to export."); return; } const rows=[["Name","Branch","Course","Level","Status","Joined","Date of birth"]]; list.forEach(s=>rows.push([s.full_name, s.branches&&s.branches.name, s.courses&&s.courses.name, s.level, s.status, s.join_date, s.date_of_birth])); downloadCSV("kala-kuteer-students-"+todayIST()+".csv", rows); }
+function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||todayIST().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01`, end:`${y}-${PAD(mm)}-${PAD(new Date(y,mm,0).getDate())}` }; }
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
-  const thisMonth=new Date().toISOString().slice(0,7);
+  const thisMonth=todayIST().slice(0,7);
   M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices${tip("‘Generate invoices’ raises this month’s fee for everyone, then record each payment as it’s received — or raise a 3/6-month plan for a family paying ahead. Collections here flow into Finance &amp; P&amp;L and each guru’s payout.")}</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
     <div class="searchbar"><span class="mini">Month</span><input id="feeMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:180px;flex:none"><button class="kbtn ghost" id="feeLoad">Load</button></div>
     <div class="formmsg" id="feeMsg"></div>
@@ -995,7 +1002,7 @@ async function recordPayment(invId, amount){
 }
 
 /* ---------------- FINANCE & P&L ---------------- */
-function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||new Date().toISOString().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=new Date(y,m,0).toISOString().slice(0,10); const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
+function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||todayIST().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=new Date(y,m,0).toISOString().slice(0,10); const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
 const FREQ_LABEL={ weekly:"↻ Weekly", monthly:"↻ Monthly", yearly:"↻ Yearly" };
 function parseD(s){ const [y,m,d]=String(s).split("-").map(Number); return new Date(y,m-1,d); }
 // amount an expense contributes to the month described by P (cash basis: yearly counts fully in its anniversary month)
@@ -1022,7 +1029,7 @@ function onFreqChange(){
 }
 async function renderFinance(){
   const M=$("mainArea"); state.refLoaded=false; await loadRef(); state._expEdit=null;
-  const thisMonth=new Date().toISOString().slice(0,7);
+  const thisMonth=todayIST().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const cats=["Rent","Salaries","Teacher payouts","Utilities","Marketing","Water & pantry","Celebrations","Instruments","Maintenance","Other"];
   M.innerHTML=`<div class="ph"><div><h2>Finance &amp; P&amp;L${tip("Log every expense (one-time or recurring) and tag its branch. Income comes from fees automatically — together this gives each centre’s profit/loss and a category breakdown. Each expense row has an ✏️ Edit button.")}</h2><p>Income from fees · your expenses · profit/loss per centre</p></div></div>
@@ -1050,7 +1057,7 @@ async function renderFinance(){
       <button class="kbtn ghost" id="expCancelBtn" style="display:none;margin-left:6px" onclick="cancelExpEdit()">Cancel</button>
     </div>
     <div id="finBody"><div class="empty">Loading…</div></div>`;
-  $("x_date").value=new Date().toISOString().slice(0,10);
+  $("x_date").value=todayIST();
   $("finMonth").onchange=loadFinance; $("finLoad").onclick=loadFinance; $("addExpense").onclick=addExpense;
   loadFinance();
 }
@@ -1125,7 +1132,7 @@ function editExpense(id){
 function cancelExpEdit(){
   state._expEdit=null;
   ["x_cat","x_sub","x_amt","x_note"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("x_branch")) $("x_branch").value="";
-  if($("x_date")) $("x_date").value=new Date().toISOString().slice(0,10);
+  if($("x_date")) $("x_date").value=todayIST();
   if($("x_freq")) $("x_freq").value="one_time"; if($("x_until")) $("x_until").value=""; onFreqChange();
   if($("expFormTitle")) $("expFormTitle").textContent="Record an expense";
   if($("addExpense")) $("addExpense").textContent="Add expense";
@@ -1141,7 +1148,7 @@ async function delExpense(id){
 /* ---------------- GURU PAYOUTS (admin) ---------------- */
 async function renderPayouts(){
   const M=$("mainArea"); await loadClassRefs();
-  const thisMonth=new Date().toISOString().slice(0,7);
+  const thisMonth=todayIST().slice(0,7);
   M.innerHTML=`<div class="ph"><div><h2>Guru Payouts${tip("For each guru: their share % of the fees collected, plus any bonus or deduction, makes the final payout. Record what you actually pay to track paid vs due.")}</h2><p>What each guru has earned vs what's been paid</p></div></div>
     <div class="searchbar"><span class="mini">Month</span><input id="poMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="poLoad">Load</button></div>
     <div class="kpis" id="poKpis" style="margin-bottom:14px"></div>
@@ -1149,7 +1156,7 @@ async function renderPayouts(){
   $("poMonth").onchange=loadPayouts; $("poLoad").onclick=loadPayouts; loadPayouts();
 }
 async function loadPayouts(){
-  const v=$("poMonth").value||new Date().toISOString().slice(0,7); const [y,mo]=v.split("-").map(Number);
+  const v=$("poMonth").value||todayIST().slice(0,7); const [y,mo]=v.split("-").map(Number);
   const start=`${y}-${PAD(mo)}-01`, next=`${mo===12?y+1:y}-${PAD(mo===12?1:mo+1)}-01`, label=MONS[mo-1]+" "+y;
   state._poPeriod=v; state._poLabel=label;
   $("poBody").innerHTML=`<div class="empty">Loading…</div>`;
@@ -1395,7 +1402,7 @@ async function logEnqNote(id){
   const txt=prompt("Add a follow-up note (e.g. 'Called — will visit Sat'):");
   if(txt==null||!txt.trim()) return;
   const e=(state._enq||[]).find(x=>x.id===id);
-  const stamp=new Date().toISOString().slice(0,10);
+  const stamp=todayIST();
   const line=`${stamp}: ${txt.trim()}`;
   const merged=e&&e.follow_up_log?(e.follow_up_log+"\n"+line):line;
   const { error } = await db.from("enquiries").update({ follow_up_log:merged }).eq("id",id);
@@ -1751,7 +1758,7 @@ async function delSuggestion(id){
 const EV_TYPES=["Chirag-e-Mehfil","Competition","Annual Day","Celebration","Workshop","Exam","Holiday","Other"];
 async function renderCalendar(){
   const M=$("mainArea"); await loadRef(); await loadClassRefs(); state._calEdit=null; state._sessEdit=null;
-  state._calMonth = state._calMonth || new Date().toISOString().slice(0,7);
+  state._calMonth = state._calMonth || todayIST().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
@@ -1809,7 +1816,7 @@ async function renderCalendar(){
     </div>
     <div id="calGrid"><div class="empty">Loading…</div></div>
     <div id="calList"></div>`;
-  const t=new Date().toISOString().slice(0,10);
+  const t=todayIST();
   $("cs_date").value=t; $("ev_date").value=t;
   wireWeeklyClasses();
   loadCalendar();
@@ -1829,7 +1836,7 @@ function drawCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
   if($("calLabel")) $("calLabel").textContent=MONS[mo-1]+" "+y;
   const first=new Date(y,mo-1,1).getDay(); const dim=new Date(y,mo,0).getDate();
-  const todayS=new Date().toISOString().slice(0,10);
+  const todayS=todayIST();
   const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0);
   const byDay={}; (state._events||[]).forEach(e=>{
     const s=parseD(String(e.event_date).slice(0,10));
@@ -1913,7 +1920,7 @@ function cancelSessEdit(){
   ["cs_title","cs_time","cs_zoom","cs_room"].forEach(x=>{ if($(x)) $(x).value=""; });
   ["cs_teacher","cs_branch"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("cs_mode")) $("cs_mode").value="in_person"; if($("cs_cap")) $("cs_cap").value=8; onSessMode();
-  if($("cs_date")) $("cs_date").value=new Date().toISOString().slice(0,10);
+  if($("cs_date")) $("cs_date").value=todayIST();
   if($("csFormTitle")) $("csFormTitle").textContent="Add a one-off class";
   if($("addCs")) $("addCs").textContent="Add class to calendar";
   if($("csCancelBtn")) $("csCancelBtn").style.display="none";
@@ -1925,7 +1932,7 @@ async function delSession(id){
   loadCalendar();
 }
 function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); state._calMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); state._calEdit=null; loadCalendar(); }
-function calToday(){ state._calMonth=new Date().toISOString().slice(0,7); loadCalendar(); }
+function calToday(){ state._calMonth=todayIST().slice(0,7); loadCalendar(); }
 async function saveEvent(){
   const m=$("evMsg"); const title=$("ev_title").value.trim(), date=$("ev_date").value;
   if(!title) return failMsg(m,"Enter an event title.");
@@ -1959,7 +1966,7 @@ function cancelEvEdit(){
   state._calEdit=null;
   ["ev_title","ev_desc","ev_end"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("ev_file")) $("ev_file").value=""; if($("ev_type")) $("ev_type").value="Competition";
-  if($("ev_date")) $("ev_date").value=new Date().toISOString().slice(0,10);
+  if($("ev_date")) $("ev_date").value=todayIST();
   if($("evFormTitle")) $("evFormTitle").textContent="Add an event";
   if($("addEv")) $("addEv").textContent="Add event";
   if($("evCancelBtn")) $("evCancelBtn").style.display="none";
@@ -2023,7 +2030,7 @@ function weeklyClassesHTML(){
 function wireWeeklyClasses(){
   if($("clsSearch")) $("clsSearch").oninput=drawClasses;
   if($("clsBranchF")) $("clsBranchF").onchange=drawClasses;
-  if($("tplMonth")) $("tplMonth").value=new Date().toISOString().slice(0,7);
+  if($("tplMonth")) $("tplMonth").value=todayIST().slice(0,7);
   loadClasses();
 }
 function onClassMode(){ const m=$("cl_mode")?$("cl_mode").value:"in_person"; if($("cl_zoomWrap")) $("cl_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
@@ -2498,7 +2505,7 @@ async function renderMyCalendar(){
   const tid=await myTeacherId();
   if(!tid){ M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
   await loadRef(); await loadClassRefs();
-  state._mcalTid=tid; state._mcalMonth=state._mcalMonth||new Date().toISOString().slice(0,7); state._mySessEdit=null;
+  state._mcalTid=tid; state._mcalMonth=state._mcalMonth||todayIST().slice(0,7); state._mySessEdit=null;
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>Schedule your classes for the week — everyone can see this</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="mcsFormTitle">Schedule a class</h3>
@@ -2525,7 +2532,7 @@ async function renderMyCalendar(){
       <button class="kbtn ghost" onclick="mcalToday()">Today</button></div>
     <div id="mcalGrid"><div class="empty">Loading…</div></div>
     <div id="mcalList"></div>`;
-  $("mcs_date").value=new Date().toISOString().slice(0,10);
+  $("mcs_date").value=todayIST();
   loadMyCalendar();
 }
 async function loadMyCalendar(){
@@ -2540,7 +2547,7 @@ function drawMyCalendar(){
   const [y,mo]=state._mcalMonth.split("-").map(Number);
   if($("mcalLabel")) $("mcalLabel").textContent=MONS[mo-1]+" "+y;
   const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0), dim=mEnd.getDate(), first=mStart.getDay();
-  const todayS=new Date().toISOString().slice(0,10);
+  const todayS=todayIST();
   const byDay={}; (state._mcalEvents||[]).forEach(e=>{ const s=parseD(String(e.event_date).slice(0,10)); const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s; let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd)); for(;d<=last;d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); } });
   const sessByDay={}; (state._mcalSess||[]).forEach(c=>{ const day=Number(String(c.session_date).slice(8,10)); (sessByDay[day]=sessByDay[day]||[]).push(c); });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
@@ -2589,7 +2596,7 @@ function cancelMySessEdit(){
   state._mySessEdit=null;
   ["mcs_title","mcs_time","mcs_zoom"].forEach(x=>{ if($(x)) $(x).value=""; }); if($("mcs_branch")) $("mcs_branch").value="";
   if($("mcs_mode")) $("mcs_mode").value="in_person"; if($("mcs_cap")) $("mcs_cap").value=8; onMySessMode();
-  if($("mcs_date")) $("mcs_date").value=new Date().toISOString().slice(0,10);
+  if($("mcs_date")) $("mcs_date").value=todayIST();
   if($("mcsFormTitle")) $("mcsFormTitle").textContent="Schedule a class";
   if($("addMcs")) $("addMcs").textContent="Add class to calendar";
   if($("mcsCancelBtn")) $("mcsCancelBtn").style.display="none";
@@ -2601,7 +2608,7 @@ async function delMySession(id){
   loadMyCalendar();
 }
 function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); state._mcalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadMyCalendar(); }
-function mcalToday(){ state._mcalMonth=new Date().toISOString().slice(0,7); loadMyCalendar(); }
+function mcalToday(){ state._mcalMonth=todayIST().slice(0,7); loadMyCalendar(); }
 
 /* ---------------- ANNOUNCEMENTS — shared response helpers ---------------- */
 async function myUid(){ if(state._uid) return state._uid; const { data:{ user } } = await db.auth.getUser(); state._uid=user?user.id:null; return state._uid; }
@@ -2952,7 +2959,7 @@ async function renderStudentNews(){
 async function renderStudentCalendar(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   await loadClassRefs();
-  state._scalMonth=state._scalMonth||new Date().toISOString().slice(0,7);
+  state._scalMonth=state._scalMonth||todayIST().slice(0,7);
   M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>Class schedule &amp; school events</p></div></div>
     <div class="searchbar" style="justify-content:space-between"><div><button class="kbtn ghost" onclick="scalShift(-1)">‹ Prev</button><b id="scalLabel" style="margin:0 12px"></b><button class="kbtn ghost" onclick="scalShift(1)">Next ›</button></div><button class="kbtn ghost" onclick="scalToday()">Today</button></div>
     <div id="scalGrid"><div class="empty">Loading…</div></div>`;
@@ -2969,7 +2976,7 @@ function drawStudentCalendar(){
   const [y,mo]=state._scalMonth.split("-").map(Number);
   if($("scalLabel")) $("scalLabel").textContent=MONS[mo-1]+" "+y;
   const mStart=new Date(y,mo-1,1), mEnd=new Date(y,mo,0), dim=mEnd.getDate(), first=mStart.getDay();
-  const todayS=new Date().toISOString().slice(0,10);
+  const todayS=todayIST();
   const byDay={}; (state._scalEvents||[]).forEach(e=>{ const s=parseD(String(e.event_date).slice(0,10)); const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s; let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd)); for(;d<=last;d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); } });
   const sessByDay={}; (state._scalSess||[]).forEach(c=>{ const day=Number(String(c.session_date).slice(8,10)); (sessByDay[day]=sessByDay[day]||[]).push(c); });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
@@ -2985,7 +2992,7 @@ function drawStudentCalendar(){
   $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>${onlineHtml}`;
 }
 function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); state._scalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadStudentCalendar(); }
-function scalToday(){ state._scalMonth=new Date().toISOString().slice(0,7); loadStudentCalendar(); }
+function scalToday(){ state._scalMonth=todayIST().slice(0,7); loadStudentCalendar(); }
 /* ----- Student: My Attendance / Journey ----- */
 async function renderStudentJourney(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
@@ -3017,7 +3024,7 @@ async function renderStudentFees(){
   if(!s){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
   const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response,period_start,period_end,months").eq("student_id",s.id).order("due_date",{ascending:false});
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const list=invs||[]; const todayS=new Date().toISOString().slice(0,10);
+  const list=invs||[]; const todayS=todayIST();
   const upiId=s.upi_id||(s.branches&&s.branches.upi_id)||SCHOOL_UPI.id;
   const paidRanges=list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).map(i=>[i.period_start,i.period_end]);
   const coveredFee=i=>{ const ref=i.period_start||i.due_date; return ref && paidRanges.some(r=>r[0]<=ref&&r[1]>=ref); };
@@ -3109,7 +3116,7 @@ async function genReceipt(invId){
   const { data:i, error } = await db.from("invoices").select("id,receipt_no,period_label,amount,registration,student:students(full_name,branches(name)),payments(method,paid_at)").eq("id",invId).single();
   if(error||!i){ alert("Couldn't load the receipt — "+(error?.message||"")); return; }
   const pay=(i.payments&&i.payments[0])||{};
-  const paidOn = pay.paid_at?String(pay.paid_at).slice(0,10):new Date().toISOString().slice(0,10);
+  const paidOn = pay.paid_at?String(pay.paid_at).slice(0,10):todayIST();
   const num=i.receipt_no?`KK-${String(paidOn).slice(0,4)}-${String(i.receipt_no).padStart(5,"0")}`:"KK-"+String(i.id).slice(0,8).toUpperCase();
   const reg=Number(i.registration||0), fee=Number(i.amount||0);
   const amt="₹"+(fee+reg).toLocaleString("en-IN");
@@ -3155,7 +3162,7 @@ async function waReceipt(invId){
 /* ---------------- TEACHERS ---------------- */
 async function renderTeachers(){
   const M=$("mainArea");
-  M.innerHTML=`<div class="ph"><div><h2>Teachers</h2><p>Staff logins — teachers sign in on the <b>Staff</b> tab with email + password</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Gurus</h2><p>Guru logins — gurus sign in on the <b>Staff</b> tab with email + password</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Add a teacher</h3>
       <div class="form2">
         <div><div class="kf"><label>Full name *</label><input id="t_name"></div>
@@ -3400,7 +3407,7 @@ async function renderStudentDetail(id){
   const attPct = attTotal? Math.round(attPresent/attTotal*100):null;
   const { data:linv } = await db.from("invoices").select("period_label,due_date,status").eq("student_id",id).order("due_date",{ascending:false}).limit(1);
   const lf = linv&&linv[0];
-  const todayS = new Date().toISOString().slice(0,10);
+  const todayS = todayIST();
   const feeHtml = lf?(lf.status==="paid"?`<span class="badge b-green">Paid · ${esc(lf.period_label)}</span>`:(lf.due_date<todayS?`<span class="badge b-red">Overdue · ${esc(lf.period_label)}</span>`:`<span class="badge b-amber">Due ${esc(lf.due_date)}</span>`)):"—";
   const age = s.date_of_birth?ageFromDOB(s.date_of_birth):null;
   const minor = s.is_minor;
@@ -3453,7 +3460,7 @@ async function renderStudentDetail(id){
 }
 async function setStudentStatus(id, status){
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
-  const eff = ($("mng_date")&&$("mng_date").value) || new Date().toISOString().slice(0,10);
+  const eff = ($("mng_date")&&$("mng_date").value) || todayIST();
   const { error } = await db.from("students").update({ status, status_effective_date: eff }).eq("id", id);
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
   renderStudentDetail(id);
