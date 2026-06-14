@@ -1752,7 +1752,11 @@ async function renderCalendar(){
       </div>
       <div class="form2">
         <div class="kf"><label>Branch</label><select id="cs_branch"><option value="">—</option>${branchOpts}</select></div>
+        <div class="kf"><label>Room</label><input id="cs_room" placeholder="e.g. Room 2" list="cs_roomList"><datalist id="cs_roomList"></datalist></div>
+      </div>
+      <div class="form2">
         <div class="kf"><label>Capacity</label><input id="cs_cap" type="number" min="1" value="8"></div>
+        <div></div>
       </div>
       <div class="form2">
         <div class="kf"><label>Mode</label><select id="cs_mode" onchange="onSessMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
@@ -1796,8 +1800,11 @@ async function loadCalendar(){
   const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
   const { data:ev, error } = await db.from("events").select("id,title,event_type,event_date,end_date,description,poster_url").lte("event_date",end).or(`end_date.gte.${start},and(end_date.is.null,event_date.gte.${start})`).order("event_date");
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
-  state._events=ev||[]; state._calSess=sess||[]; drawCalendar();
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link,room").gte("session_date",start).lte("session_date",end).order("session_date");
+  state._events=ev||[]; state._calSess=sess||[];
+  const { data:bd } = await db.from("students").select("full_name,date_of_birth").eq("status","active").not("date_of_birth","is",null);
+  state._calBdays=(bd||[]).filter(s=>Number(String(s.date_of_birth).slice(5,7))===mo).map(s=>({ name:s.full_name, day:Number(String(s.date_of_birth).slice(8,10)) }));
+  drawCalendar();
 }
 function drawCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
@@ -1812,6 +1819,7 @@ function drawCalendar(){
     for(; d<=last; d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); }
   });
   const sessByDay={}; (state._calSess||[]).forEach(c=>{ const d=Number(String(c.session_date).slice(8,10)); (sessByDay[d]=sessByDay[d]||[]).push(c); });
+  const bdayByDay={}; (state._calBdays||[]).forEach(b=>{ (bdayByDay[b.day]=bdayByDay[b.day]||[]).push(b); });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
@@ -1819,15 +1827,16 @@ function drawCalendar(){
     const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
     const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" onclick="event.stopPropagation();editSession('${c.id}')" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" onclick="event.stopPropagation();editEvent('${e.id}')" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
-    cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
+    const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FBEAF0;color:#993556;border-color:#EDC9D7" title="${esc(b.name)}'s birthday">\u{1F382} ${esc(b.name)}</div>`).join("");
+    cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
   }
   $("calGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>
-    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> · tip: click any day to schedule a class on it</div>`;
+    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FBEAF0;color:#993556">\u{1F382} birthdays</span> · tip: click any day to schedule a class on it</div>`;
   const sess=state._calSess||[];
   const sessList=sess.length?`<div class="panel" style="margin-top:14px"><h3>Classes in ${MONS[mo-1]} ${y}</h3>
     <table><tr><th>Date</th><th>Class</th><th>Guru</th><th>Time</th><th></th></tr>${sess.map(c=>`<tr>
       <td>${esc(c.session_date)}</td>
-      <td><b>${esc(c.title)}</b>${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td>
+      <td><b>${esc(c.title)}</b>${c.room?` <span class="mini">· ${esc(c.room)}</span>`:""}${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td>
       <td>${esc(teacherName(c.teacher_id))}</td>
       <td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td>
       <td class="mini"><span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
@@ -1841,6 +1850,8 @@ function drawCalendar(){
       <td class="mini"><span class="rowbtn edit" onclick="editEvent('${e.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delEvent('${e.id}')">Delete</span></td>
     </tr>`).join("")}</table></div>`:"";
   $("calList").innerHTML=sessList+evList;
+  const _rooms=[...new Set((state._calSess||[]).map(c=>c.room).filter(Boolean))];
+  if($("cs_roomList")) $("cs_roomList").innerHTML=_rooms.map(r=>`<option value="${esc(r)}">`).join("");
 }
 function onSessMode(){ const m=$("cs_mode")?$("cs_mode").value:"in_person"; if($("cs_zoomWrap")) $("cs_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
 function pickSessionDate(ds){ if($("cs_date")) $("cs_date").value=ds; const m=$("csMsg"); if(m){ m.className="formmsg ok"; m.textContent="Date set to "+ds+" — fill the class details and Add."; } window.scrollTo({top:0,behavior:"smooth"}); if($("cs_title")) $("cs_title").focus(); }
@@ -1849,9 +1860,16 @@ async function saveSession(){
   if(!title) return failMsg(m,"Enter a class name.");
   if(!date) return failMsg(m,"Pick a date.");
   const mode=$("cs_mode").value||"in_person";
+  const room=($("cs_room")&&$("cs_room").value.trim())||null;
   const rec={ title, teacher_id:$("cs_teacher").value||null, branch_id:$("cs_branch").value||null, session_date:date,
-    start_time:$("cs_time").value||null, mode, capacity:Number($("cs_cap").value)||8,
+    start_time:$("cs_time").value||null, mode, capacity:Number($("cs_cap").value)||8, room,
     zoom_link:((mode==="online"||mode==="hybrid")&&$("cs_zoom").value.trim())||null };
+  if(room && rec.start_time){
+    let cq=db.from("class_sessions").select("id,title").eq("session_date",date).eq("start_time",rec.start_time).ilike("room",room);
+    if(state._sessEdit) cq=cq.neq("id",state._sessEdit);
+    const { data:clash } = await cq;
+    if(clash&&clash.length) return failMsg(m,`Room clash — ${room} is already booked at that time (${clash[0].title}). Pick another room or time.`);
+  }
   m.className="formmsg ok"; m.textContent="Saving…"; $("addCs").disabled=true;
   let error;
   if(state._sessEdit){ ({ error } = await db.from("class_sessions").update(rec).eq("id",state._sessEdit)); }
@@ -1866,14 +1884,14 @@ function editSession(id){
   state._sessEdit=id;
   $("cs_title").value=c.title||""; $("cs_teacher").value=c.teacher_id||""; $("cs_branch").value=c.branch_id||"";
   $("cs_date").value=c.session_date||""; $("cs_time").value=c.start_time?c.start_time.slice(0,5):"";
-  $("cs_mode").value=c.mode||"in_person"; $("cs_cap").value=c.capacity||8; if($("cs_zoom")) $("cs_zoom").value=c.zoom_link||"";
+  $("cs_mode").value=c.mode||"in_person"; $("cs_cap").value=c.capacity||8; if($("cs_zoom")) $("cs_zoom").value=c.zoom_link||""; if($("cs_room")) $("cs_room").value=c.room||"";
   onSessMode();
   $("csFormTitle").textContent="Edit class"; $("addCs").textContent="Save changes"; $("csCancelBtn").style.display="inline-block";
   window.scrollTo({top:0,behavior:"smooth"});
 }
 function cancelSessEdit(){
   state._sessEdit=null;
-  ["cs_title","cs_time","cs_zoom"].forEach(x=>{ if($(x)) $(x).value=""; });
+  ["cs_title","cs_time","cs_zoom","cs_room"].forEach(x=>{ if($(x)) $(x).value=""; });
   ["cs_teacher","cs_branch"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("cs_mode")) $("cs_mode").value="in_person"; if($("cs_cap")) $("cs_cap").value=8; onSessMode();
   if($("cs_date")) $("cs_date").value=new Date().toISOString().slice(0,10);
@@ -2095,9 +2113,11 @@ function drawManageClass(){
 }
 async function addEnrollment(){
   const m=$("mcMsg"); const sid=$("mc_student").value; if(!sid){ m.className="formmsg err"; m.textContent="Pick a student first."; return; }
+  const _cap=Number(state._mc&&state._mc.b&&state._mc.b.capacity)||0, _cur=((state._mc&&state._mc.enr)||[]).length;
+  if(_cap>0 && _cur>=_cap){ m.className="formmsg err"; m.textContent=`This class is full (${_cur}/${_cap}). Increase its capacity in the class settings, or pick another class.`; return; }
   m.className="formmsg ok"; m.textContent="Enrolling…";
   const { error } = await db.from("enrollments").insert({ student_id:sid, batch_id:state._mc.id, status:"confirmed", confirmed_at:new Date().toISOString() });
-  if(error){ m.className="formmsg err"; m.textContent="Couldn't enrol — "+error.message; return; }
+  if(error){ m.className="formmsg err"; m.textContent=/CLASS_FULL/.test(error.message||"")?"This class is full — increase its capacity in the class settings, or pick another class.":"Couldn't enrol — "+error.message; return; }
   manageClass(state._mc.id);
 }
 async function removeEnrollment(eid){
@@ -2209,7 +2229,7 @@ async function doMove(eid, fromId){
   const newBid=$("mvSel_"+fromId)?$("mvSel_"+fromId).value:"";
   if(!newBid) return;
   const { error } = await db.from("enrollments").update({ batch_id:newBid }).eq("id",eid);
-  if(error){ alert("Couldn't move — "+error.message); return; }
+  if(error){ alert(/CLASS_FULL/.test(error.message||"")?"That class is full — increase its capacity first, or choose another class.":"Couldn't move — "+error.message); return; }
   $("roster_"+fromId).dataset.open="0"; manageMyClass(fromId); renderMyClasses();
 }
 async function enrolMyClass(id){
@@ -2218,7 +2238,7 @@ async function enrolMyClass(id){
   const tid=await myTeacherId();
   if(m){ m.className="formmsg ok"; m.textContent="Enrolling…"; }
   const { error } = await db.from("enrollments").insert({ student_id:sid, batch_id:id, status:"confirmed", confirmed_by:tid, confirmed_at:new Date().toISOString() });
-  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't enrol — "+error.message; } return; }
+  if(error){ if(m){ m.className="formmsg err"; m.textContent=/CLASS_FULL/.test(error.message||"")?"This class is full — ask the admin to increase its capacity, or pick another class.":"Couldn't enrol — "+error.message; } return; }
   $("roster_"+id).dataset.open="0"; manageMyClass(id);
   renderMyClasses();
 }
