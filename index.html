@@ -760,7 +760,7 @@ async function renderAttendanceByStudent(){
   M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Each student's attendance record</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn teal" style="margin-left:6px" disabled>📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar"><input id="absSearch" placeholder="🔍 Search student…" style="flex:1">
-      <select id="absBranch" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
+      <select id="absBranch" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select><button class="kbtn ghost" id="absCsv" onclick="exportAttByStudentCSV()" style="flex:none">⬇ Export CSV</button></div>
     <div id="absList"><div class="empty">Loading…</div></div>
     <div id="absDays"></div>`;
   const [{ data:studs, error:se }, marks] = await Promise.all([
@@ -779,6 +779,7 @@ function drawAttByStudent(){
   const q=(($("absSearch")&&$("absSearch").value)||"").toLowerCase().trim();
   const bf=($("absBranch")&&$("absBranch").value)||"";
   let list=studs.filter(s=>{ if(bf&&s.branch_id!==bf) return false; if(q&&!(s.full_name||"").toLowerCase().includes(q)) return false; return true; });
+  state._absView=list;
   if(!list.length){ $("absList").innerHTML=`<div class="empty">No students match.</div>`; return; }
   $("absList").innerHTML=`<table><tr><th>Student</th><th>Course · Branch</th><th>Present</th><th>Absent</th><th>Excused</th><th>Total</th><th>%</th><th></th></tr>
     ${list.map(s=>{ const a=agg[s.id]||{p:0,a:0,e:0,t:0}; const pct=a.t?Math.round(a.p/a.t*100):null;
@@ -791,6 +792,18 @@ function drawAttByStudent(){
         <td class="mini"><span class="rowbtn" onclick="attStudentDays('${s.id}','${esc((s.full_name||'').replace(/'/g,''))}')">View days</span></td>
       </tr>`; }).join("")}</table>
     <p class="footnote">% is days present out of days marked. Click <b>View days</b> for a date-by-date record.</p>`;
+}
+function exportAttReportCSV(){
+  const recs=state._attRepView||[]; if(!recs.length){ alert("No records to export — adjust the filters."); return; }
+  const rows=[["Date","Student","Course","Branch","Guru","Status"]];
+  recs.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.sName.localeCompare(b.sName)).forEach(r=>rows.push([r.date,r.sName,r.course,r.branchName,r.guruName,r.status]));
+  const rp=state._attRep||{}; downloadCSV(`kala-kuteer-attendance-${rp.from||""}_to_${rp.to||""}.csv`, rows);
+}
+function exportAttByStudentCSV(){
+  const list=state._absView||[]; const agg=(state._abs&&state._abs.agg)||{}; if(!list.length){ alert("No students to export."); return; }
+  const rows=[["Student","Course","Branch","Status","Present","Absent","Excused","Total","Percent"]];
+  list.forEach(s=>{ const a=agg[s.id]||{p:0,a:0,e:0,t:0}; const pct=a.t?Math.round(a.p/a.t*100):""; rows.push([s.full_name, s.courses&&s.courses.name, s.branches&&s.branches.name, s.status||"", a.p, a.a, a.e, a.t, pct===""?"":pct+"%"]); });
+  downloadCSV("kala-kuteer-attendance-by-student-"+todayIST()+".csv", rows);
 }
 async function attStudentDays(id,name){
   const P=$("absDays"); P.innerHTML=`<div class="panel" style="margin-top:14px"><div class="empty">Loading ${esc(name)}'s record…</div></div>`;
@@ -818,6 +831,7 @@ async function renderAttendanceReport(){
       <input id="arStu" placeholder="🔍 Student…" style="flex:1;min-width:130px">
       <span class="mini">Group by</span><select id="arGroup" style="max-width:150px;flex:none"><option value="">No grouping</option><option value="date">Date</option><option value="student">Student</option><option value="guru">Guru</option><option value="branch">Branch</option></select>
       <button class="kbtn ghost" id="arPrint">🖨 Print / Save PDF</button>
+      <button class="kbtn ghost" id="arCsv" onclick="exportAttReportCSV()">⬇ Export CSV</button>
     </div>
     <div class="formmsg" id="arMsg"></div>
     <div id="arOut"><div class="empty">Loading…</div></div>`;
@@ -923,7 +937,7 @@ async function loadFees(){
   const invIds=(inv||[]).map(i=>i.id); let payMap={};
   if(invIds.length){ const { data:pays } = await db.from("payments").select("invoice_id,method").in("invoice_id",invIds); (pays||[]).forEach(p=>payMap[p.invoice_id]=p.method); }
   const [py,pm]=P.v.split("-").map(Number); const pnext=`${pm===12?py+1:py}-${PAD(pm===12?1:pm+1)}-01`;
-  const periodPays = await fetchAll(()=> db.from("payments").select("amount,method,paid_at").gte("paid_at",P.start).lt("paid_at",pnext));
+  const periodPays = await fetchAll(()=> db.from("payments").select("amount,method,paid_at,invoices(registration)").gte("paid_at",P.start).lt("paid_at",pnext));
   state._fee={ studs, invMap, payMap, periodPays:periodPays||[], P };
   drawFees();
 }
@@ -962,13 +976,18 @@ function drawFees(){
   $("feeKpis").innerHTML=`<div class="kpi"><div class="l">Billed (${esc(P.label)})</div><div class="v">${INR(billed)}</div></div>
     <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div></div>
     <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>`;
-  const byMethod={}; (state._fee.periodPays||[]).forEach(pp=>{ let k=(pp.method||"other").toLowerCase(); if(k==="online") k="razorpay"; byMethod[k]=(byMethod[k]||0)+Number(pp.amount||0); });
+  const byMethod={}; let regC=0, tuiC=0;
+  (state._fee.periodPays||[]).forEach(pp=>{ const amt=Number(pp.amount||0); let k=(pp.method||"other").toLowerCase(); if(k==="online") k="razorpay"; byMethod[k]=(byMethod[k]||0)+amt; const reg=Math.min(Number((pp.invoices&&pp.invoices.registration)||0),amt); regC+=reg; tuiC+=(amt-reg); });
   const totalRecv=(state._fee.periodPays||[]).reduce((a,pp)=>a+Number(pp.amount||0),0);
   const mLabel={cash:"Cash",upi:"UPI / QR",razorpay:"Razorpay (online)",card:"Card",netbanking:"Net banking",other:"Other"};
   const mShow=["cash","upi","razorpay","card","netbanking","other"].filter(k=>["cash","upi","razorpay"].includes(k)||byMethod[k]>0);
-  if($("feeMethods")) $("feeMethods").innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">💳 Collected by method · ${esc(P.label)}</h3><span class="mini" style="color:var(--muted)">Total received: <b style="color:var(--maroon)">${INR(totalRecv)}</b></span></div>
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:10px">${mShow.map(k=>`<div><div class="mini" style="color:var(--muted)">${esc(mLabel[k])}</div><div style="font-size:18px;font-weight:700;color:var(--maroon)">${INR(byMethod[k]||0)}</div></div>`).join("")}</div>
-    <p class="footnote" style="margin:8px 0 0">Sum of all payments received this month — tally this against your cash box, UPI and online settlements.</p></div>`;
+  const _cell=(label,val)=>`<div><div class="mini" style="color:var(--muted)">${esc(label)}</div><div style="font-size:18px;font-weight:700;color:var(--maroon)">${INR(val)}</div></div>`;
+  if($("feeMethods")) $("feeMethods").innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">💳 Collected · ${esc(P.label)}</h3><span class="mini" style="color:var(--muted)">Total received: <b style="color:var(--maroon)">${INR(totalRecv)}</b></span></div>
+    <div class="mini" style="color:var(--muted);margin-top:10px;font-weight:600">By payment method</div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px">${mShow.map(k=>_cell(mLabel[k],byMethod[k]||0)).join("")}</div>
+    <div class="mini" style="color:var(--muted);margin-top:12px;font-weight:600">By type</div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px">${_cell("Tuition",tuiC)}${_cell("Registration",regC)}</div>
+    <p class="footnote" style="margin:8px 0 0">Both rows total the same — “method” is how it came in (tally against cash / UPI / online); “type” splits tuition vs the ₹1,000 registration.</p></div>`;
   $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Action</th></tr>${rows}</table>
     <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"><b>Generate invoices</b> raises this month's monthly fee for everyone not already covered. For a Gachibowli family paying ahead, pick <b>3</b> or <b>6 months</b> on their row and tap <b>Raise</b>. “Covered · paid ahead” means a multi-month invoice already covers this month.</p>`:`<div class="empty">No active students.</div>`;
 }
