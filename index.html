@@ -659,16 +659,24 @@ function gotoNav(key){
 async function renderAttendance(){
   const M=$("mainArea"); await loadRef();
   const today=todayIST();
-  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Pick a day and a class, then mark who attended. Gurus also mark their own classes from the teacher app.")}</h2><p>Mark who attended each class</p></div></div>
+  const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Pick a day and a class, then mark who attended. Use the Center &amp; Course filters to narrow the student list. Gurus also mark their own classes from the teacher app.")}</h2><p>Mark who attended each class</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a class</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar">
       <span class="mini">Date</span><input id="attDate" type="date" max="${today}" value="${today}" style="max-width:150px;flex:none">
       <span class="mini">Class</span><select id="attSession" style="flex:1;min-width:160px"><option value="">—</option></select>
       <button class="kbtn teal" id="attSave">Save attendance</button>
     </div>
+    <div class="searchbar" style="margin-top:-8px">
+      <span class="mini">Filter list:</span>
+      <span class="mini">Center</span><select id="attBranchF" style="max-width:150px;flex:none"><option value="">All centers</option>${branchOpts}</select>
+      <span class="mini">Course</span><select id="attCourseF" style="max-width:150px;flex:none"><option value="">All courses</option>${courseOpts}</select>
+    </div>
     <div class="formmsg" id="attMsg"></div>
     <div id="attList"><div class="empty">Pick a date and class above.</div></div>`;
   $("attDate").onchange=loadAttSessions; $("attSession").onchange=loadAttendance; $("attSave").onclick=saveAttendance;
+  if($("attBranchF")) $("attBranchF").onchange=applyAttFilters; if($("attCourseF")) $("attCourseF").onchange=applyAttFilters;
   loadAttSessions();
 }
 async function loadAttSessions(){
@@ -689,11 +697,10 @@ async function loadAttendance(){
   const sessId=$("attSession")?$("attSession").value:""; if(!sessId){ $("attList").innerHTML=`<div class="empty">Pick a class.</div>`; return; }
   const sess=(state._attSessions||[]).find(x=>x.id===sessId); state._attSession=sessId; state._attSessRow=sess||{};
   const date=state._attDate; if($("attMsg")) $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
-  let q=db.from("students").select("id,full_name,branches(name),courses(name)").eq("status","active").lte("join_date",date).order("full_name");
-  if(sess&&sess.branch_id) q=q.eq("branch_id",sess.branch_id);
-  const { data:studs, error } = await q;
+  const { data:studs, error } = await db.from("students").select("id,full_name,branch_id,course_id,branches(name),courses(name)").eq("status","active").lte("join_date",date).order("full_name");
   if(error){ $("attList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const ids=(studs||[]).map(s=>s.id); let map={}, mc={};
+  state._attStudsAll=studs||[];
+  const ids=state._attStudsAll.map(s=>s.id); let map={}, mc={};
   if(ids.length){
     const { data:marks } = await db.from("attendance").select("student_id,status").eq("session_id",sessId).in("student_id",ids);
     (marks||[]).forEach(m=>map[m.student_id]=m.status);
@@ -701,11 +708,21 @@ async function loadAttendance(){
     const { data:moMarks } = await db.from("attendance").select("student_id").eq("status","present").gte("class_date",ym+"-01").lte("class_date",ym+"-31").in("student_id",ids);
     (moMarks||[]).forEach(m=>{ mc[m.student_id]=(mc[m.student_id]||0)+1; });
   }
-  state._att=map; state._attStuds=studs||[]; state._attMonth=mc;
-  drawAttendance(state._attStuds, map);
+  state._att=map; state._attMonth=mc;
+  if($("attBranchF")) $("attBranchF").value=(sess&&sess.branch_id)||"";
+  applyAttFilters();
+}
+function applyAttFilters(){
+  const bf=($("attBranchF")&&$("attBranchF").value)||"";
+  const cf=($("attCourseF")&&$("attCourseF").value)||"";
+  let list=(state._attStudsAll||[]);
+  if(bf) list=list.filter(s=>s.branch_id===bf);
+  if(cf) list=list.filter(s=>s.course_id===cf);
+  state._attStuds=list;
+  drawAttendance(list, state._att||{});
 }
 function drawAttendance(studs, map){
-  if(!studs.length){ $("attList").innerHTML=`<div class="empty">No active students for this class.</div>`; return; }
+  if(!studs.length){ $("attList").innerHTML=`<div class="empty">No students match the current Center / Course filter — widen the filters above.</div>`; return; }
   const mc=state._attMonth||{}; const tgt=8;
   const n=studs.length, p=Object.values(map).filter(v=>v==="present").length;
   const btn=(id,v,label,cls)=>`<span class="rowbtn" onclick="markAtt('${id}','${v}')" style="margin-right:4px${map[id]===v?(';'+cls):''}">${label}</span>`;
@@ -727,7 +744,7 @@ async function saveAttendance(){
   const marked=Object.keys(state._att||{}).filter(sid=>state._att[sid]);
   const rows=marked.map(sid=>({ student_id:sid, session_id:sessId, class_date:date, status:state._att[sid] }));
   m.className="formmsg ok"; m.textContent="Saving…";
-  const ids=(state._attStuds||[]).map(s=>s.id);
+  const ids=(state._attStudsAll||state._attStuds||[]).map(s=>s.id);
   await db.from("attendance").delete().eq("session_id",sessId).in("student_id",ids);
   if(rows.length){
     const { error } = await db.from("attendance").insert(rows);
