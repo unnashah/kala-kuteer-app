@@ -908,6 +908,7 @@ async function renderFees(){
     <div class="searchbar"><span class="mini">Month</span><input id="feeMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:180px;flex:none"><button class="kbtn ghost" id="feeLoad">Load</button></div>
     <div class="formmsg" id="feeMsg"></div>
     <div class="kpis" id="feeKpis" style="margin-bottom:12px"></div>
+    <div id="feeMethods" style="margin-bottom:12px"></div>
     <div id="feeList"><div class="empty">Loading…</div></div>`;
   $("feeMonth").onchange=loadFees; $("feeLoad").onclick=loadFees; $("genInv").onclick=generateInvoices;
   loadFees();
@@ -921,7 +922,9 @@ async function loadFees(){
   const invMap={}; (inv||[]).forEach(i=>invMap[i.student_id]=i);
   const invIds=(inv||[]).map(i=>i.id); let payMap={};
   if(invIds.length){ const { data:pays } = await db.from("payments").select("invoice_id,method").in("invoice_id",invIds); (pays||[]).forEach(p=>payMap[p.invoice_id]=p.method); }
-  state._fee={ studs, invMap, payMap, P };
+  const [py,pm]=P.v.split("-").map(Number); const pnext=`${pm===12?py+1:py}-${PAD(pm===12?1:pm+1)}-01`;
+  const periodPays = await fetchAll(()=> db.from("payments").select("amount,method,paid_at").gte("paid_at",P.start).lt("paid_at",pnext));
+  state._fee={ studs, invMap, payMap, periodPays:periodPays||[], P };
   drawFees();
 }
 function drawFees(){
@@ -959,6 +962,13 @@ function drawFees(){
   $("feeKpis").innerHTML=`<div class="kpi"><div class="l">Billed (${esc(P.label)})</div><div class="v">${INR(billed)}</div></div>
     <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div></div>
     <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>`;
+  const byMethod={}; (state._fee.periodPays||[]).forEach(pp=>{ let k=(pp.method||"other").toLowerCase(); if(k==="online") k="razorpay"; byMethod[k]=(byMethod[k]||0)+Number(pp.amount||0); });
+  const totalRecv=(state._fee.periodPays||[]).reduce((a,pp)=>a+Number(pp.amount||0),0);
+  const mLabel={cash:"Cash",upi:"UPI / QR",razorpay:"Razorpay (online)",card:"Card",netbanking:"Net banking",other:"Other"};
+  const mShow=["cash","upi","razorpay","card","netbanking","other"].filter(k=>["cash","upi","razorpay"].includes(k)||byMethod[k]>0);
+  if($("feeMethods")) $("feeMethods").innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">💳 Collected by method · ${esc(P.label)}</h3><span class="mini" style="color:var(--muted)">Total received: <b style="color:var(--maroon)">${INR(totalRecv)}</b></span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:10px">${mShow.map(k=>`<div><div class="mini" style="color:var(--muted)">${esc(mLabel[k])}</div><div style="font-size:18px;font-weight:700;color:var(--maroon)">${INR(byMethod[k]||0)}</div></div>`).join("")}</div>
+    <p class="footnote" style="margin:8px 0 0">Sum of all payments received this month — tally this against your cash box, UPI and online settlements.</p></div>`;
   $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Action</th></tr>${rows}</table>
     <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"><b>Generate invoices</b> raises this month's monthly fee for everyone not already covered. For a Gachibowli family paying ahead, pick <b>3</b> or <b>6 months</b> on their row and tap <b>Raise</b>. “Covered · paid ahead” means a multi-month invoice already covers this month.</p>`:`<div class="empty">No active students.</div>`;
 }
