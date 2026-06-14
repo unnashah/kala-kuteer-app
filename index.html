@@ -3444,6 +3444,7 @@ async function renderStudentDetail(id){
         <div class="dl hl"><span class="k"><b>Emergency contact</b></span><span><b>${esc(s.emergency_contact||"—")}</b></span></div>
       </div>
       <div class="panel"><h3>School record</h3>
+        <div class="dl"><span class="k">Branch</span><span><b>${esc(s.branches?.name||"—")}</b></span></div>
         <div class="dl"><span class="k">Course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")}</span></div>
         <div class="dl"><span class="k">Primary guru</span><span>${esc(teacherName(s.primary_teacher_id))}</span></div>
         ${s.upi_id?`<div class="dl"><span class="k">Payment UPI (override)</span><span>${esc(s.upi_id)}</span></div>`:""}
