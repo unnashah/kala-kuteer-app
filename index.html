@@ -222,6 +222,10 @@ async function loadApp(session){
     const { data:st } = await db.from("students").select("id,full_name,date_of_birth,is_minor,phone,parent_phone,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,goal,owns_instrument,health_notes,heard_via,intake_completed,branch_id,course_id,primary_teacher_id,branches(name),courses(name)").eq("profile_id", session.user.id).maybeSingle();
     if(st && st.intake_completed!==true){ state._intakeSt=st; show("app"); renderStudentIntake(st); return; }
   }
+  if(role==="teacher"){
+    const { data:tc } = await db.from("teachers").select("id,coc_agreed").eq("profile_id", session.user.id).maybeSingle();
+    if(tc && tc.coc_agreed!==true){ show("app"); renderGuruCoC(name); return; }
+  }
   renderShell(role, name, warn);
   show("app");
 }
@@ -349,6 +353,54 @@ async function flagIntakeIssue(){
   const note=((($("si_flagnote")||{}).value)||"").trim(); const fm=$("si_flagmsg");
   const { error } = await db.rpc("flag_my_intake",{ p_note:note });
   if(fm){ if(error){ fm.style.color="var(--warn)"; fm.textContent="Couldn't send — "+error.message; } else { fm.style.color="var(--good)"; fm.textContent="✓ Sent — the office will fix it. You can still finish below."; } }
+}
+function guruCoCNoticeHTML(){
+  return `<div class="notice"><b>KALA KUTEER — GURU CODE OF CONDUCT</b><br>
+    As a guru at Kala Kuteer, I have read, understood and agree to the following:<br><br>
+    <b>A. No private tutoring / no poaching.</b> I will not privately coach, tutor or take online or offline classes for any current Kala Kuteer student (or their siblings/referrals), will not solicit or divert students to private classes, and will not share my personal contact for that purpose — during my engagement and for <b>6 months</b> after I leave.<br>
+    <b>B. Honest attendance.</b> I will mark attendance truthfully and on time, and will never record a class that did not happen or a student who was not present.<br>
+    <b>C. Professional conduct &amp; classroom decorum.</b> I will be punctual, appropriately dressed and respectful, maintain discipline and a positive learning environment, and keep my phone on silent and unused in class except for teaching.<br>
+    <b>D. Professionalism &amp; boundaries.</b> I will keep healthy professional boundaries with students and parents, will not enter personal or romantic relationships or lend/borrow money with them, and will communicate only through official school channels.<br>
+    <b>E. Complaints will be investigated.</b> I understand that any complaint from a parent, student or colleague will be investigated, that I will cooperate fully, that the school may pause my classes during an investigation, and that a substantiated breach may lead to a warning, withheld payout or termination.<br>
+    <b>F. Child safety.</b> I will never use physical, verbal or emotional punishment or any inappropriate contact, will avoid being alone with a minor in an unobservable setting where avoidable, will keep communication with minors on school channels, and will report any safety concern immediately.<br>
+    <b>G. No direct fee collection.</b> I will never collect fees, cash or any charge directly from students or parents — all payments go through the school — and will not make side deals or solicit tips.<br>
+    <b>H. Confidentiality &amp; data.</b> I will keep all student details, contact information, fee data and school information strictly confidential, will not copy, retain or share student lists, and will never share my app login.<br>
+    <b>I. Curriculum &amp; quality.</b> I will follow the agreed syllabus, prepare for classes, keep progress records, and take part in Guru Samvaad reviews.<br>
+    <b>J. School property.</b> I will care for the premises, instruments and equipment, and return all school property, keys and materials when I leave.<br>
+    <b>K. Conduct on premises.</b> I will not be intoxicated, smoke or use any substance on the premises or in class, and I accept a zero-tolerance stance on harassment or discrimination of any kind.<br>
+    <b>L. Social media &amp; brand.</b> I will not post photos or videos of students without their consent, will represent the school respectfully online, and will not use the Kala Kuteer name for personal ventures.<br>
+    <b>M. Notice &amp; handover.</b> I will give at least <b>30 days'</b> written notice before discontinuing and complete an orderly handover of my students and records.<br>
+    <b>N. Acknowledgement.</b> I confirm I have read, understood and agree to the above, and that confidentiality and non-solicitation continue to apply after I leave.</div>`;
+}
+function renderGuruCoC(name){
+  state._setRole="teacher";
+  $("whoName").textContent="Hi, "+((name||"").split(" ")[0]||"");
+  $("whoRole").textContent="Guru";
+  $("sideNav").innerHTML="";
+  $("mainArea").innerHTML=`<div style="max-width:640px;margin:2px auto">
+    <h2 style="font-size:21px;margin:0 0 4px">Welcome to Kala Kuteer, ${esc((name||"").split(" ")[0]||"")} 👋</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px">Before you begin, please read and agree to our guru code of conduct. This is a one-time step.</p>
+    <div class="panel">${guruCoCNoticeHTML()}
+      <div class="check" style="margin-top:12px"><input type="checkbox" id="coc_chk"><label for="coc_chk" style="margin:0"><b>I have read and agree to the Guru Code of Conduct *</b></label></div>
+      <div class="kf"><label>Your full name (as signature) *</label><input id="coc_name" value="${esc(name||"")}"></div>
+      <div class="mini" style="color:var(--muted);margin:-4px 0 10px">Date: ${esc(new Date().toLocaleDateString())}</div>
+      <div class="formmsg" id="coc_msg"></div>
+      <button class="kbtn teal" id="coc_btn" onclick="agreeGuruCoC()">Agree &amp; continue</button>
+      <span class="rowbtn" style="margin-left:10px" onclick="db.auth.signOut().then(()=>location.reload())">Sign out</span>
+    </div></div>`;
+}
+async function agreeGuruCoC(){
+  const m=$("coc_msg");
+  if(!$("coc_chk").checked){ m.className="formmsg err"; m.textContent="Please tick the box to agree."; $("coc_chk").focus(); return; }
+  const signer=($("coc_name").value||"").trim();
+  if(!signer){ m.className="formmsg err"; m.textContent="Please type your full name."; $("coc_name").focus(); return; }
+  m.className="formmsg ok"; m.textContent="Saving…"; $("coc_btn").disabled=true;
+  const { error } = await db.rpc("kk_guru_agree_coc",{ p_signed_by:signer });
+  $("coc_btn").disabled=false;
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  state._myTeacherId=null;
+  renderShell("teacher", state.name||signer, "");
+  show("app");
 }
 function renderShell(role, name, warn){
   $("whoName").textContent = "Hi, " + (name||"").split(" ")[0];
@@ -3294,7 +3346,7 @@ async function renderTeachers(){
   loadTeachers();
 }
 async function loadTeachers(){
-  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,profiles(full_name,email)").order("created_at",{ascending:false});
+  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,coc_agreed,coc_signed_at,coc_signed_by,profiles(full_name,email)").order("created_at",{ascending:false});
   if(error){ $("tList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   state._teachers=data||[]; drawTeachers();
   const have=new Set((data||[]).map(t=>t.profile_id));
@@ -3315,7 +3367,13 @@ async function addStaffAsGuru(){
 function drawTeachers(){
   const data=state._teachers||[];
   if(!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
-  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
+  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
+}
+async function reAskCoC(id){
+  if(!confirm("Ask this guru to read and agree to the code of conduct again on their next login?")) return;
+  const { error } = await db.from("teachers").update({ coc_agreed:false }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  loadTeachers();
 }
 function editTeacher(id){
   const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
