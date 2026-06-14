@@ -174,8 +174,8 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Teacher", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Weekly template","classes"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
-  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["📚","Weekly template","classes"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Teachers","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
+  admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
@@ -658,7 +658,7 @@ async function loadAttSessions(){
   state._attSessions=sess||[];
   if(!sess||!sess.length){
     sel.innerHTML=`<option value="">— no classes scheduled —</option>`;
-    $("attList").innerHTML=`<div class="empty">No classes scheduled on ${esc(date)}. Schedule them on the Calendar (or use the Weekly template) first.</div>`;
+    $("attList").innerHTML=`<div class="empty">No classes scheduled on ${esc(date)}. Add them on the Calendar first — the “🔁 Weekly classes & auto-fill” section there can stamp a whole month at once.</div>`;
     return;
   }
   sel.innerHTML=sess.map(x=>`<option value="${x.id}">${esc(x.title)}${x.start_time?" · "+fmtTime(x.start_time.slice(0,5)):""}${x.room?" · "+esc(x.room):""}</option>`).join("");
@@ -1749,8 +1749,8 @@ async function renderCalendar(){
   state._calMonth = state._calMonth || new Date().toISOString().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Schedule classes for the week &amp; post school events — everyone can see this</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Schedule a class</h3>
+  M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Add a one-off class</h3>
       <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place a class on it. Schedules can differ week to week.</p>
       <div class="form2">
         <div class="kf"><label>Class name *</label><input id="cs_title" placeholder="e.g. Kathak — Beginners"></div>
@@ -1793,6 +1793,9 @@ async function renderCalendar(){
       <button class="kbtn ghost" id="evCancelBtn" style="display:none;margin-left:6px" onclick="cancelEvEdit()">Cancel</button>
       </div>
     </details>
+    <details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:13px">🔁 Weekly classes &amp; auto-fill a month (set up once)</summary>
+      <div style="margin-top:12px">${weeklyClassesHTML()}</div>
+    </details>
     <div class="searchbar" style="justify-content:space-between">
       <div><button class="kbtn ghost" onclick="calShift(-1)">‹ Prev</button>
         <b id="calLabel" style="margin:0 12px"></b>
@@ -1803,6 +1806,7 @@ async function renderCalendar(){
     <div id="calList"></div>`;
   const t=new Date().toISOString().slice(0,10);
   $("cs_date").value=t; $("ev_date").value=t;
+  wireWeeklyClasses();
   loadCalendar();
 }
 async function loadCalendar(){
@@ -1905,7 +1909,7 @@ function cancelSessEdit(){
   ["cs_teacher","cs_branch"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("cs_mode")) $("cs_mode").value="in_person"; if($("cs_cap")) $("cs_cap").value=8; onSessMode();
   if($("cs_date")) $("cs_date").value=new Date().toISOString().slice(0,10);
-  if($("csFormTitle")) $("csFormTitle").textContent="Schedule a class";
+  if($("csFormTitle")) $("csFormTitle").textContent="Add a one-off class";
   if($("addCs")) $("addCs").textContent="Add class to calendar";
   if($("csCancelBtn")) $("csCancelBtn").style.display="none";
 }
@@ -1971,19 +1975,18 @@ async function loadClassRefs(){
   state._classTeachers=(t||[]).map(x=>({ id:x.id, name:x.profiles?.full_name||"(unnamed)" }));
 }
 function teacherName(id){ const t=(state._classTeachers||[]).find(x=>x.id===id); return t?t.name:"—"; }
-async function renderClasses(){
-  const M=$("mainArea"); await loadRef(); await loadClassRefs(); state._clsEdit=null;
+async function renderClasses(){ return renderCalendar(); }
+function weeklyClassesHTML(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Weekly class template</h2><p>Set up your usual weekly classes once, then fill any month onto the Calendar</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3>📅 Fill a month from this template</h3>
-      <p class="footnote" style="margin:0 0 10px">Places every weekly class below onto the month you pick, as calendar classes. Already-scheduled days are skipped (safe to run again). Afterwards you can move or cancel individual days on the Calendar.</p>
+  return `<div class="panel" style="margin-bottom:14px"><h3>📅 Fill a month from your weekly classes</h3>
+      <p class="footnote" style="margin:0 0 10px">Stamps every weekly class below onto the month you pick, as calendar classes. Already-scheduled days are skipped (safe to run again). Afterwards you can move or cancel individual days on the calendar.</p>
       <div class="searchbar"><input id="tplMonth" type="month" style="max-width:200px;flex:none">
         <button class="kbtn teal" id="tplFillBtn" onclick="fillMonthFromTemplate()">Fill month →</button></div>
       <div class="formmsg" id="tplMsg"></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3 id="clsFormTitle">Add a class</h3>
+    <div class="panel" style="margin-bottom:14px"><h3 id="clsFormTitle">Add a weekly class</h3>
       <div class="form2">
         <div class="kf"><label>Class name *</label><input id="cl_name" placeholder="e.g. Tabla — Beginners"></div>
         <div class="kf"><label>Course</label><select id="cl_course"><option value="">—</option>${courseOpts}</select></div>
@@ -2003,15 +2006,18 @@ async function renderClasses(){
         <div class="kf"><label>Capacity</label><input id="cl_cap" type="number" min="1" value="8"></div>
       </div>
       <div class="kf" id="cl_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cl_zoom" placeholder="https://…"></div>
-      <p class="footnote">One class = one weekly slot. For a class that meets twice a week (e.g. Mon &amp; Thu), add two classes for now.</p>
+      <p class="footnote">One class = one weekly slot. For a class that meets twice a week (e.g. Mon &amp; Thu), add two classes.</p>
       <div class="formmsg" id="clMsg"></div>
-      <button class="kbtn teal" id="addCls" onclick="saveClass()">Add class</button>
+      <button class="kbtn teal" id="addCls" onclick="saveClass()">Add weekly class</button>
       <button class="kbtn ghost" id="clsCancelBtn" style="display:none;margin-left:6px" onclick="cancelClsEdit()">Cancel</button>
     </div>
     <div class="searchbar"><input id="clsSearch" placeholder="🔍 Search class or teacher…" style="flex:1">
       <select id="clsBranchF" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
     <div id="clsList"><div class="empty">Loading…</div></div>`;
-  $("clsSearch").oninput=drawClasses; $("clsBranchF").onchange=drawClasses;
+}
+function wireWeeklyClasses(){
+  if($("clsSearch")) $("clsSearch").oninput=drawClasses;
+  if($("clsBranchF")) $("clsBranchF").onchange=drawClasses;
   if($("tplMonth")) $("tplMonth").value=new Date().toISOString().slice(0,7);
   loadClasses();
 }
@@ -2148,7 +2154,7 @@ function drawManageClass(){
   const enrolled=enr.length?`<table><tr><th>Student</th><th>Branch</th><th></th></tr>${enr.map(e=>`<tr><td><b>${esc(e.students?.full_name||"—")}</b></td><td class="mini">${esc(e.students?.branches?.name||"—")}</td><td class="mini"><span class="rowbtn danger" onclick="removeEnrollment('${e.id}')">Remove</span></td></tr>`).join("")}</table>`:`<div class="empty">No students enrolled yet.</div>`;
   const addOpts=(state._mcStuds||[]).map(s=>`<option value="${s.id}">${esc(s.full_name)}${s.branches?.name?" · "+esc(s.branches.name):""}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>${esc(b?b.name:"Class")} — students</h2><p>${esc(teacherName(b&&b.teacher_id))} · ${esc(b?classSchedule(b):"")} · ${enr.length} enrolled</p></div>
-      <button class="kbtn ghost" onclick="gotoNav('classes')">← Back to classes</button></div>
+      <button class="kbtn ghost" onclick="gotoNav('calendar')">← Back to Calendar</button></div>
     <div class="panel" style="margin-bottom:14px"><h3>Enrol a student</h3>
       <div class="searchbar"><select id="mc_student" style="flex:1">${addOpts?`<option value="">Select a student…</option>${addOpts}`:`<option value="">No more active students to add</option>`}</select>
         <button class="kbtn teal" onclick="addEnrollment()">Enrol</button></div>
@@ -2371,7 +2377,7 @@ async function loadMySessions(){
   state._maSessions=sess||[];
   if(!sess||!sess.length){
     sel.innerHTML=`<option value="">— no class scheduled —</option>`;
-    $("maList").innerHTML=`<div class="empty">No class scheduled for you on ${esc(date)}. Add it on the Calendar (or use the Weekly template), then come back to mark attendance.</div>`;
+    $("maList").innerHTML=`<div class="empty">No class scheduled for you on ${esc(date)}. Once it is on the Calendar, come back here to mark attendance.</div>`;
     return;
   }
   sel.innerHTML=sess.map(x=>`<option value="${x.id}">${esc(x.title)}${x.start_time?" · "+fmtTime(x.start_time.slice(0,5)):""}${x.room?" · "+esc(x.room):""}</option>`).join("");
