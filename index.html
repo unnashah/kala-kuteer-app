@@ -1241,27 +1241,34 @@ async function loadPayouts(){
   const paidByT={}; (paid||[]).forEach(p=>{ paidByT[p.teacher_id]=(paidByT[p.teacher_id]||0)+Number(p.amount||0); });
   const { data:plans } = await db.from("guru_payout_plan").select("teacher_id,pct,bonus,bonus_reason,deduction,deduction_reason").eq("period",v);
   const planByT={}; (plans||[]).forEach(p=>{ planByT[p.teacher_id]=p; });
+  const { data:reimb } = await db.from("guru_reimbursements").select("id,teacher_id,amount,reason,status,created_at").in("status",["pending","approved"]);
+  const reimbByT={}; const reimbPending=[];
+  (reimb||[]).forEach(r=>{ if(r.status==="approved") reimbByT[r.teacher_id]=(reimbByT[r.teacher_id]||0)+Number(r.amount||0); else reimbPending.push(r); });
+  state._poReimbPending=reimbPending;
   state._poNames=nameMap;
-  state._poData={ teachers:teachers||[], pctMap, nameMap, activeByT, grossByT, paidByT, planByT };
+  state._poData={ teachers:teachers||[], pctMap, nameMap, activeByT, grossByT, paidByT, planByT, reimbByT };
   drawPayouts();
 }
 function drawPayouts(){
   const d=state._poData||{teachers:[]}; const label=state._poLabel||"";
-  $("poBody").innerHTML=`<div id="poCards"></div>
+  const pend=state._poReimbPending||[];
+  const reimbPanel=`<div class="panel" style="margin-bottom:14px"><h3>🧾 Reimbursement requests${pend.length?` <span class="badge b-amber">${pend.length}</span>`:""}</h3>${pend.length?`<table><tr><th>Guru</th><th>For</th><th>Amount</th><th>Requested</th><th></th></tr>${pend.map(r=>`<tr><td>${esc((state._poNames&&state._poNames[r.teacher_id])||"(guru)")}</td><td>${esc(r.reason||"—")}</td><td><b>${INR(r.amount)}</b></td><td class="mini">${String(r.created_at).slice(0,10)}</td><td class="mini"><span class="rowbtn edit" onclick="reviewReimb('${r.id}','approved')">✓ Approve</span><span class="rowbtn danger" onclick="reviewReimb('${r.id}','rejected')">✕ Reject</span></td></tr>`).join("")}</table><p class="footnote">Approved amounts are added to that guru's payout below, and marked paid when you record their payment.</p>`:`<div class="mini" style="color:var(--muted)">No pending reimbursement requests.</div>`}</div>`;
+  $("poBody").innerHTML=`${reimbPanel}<div id="poCards"></div>
     <div class="panel"><h3>Payment history — ${esc(label)}</h3><div id="poHist"></div></div>`;
   if(!d.teachers.length){ $("poCards").innerHTML=`<div class="panel"><div class="empty">No active gurus yet.</div></div>`; recalcPayouts(); loadPayoutHistory(); return; }
   const gin=(cls,val,w)=>`<input type="number" min="0" class="${cls}" value="${val}" style="width:${w}px;padding:7px 9px;border:1px solid #E3C285;border-radius:8px;text-align:right">`;
   $("poCards").innerHTML=d.teachers.map(t=>{
     const base=Math.round(d.grossByT[t.id]||0); const plan=d.planByT[t.id]||{};
     const pct=(plan.pct!=null?plan.pct:d.pctMap[t.id]); const bonus=Math.round(plan.bonus||0), ded=Math.round(plan.deduction||0);
-    const active=d.activeByT[t.id]||0; const paid=Math.round(d.paidByT[t.id]||0);
-    return `<div class="panel poGard" data-tid="${t.id}" data-base="${base}" data-paid="${paid}">
+    const active=d.activeByT[t.id]||0; const paid=Math.round(d.paidByT[t.id]||0); const reimb=Math.round((d.reimbByT&&d.reimbByT[t.id])||0);
+    return `<div class="panel poGard" data-tid="${t.id}" data-base="${base}" data-paid="${paid}" data-reimb="${reimb}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:15px">${esc(d.nameMap[t.id])}</b><span class="badge b-teal">${active} active student${active===1?"":"s"}</span></div>
       <div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)"><span class="mini" style="color:var(--muted)">Fees collected this month</span><b>${INR(base)}</b></div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0"><span class="mini" style="color:var(--muted)">Payout share %</span><span>${gin("po_pct",pct,62)} %</span></div>
       <div style="display:flex;justify-content:space-between;padding:7px 0"><span class="mini" style="color:var(--muted)">Share</span><b class="po_share"></b></div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;gap:8px;flex-wrap:wrap"><span class="mini" style="color:var(--muted)">Bonus +</span><span style="display:flex;gap:6px;align-items:center">₹ ${gin("po_bonus",bonus,86)}<input class="po_bonusr" placeholder="reason" value="${esc(plan.bonus_reason||"")}" style="width:130px;padding:7px 9px;border:1px solid #E3C285;border-radius:8px"></span></div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;gap:8px;flex-wrap:wrap"><span class="mini" style="color:var(--muted)">Deduction −</span><span style="display:flex;gap:6px;align-items:center">₹ ${gin("po_ded",ded,86)}<input class="po_dedr" placeholder="reason" value="${esc(plan.deduction_reason||"")}" style="width:130px;padding:7px 9px;border:1px solid #E3C285;border-radius:8px"></span></div>
+      ${reimb>0?`<div style="display:flex;justify-content:space-between;padding:7px 0"><span class="mini" style="color:var(--muted)">Approved reimbursements +</span><b style="color:var(--good)">${INR(reimb)}</b></div>`:""}
       <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0 4px;border-top:1.5px solid var(--line);margin-top:4px"><span style="font-weight:600">Final payout</span><span class="po_final" style="font-size:18px;font-weight:700;color:var(--maroon)"></span></div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;gap:8px;flex-wrap:wrap"><span class="mini" style="color:var(--muted)">Paid ${INR(paid)} · Balance <b class="po_bal"></b></span><span><span class="rowbtn" onclick="savePlan('${t.id}')">Save adjustments</span> <span class="rowbtn edit" onclick="recordPayoutForm('${t.id}')">💰 Record payment</span> <span class="mini po_saved" id="po_saved_${t.id}" style="color:var(--good);display:none">✓ saved</span></span></div>
       <div class="poForm" id="poForm_${t.id}" style="display:none;margin-top:8px"></div>
@@ -1274,8 +1281,8 @@ function recalcPayouts(){
   let totDue=0, totPaid=0;
   document.querySelectorAll(".poGard").forEach(c=>{
     const base=parseFloat(c.dataset.base)||0, paid=parseFloat(c.dataset.paid)||0;
-    const pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0;
-    const share=Math.round(base*pct/100), fin=Math.round(share+bonus-ded);
+    const pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0, reimb=parseFloat(c.dataset.reimb)||0;
+    const share=Math.round(base*pct/100), fin=Math.round(share+bonus+reimb-ded);
     c.querySelector(".po_share").textContent=INR(share);
     c.querySelector(".po_final").textContent=INR(fin);
     const balEl=c.querySelector(".po_bal"); balEl.textContent=INR(fin-paid); balEl.style.color=(fin-paid)>0?"var(--warn)":"var(--good)";
@@ -1291,7 +1298,7 @@ function recordPayoutForm(tid){
   document.querySelectorAll(".poForm").forEach(x=>x.style.display="none");
   row.style.display="";
   const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); let defAmt=0;
-  if(c){ const base=parseFloat(c.dataset.base)||0, paid=parseFloat(c.dataset.paid)||0, pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0; defAmt=Math.max(0,Math.round(base*pct/100+bonus-ded-paid)); }
+  if(c){ const base=parseFloat(c.dataset.base)||0, paid=parseFloat(c.dataset.paid)||0, pct=parseFloat(c.querySelector(".po_pct").value)||0, bonus=parseFloat(c.querySelector(".po_bonus").value)||0, ded=parseFloat(c.querySelector(".po_ded").value)||0, reimb=parseFloat(c.dataset.reimb)||0; defAmt=Math.max(0,Math.round(base*pct/100+bonus+reimb-ded-paid)); }
   const today=todayIST();
   row.innerHTML=`<div style="background:#FBF1DA;border:1px solid var(--saffron);border-radius:10px;padding:12px 14px">
     <div class="mini" style="margin-bottom:8px;color:var(--muted)">Save your %, bonus &amp; deduction first so the suggested amount is correct.</div>
@@ -1316,8 +1323,18 @@ async function savePayout(tid){
   m.className="formmsg ok"; m.textContent="Saving…";
   const { error } = await db.from("guru_payouts").insert({ teacher_id:tid, period:state._poPeriod, amount:amt, paid_on:date, method:$("po_method_"+tid).value, note:$("po_note_"+tid).value.trim()||null });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
+  try{ await db.from("guru_reimbursements").update({ status:"paid", paid_period:state._poPeriod }).eq("teacher_id",tid).eq("status","approved"); }catch(e){}
   loadPayouts();
   } finally { state._busyMoney=false; }
+}
+async function reviewReimb(id, status){
+  let note=null;
+  if(status==="rejected"){ note=prompt("Reason for rejecting (optional):"); if(note===null) return; note=(note||"").trim()||null; }
+  else if(!confirm("Approve this reimbursement? It will be added to the guru's payout.")) return;
+  let uid=null; try{ const { data:{ user } }=await db.auth.getUser(); uid=user?user.id:null; }catch(e){}
+  const { error } = await db.from("guru_reimbursements").update({ status, reviewed_at:new Date().toISOString(), reviewed_by:uid, review_note:note }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  loadPayouts();
 }
 async function savePlan(tid){
   const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); if(!c) return;
@@ -2526,9 +2543,37 @@ async function renderMyEarnings(){
       <div class="searchbar"><span class="mini">Month</span><select id="earnSel" style="max-width:200px;flex:none">${rows.map(r=>`<option value="${r.k}">${esc(r.label)}</option>`).join("")}</select></div>
       <div id="earnDetail"></div>
       <p class="footnote">${total>0?`This is the amount Kala Kuteer has paid you each month. Tap <b>Statement</b> on a paid month to open a record — then use <b>Print</b>, or choose <b>Save as PDF</b> in the print dialog to download it.`:`Once the school records a payout to you, the amount will appear here and you'll be able to download a statement for any month.`}</p>
+    </div>
+    <div class="panel"><h3>🧾 Reimbursements</h3>
+      <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Spent something for the school? Request it back — the admin reviews, and approved amounts are added to your payout.</p>
+      <div class="form2"><div class="kf"><label>Amount (₹)</label><input id="rb_amt" type="number" min="1"></div><div class="kf"><label>What was it for?</label><input id="rb_reason" placeholder="e.g. printed sheets, props"></div></div>
+      <div class="kf"><label>Receipt (optional)</label><input id="rb_file" type="file" accept="image/*" style="font-size:12.5px"></div>
+      <div class="formmsg" id="rb_msg"></div>
+      <button class="kbtn teal" id="rb_submit" onclick="submitReimb()">Submit request</button>
+      <div id="rb_list" style="margin-top:12px"></div>
     </div>`;
   $("earnSel").onchange=e=>showEarnMonth(e.target.value);
   showEarnMonth(rows[0].k);
+  loadMyReimb();
+}
+async function submitReimb(){
+  const m=$("rb_msg"); const amt=Number($("rb_amt").value); const reason=($("rb_reason").value||"").trim();
+  if(!amt||amt<=0) return failMsg(m,"Enter an amount.");
+  const tid=await myTeacherId(); if(!tid) return failMsg(m,"Your guru profile isn't set up.");
+  let receipt=null; const file=$("rb_file")&&$("rb_file").files[0];
+  m.className="formmsg ok"; m.textContent=file?"Uploading receipt…":"Submitting…"; $("rb_submit").disabled=true;
+  if(file){ try{ receipt=await uploadImage(file); }catch(e){ $("rb_submit").disabled=false; return failMsg(m,"Receipt upload failed — "+(e.message||e)); } }
+  const { error } = await db.from("guru_reimbursements").insert({ teacher_id:tid, amount:amt, reason:reason||null, receipt_url:receipt });
+  $("rb_submit").disabled=false;
+  if(error) return failMsg(m,"Couldn't submit — "+error.message);
+  m.className="formmsg ok"; m.textContent="✓ Submitted — the admin will review it."; $("rb_amt").value=""; $("rb_reason").value=""; if($("rb_file")) $("rb_file").value="";
+  loadMyReimb();
+}
+async function loadMyReimb(){
+  const tid=await myTeacherId(); if(!tid||!$("rb_list")) return;
+  const { data } = await db.from("guru_reimbursements").select("id,amount,reason,status,created_at,review_note,paid_period").eq("teacher_id",tid).order("created_at",{ascending:false});
+  const badge={pending:"b-amber",approved:"b-teal",rejected:"b-red",paid:"b-green"};
+  $("rb_list").innerHTML=(data&&data.length)?`<table><tr><th>Date</th><th>For</th><th>Amount</th><th>Status</th></tr>${data.map(r=>`<tr><td class="mini">${String(r.created_at).slice(0,10)}</td><td>${esc(r.reason||"—")}</td><td><b>${INR(r.amount)}</b></td><td><span class="badge ${badge[r.status]||"b-grey"}">${esc(r.status)}</span>${r.status==="rejected"&&r.review_note?`<br><span class="mini" style="color:var(--muted)">${esc(r.review_note)}</span>`:""}${r.status==="paid"&&r.paid_period?`<br><span class="mini" style="color:var(--muted)">in ${esc(r.paid_period)} payout</span>`:""}</td></tr>`).join("")}</table>`:`<div class="mini" style="color:var(--muted)">No requests yet.</div>`;
 }
 function showEarnMonth(k){
   const r=(state._earnRows||[]).find(x=>x.k===k); if(!r||!$("earnDetail")) return;
