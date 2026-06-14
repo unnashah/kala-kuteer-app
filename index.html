@@ -3367,7 +3367,38 @@ async function addStaffAsGuru(){
 function drawTeachers(){
   const data=state._teachers||[];
   if(!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
-  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
+  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn edit" onclick="viewCoCCopy('${t.id}')">View copy</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
+}
+function viewCoCCopy(id){
+  const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
+  const when=t.coc_signed_at?new Date(t.coc_signed_at).toLocaleString():"—";
+  $("tList").innerHTML=`<div style="max-width:700px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="rowbtn" onclick="loadTeachers()">← Back to Gurus</span>
+      <button class="kbtn ghost" onclick="printCoCCopy('${id}')">🖨 Print / save PDF</button></div>
+    <div class="panel">${guruCoCNoticeHTML()}
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
+        <div class="dl"><span class="k">Signed by</span><span><b>${esc(t.coc_signed_by||t.profiles?.full_name||"—")}</b></span></div>
+        <div class="dl"><span class="k">Guru on record</span><span>${esc(t.profiles?.full_name||"—")}</span></div>
+        <div class="dl"><span class="k">Date &amp; time</span><span>${esc(when)}</span></div>
+        <div class="dl"><span class="k">Status</span><span>${t.coc_agreed?"✓ Agreed in-app":"Pending"}</span></div>
+      </div></div></div>`;
+}
+function printCoCCopy(id){
+  const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
+  const when=t.coc_signed_at?new Date(t.coc_signed_at).toLocaleString():"—";
+  const w=window.open("","_blank","width=720,height=900"); if(!w){ alert("Please allow pop-ups to print the copy."); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Guru Code of Conduct — ${esc(t.profiles?.full_name||"")}</title>
+    <style>body{font-family:system-ui,Arial,sans-serif;color:#2b2b2b;max-width:640px;margin:24px auto;padding:0 18px;line-height:1.55;font-size:13px}
+      .box{border:1px solid #C9A227;border-radius:10px;padding:18px} b{color:#7A1F2B}
+      .sig{margin-top:18px;border-top:1px solid #ddd;padding-top:12px} .sig div{margin:5px 0}</style></head>
+    <body><h2 style="color:#7A1F2B;margin:0 0 12px">Kala Kuteer — Guru Code of Conduct (signed copy)</h2>
+    <div class="box">${guruCoCNoticeHTML()}</div>
+    <div class="sig"><div><b>Signed by:</b> ${esc(t.coc_signed_by||t.profiles?.full_name||"—")}</div>
+      <div><b>Guru on record:</b> ${esc(t.profiles?.full_name||"—")}</div>
+      <div><b>Date &amp; time:</b> ${esc(when)}</div>
+      <div><b>Status:</b> ${t.coc_agreed?"Agreed in-app":"Pending"}</div></div></body></html>`);
+  w.document.close(); setTimeout(()=>{ try{ w.print(); }catch(e){} },350);
 }
 async function reAskCoC(id){
   if(!confirm("Ask this guru to read and agree to the code of conduct again on their next login?")) return;
