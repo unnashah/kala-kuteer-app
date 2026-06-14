@@ -555,16 +555,18 @@ async function loadOwnerStats(){
   const mEnd=`${Y}-${PAD(Mo)}-${PAD(new Date(Y,Mo,0).getDate())}`;
   const mNext=`${Mo===12?Y+1:Y}-${PAD(Mo===12?1:Mo+1)}-01`;
   const weekEnd=new Date(Date.now()+19800000+7*86400000).toISOString().slice(0,10);
-  const [invMonth, unpaid, pays, newCnt, breakCnt, activeCnt] = await Promise.all([
+  const [invMonth, unpaid, pays, regInv, newCnt, breakCnt, activeCnt] = await Promise.all([
     fetchAll(()=> db.from("invoices").select("amount,status,period_start,period_end").lte("period_start",mEnd).gte("period_end",mStart)),
     fetchAll(()=> db.from("invoices").select("amount,due_date,status").neq("status","paid")),
     fetchAll(()=> db.from("payments").select("amount,invoices(students(branch_id))").gte("paid_at",mStart).lt("paid_at",mNext)),
+    fetchAll(()=> db.from("invoices").select("registration,status").gt("registration",0).gte("due_date",mStart).lte("due_date",mEnd)),
     db.from("students").select("id",{count:"exact",head:true}).gte("join_date",mStart).lte("join_date",mEnd),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","on_break"),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","active")
   ]);
-  let billed=0, collected=0;
+  let billed=0, collected=0, regCollected=0;
   (invMonth||[]).forEach(i=>{ const starts=i.period_start?(i.period_start>=mStart):true; if(!starts) return; billed+=Number(i.amount||0); if(i.status==="paid") collected+=Number(i.amount||0); });
+  (regInv||[]).forEach(r=>{ const a=Number(r.registration||0); billed+=a; if(r.status==="paid"){ collected+=a; regCollected+=a; } });
   const pending=billed-collected;
   const rate=billed>0?Math.round(collected/billed*100):null;
   let overdueAmt=0, overdueN=0, weekAmt=0, weekN=0;
@@ -580,7 +582,7 @@ async function loadOwnerStats(){
   C.innerHTML=`<div class="panel" style="margin-top:16px">
     <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">📊 This month — ${MONS[Mo-1]} ${Y}</h3><span class="rowbtn edit" onclick="gotoNav('fees')">Open Fees →</span></div>
     <div class="kpis" style="margin-top:12px">
-      <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div>${rate!=null?`<div class="mini" style="color:${rateColor}">${rate}% of ${INR(billed)} billed</div>`:""}</div>
+      <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div>${rate!=null?`<div class="mini" style="color:${rateColor}">${rate}% of ${INR(billed)} billed${regCollected>0?` · incl. ${INR(regCollected)} reg.`:""}</div>`:""}</div>
       <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>
       <div class="kpi"><div class="l">Overdue now</div><div class="v" style="color:${overdueN?'var(--warn)':'var(--good)'}">${INR(overdueAmt)}</div><div class="mini">${overdueN} invoice${overdueN===1?'':'s'}</div></div>
       <div class="kpi"><div class="l">New students</div><div class="v">${newCnt.count??0}</div><div class="mini">joined this month</div></div>
