@@ -104,6 +104,9 @@
   .tipbtn{width:22px;height:22px;border-radius:50%;border:1px solid var(--saffron);background:#fff7e8;cursor:pointer;font-size:12px;line-height:20px;padding:0;vertical-align:middle}
   .tipbub{display:none;position:absolute;top:30px;left:0;z-index:50;width:300px;max-width:78vw;background:#fff7e8;border:1px solid #f0e2c0;border-radius:11px;padding:11px 13px;font-size:12.5px;color:#7a5e1f;line-height:1.5;box-shadow:0 4px 14px rgba(43,32,24,.12);text-align:left;white-space:normal}
   .tipbub.show{display:block}
+  .tip:hover .tipbub{display:block}
+  .tipbtn.warn{border-color:#C0392B;background:#FDECEA}
+  .tipbub.warn{background:#FDECEA;border-color:#F3C0B8;color:#86281C}
   .panel h3{margin-bottom:14px}
   .footnote{background:#fdf3f1;border:1px solid #e7b9b0;border-left:4px solid var(--warn);color:#9e3b2a;border-radius:9px;padding:10px 13px;font-size:12.5px;line-height:1.55;margin:10px 0}
   .footnote b{color:#7d2c1e}
@@ -421,6 +424,7 @@ function renderShell(role, name, warn){
 
 const isAdmin = ()=> state.role==="admin"||state.role==="super_admin";
 function tip(t){ return ` <span class="tip"><button type="button" class="tipbtn" onclick="toggleTip(event,this)" aria-label="What's this?">💡</button><span class="tipbub">${t}</span></span>`; }
+function warn(t){ return ` <span class="tip"><button type="button" class="tipbtn warn" onclick="toggleTip(event,this)" aria-label="Important — please read">⚠️</button><span class="tipbub warn"><b>Remember:</b> ${t}</span></span>`; }
 function toggleTip(e,b){ e.stopPropagation(); const bub=b.nextElementSibling; const open=bub.classList.contains("show"); document.querySelectorAll(".tipbub.show").forEach(x=>x.classList.remove("show")); if(!open) bub.classList.add("show"); }
 if(!window._tipInit){ window._tipInit=true; document.addEventListener("click",function(){ document.querySelectorAll(".tipbub.show").forEach(function(x){ x.classList.remove("show"); }); }); }
 
@@ -682,7 +686,7 @@ async function loadDashBdays(){
 /* ---------------- STUDENTS LIST ---------------- */
 async function renderStudents(){
   const M=$("mainArea");
-  M.innerHTML = `<div class="ph"><div><h2>Students</h2><p>Loading…</p></div><button class="kbtn" id="newStu">+ New Student</button></div>
+  M.innerHTML = `<div class="ph"><div><h2>Students${tip("Everyone on record. Tap a name for full details, fees, attendance and journey. Use the status filter for Active / On-break / Alumni, and ➕ New Student to add one.")}</h2><p>Loading…</p></div><button class="kbtn" id="newStu">+ New Student</button></div>
     <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…" style="flex:1"><select id="stuStatus" style="max-width:160px;flex:none"><option value="">All statuses</option><option value="active">Active</option><option value="on_break">On break</option><option value="completed">Completed</option><option value="alumni">Alumni</option><option value="suspended">Suspended</option></select><button class="kbtn ghost" id="stuExport" onclick="exportStudentsCSV()" style="flex:none">⬇ Export CSV</button></div>
     <div id="stuList"><div class="empty">Loading students…</div></div>`;
   $("newStu").onclick = ()=> gotoNav("intake");
@@ -829,7 +833,7 @@ async function saveAttendance(){
 async function renderAttendanceByStudent(){
   const M=$("mainArea"); await loadRef();
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Each student's attendance record</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Attendance${tip("Each student's attendance history. Narrow with the filters and use the CSV button to download it.")}</h2><p>Each student's attendance record</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn teal" style="margin-left:6px" disabled>📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar"><input id="absSearch" placeholder="🔍 Search student…" style="flex:1">
       <select id="absBranch" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select><button class="kbtn ghost" id="absCsv" onclick="exportAttByStudentCSV()" style="flex:none">⬇ Export CSV</button></div>
@@ -893,7 +897,7 @@ async function renderAttendanceReport(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const now=new Date(); const first=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10); const today=now.toISOString().slice(0,10);
-  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Pull a report — by student, guru, branch or date</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Attendance${tip("Pull attendance figures by student, guru, branch or date range, then export to CSV.")}</h2><p>Pull a report — by student, guru, branch or date</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn teal" style="margin-left:6px" disabled>📈 Reports</button></div>
     <div class="searchbar" style="flex-wrap:wrap;gap:8px">
       <span class="mini">From</span><input id="arFrom" type="date" value="${first}" style="max-width:155px;flex:none">
@@ -990,7 +994,7 @@ function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||todayIST().s
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
   const thisMonth=todayIST().slice(0,7);
-  M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices${tip("‘Generate invoices’ raises this month’s fee for everyone, then record each payment as it’s received — or raise a 3/6-month plan for a family paying ahead. Collections here flow into Finance &amp; P&amp;L and each guru’s payout.")}</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
+  M.innerHTML=`<div class="ph"><div><h2>Fees &amp; Invoices${warn("Fees are full-amount only — no partial payments or refunds. Marking an invoice paid generates a numbered receipt, so double-check before confirming.")}${tip("‘Generate invoices’ raises this month’s fee for everyone, then record each payment as it’s received — or raise a 3/6-month plan for a family paying ahead. Collections here flow into Finance &amp; P&amp;L and each guru’s payout.")}</h2><p>Monthly fee by branch · due date from each student's join date · no GST on tuition</p></div><button class="kbtn" id="genInv">Generate invoices</button></div>
     <div class="searchbar"><span class="mini">Month</span><input id="feeMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:180px;flex:none"><button class="kbtn ghost" id="feeLoad">Load</button></div>
     <div class="formmsg" id="feeMsg"></div>
     <div class="kpis" id="feeKpis" style="margin-bottom:12px"></div>
@@ -1282,7 +1286,7 @@ async function delExpense(id){
 async function renderPayouts(){
   const M=$("mainArea"); await loadClassRefs();
   const thisMonth=todayIST().slice(0,7);
-  M.innerHTML=`<div class="ph"><div><h2>Guru Payouts${tip("For each guru: their share % of the fees collected, plus any bonus or deduction, makes the final payout. Record what you actually pay to track paid vs due.")}</h2><p>What each guru has earned vs what's been paid</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Guru Payouts${warn("Save your %, bonus and deduction (‘Save adjustments’) BEFORE recording a payment, or the suggested amount will be wrong.")}${tip("For each guru: their share % of the fees collected, plus any bonus or deduction, makes the final payout. Record what you actually pay to track paid vs due.")}</h2><p>What each guru has earned vs what's been paid</p></div></div>
     <div class="searchbar"><span class="mini">Month</span><input id="poMonth" type="month" value="${thisMonth}" max="${thisMonth}" style="max-width:170px;flex:none"><button class="kbtn ghost" id="poLoad">Load</button></div>
     <div class="kpis" id="poKpis" style="margin-bottom:14px"></div>
     <div id="poBody"><div class="empty">Loading…</div></div>`;
@@ -1589,7 +1593,7 @@ async function renderActivityLog(){
   const eLabel={students:"student",invoices:"fee/invoice",payments:"payment"};
   const rows=(data||[]).map(r=>{ const ist=new Date(new Date(r.at).getTime()+19800000).toISOString().slice(0,16).replace("T"," ");
     return `<tr><td class="mini">${esc(ist)}</td><td>${esc(r.actor_name||"—")}</td><td><span class="badge ${aBadge[r.action]||"b-grey"}">${aLabel[r.action]||r.action}</span> ${esc(eLabel[r.entity]||r.entity)}</td><td class="mini">${esc(r.detail||"")}</td></tr>`; }).join("");
-  M.innerHTML=`<div class="ph"><div><h2>Activity log</h2><p>Who changed or deleted what — students, fees &amp; payments (most recent first)</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Activity log${tip("An automatic trail of who changed or deleted students, fees and payments — handy to check what happened and when.")}</h2><p>Who changed or deleted what — students, fees &amp; payments (most recent first)</p></div></div>
     ${data&&data.length?`<table><tr><th>When (IST)</th><th>Who</th><th>What</th><th>Detail</th></tr>${rows}</table>`:`<div class="empty">No activity recorded yet. New changes will appear here.</div>`}`;
 }
 async function renderInventory(){
@@ -1865,7 +1869,7 @@ const SUGG_STAGES=[["new","New"],["reviewed","Reviewed"],["actioned","Actioned"]
 const SUGG_BADGE={ new:"b-amber", reviewed:"b-teal", actioned:"b-green" };
 async function renderSuggestions(){
   const M=$("mainArea");
-  M.innerHTML=`<div class="ph"><div><h2>Suggestions</h2><p>Anonymous suggestions from students &amp; teachers — no names are stored</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Suggestions${tip("Anonymous feedback from students and gurus — no names are ever stored, so people can be candid.")}</h2><p>Anonymous suggestions from students &amp; teachers — no names are stored</p></div></div>
     <div class="kpis" id="sugKpis" style="margin-bottom:12px"></div>
     <div class="searchbar"><input id="sugSearch" placeholder="🔍 Search text…" style="flex:1">
       <select id="sugFilter" style="max-width:170px;flex:none"><option value="open">To review (New + Reviewed)</option><option value="">All</option>${SUGG_STAGES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}</select></div>
@@ -1924,7 +1928,7 @@ async function renderCalendar(){
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const courseOpts=(state._classCourses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   state._csChecked=new Set();
-  M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Calendar${tip("The one schedule everyone sees. Add a one-off class up top (and enrol students right there), or set repeating classes in the ‘🔁 Weekly classes’ panel. Holidays &amp; events appear here from Announcements when you give them a date.")}${warn("Deleting or changing a class emails the enrolled students automatically. Online classes all share ONE school Zoom account, so only one online class can run at a time — stagger them.")}</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Add a one-off class</h3>
       <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place a class on it. Schedules can differ week to week.</p>
       <div class="form2">
@@ -2461,7 +2465,7 @@ async function renderMyClasses(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>My Classes</h2><p>Your classes &amp; students — and propose new ones for admin approval</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Classes${tip("Your classes and their students. You can also propose a new class here — it goes live straight away and the admin reviews it.")}</h2><p>Your classes &amp; students — and propose new ones for admin approval</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Schedule a class</h3>
       <p class="footnote" style="margin:0 0 10px">Set up a class here — it becomes <b>active right away</b> and is sent to the super admin to review. You can take attendance for it immediately.</p>
       <div class="form2">
@@ -2571,7 +2575,7 @@ async function renderMyStudents(){
   const { data, error } = await db.from("students").select("id,full_name,level,status,join_date,courses(name),branches(name)").eq("primary_teacher_id",tid).order("full_name");
   if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._myStu=data||[];
-  M.innerHTML=`<div class="ph"><div><h2>My Students</h2><p>Students assigned to you as their primary guru</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Students${tip("The students for whom you are the primary guru. Tap a name to see their details and progress.")}</h2><p>Students assigned to you as their primary guru</p></div></div>
     <div class="searchbar"><input id="msSearch" placeholder="🔍 Search by name…" style="flex:1"></div>
     <div id="msList"></div>`;
   $("msSearch").oninput=drawMyStudents; drawMyStudents();
@@ -2622,7 +2626,7 @@ async function renderMyAttendance(){
   const { data:gs } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
   state._maStu=gs||[];
   const today=todayIST();
-  M.innerHTML=`<div class="ph"><div><h2>Attendance</h2><p>Pick your class, then tap the students who came</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Attendance${tip("Pick your class for the day, then tap the students who attended. What you save feeds each student's monthly attendance.")}</h2><p>Pick your class, then tap the students who came</p></div></div>
     ${state._maStu.length?`<div class="searchbar">
       <span class="mini">Date</span><input id="maDate" type="date" value="${today}" max="${today}" style="max-width:150px;flex:none">
       <span class="mini">Class</span><select id="maSession" style="flex:1;min-width:150px"><option value="">—</option></select>
@@ -2796,7 +2800,7 @@ async function renderMyCalendar(){
   await loadRef(); await loadClassRefs();
   state._mcalTid=tid; state._mcalMonth=state._mcalMonth||todayIST().slice(0,7); state._mySessEdit=null;
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>Schedule your classes for the week — everyone can see this</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Calendar${tip("Set your weekly class times — students and admin all see this. For online classes, your saved Zoom link is added automatically.")}</h2><p>Schedule your classes for the week — everyone can see this</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="mcsFormTitle">Schedule a class</h3>
       <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place your class on it. Your schedule can differ week to week.</p>
       <div class="form2">
@@ -3009,7 +3013,7 @@ async function renderNotices(){
   const { data, error } = await db.from("news_posts").select("id,title,body,media_url,response_type,created_at").eq("audience","all").order("created_at",{ascending:false});
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Announcements</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const list=data||[]; const myResp=await loadMyResponses();
-  M.innerHTML=`<div class="ph"><div><h2>Announcements</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Announcements${tip("Posts and updates from Kala Kuteer. Open one to read it in full; if it asks for a response (RSVP / Yes-No / Interested), tap to reply.")}</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
     ${list.length?list.map(n=>announceCardHTML(n,myResp[n.id])).join(""):`<div class="empty">No announcements yet. Updates from the school office will appear here.</div>`}`;
 }
 
@@ -3240,7 +3244,7 @@ async function renderStudentNews(){
   const { data, error } = await db.from("news_posts").select("id,title,body,media_url,response_type,created_at").in("audience",aud).order("created_at",{ascending:false});
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Announcements</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const list=data||[]; const myResp=await loadMyResponses();
-  M.innerHTML=`<div class="ph"><div><h2>Announcements</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Announcements${tip("Posts and updates from Kala Kuteer. Open one to read it in full; if it asks for a response (RSVP / Yes-No / Interested), tap to reply.")}</h2><p>Announcements &amp; updates from Kala Kuteer</p></div></div>
     ${list.length?list.map(n=>announceCardHTML(n,myResp[n.id])).join(""):`<div class="empty">No announcements yet.</div>`}`;
 }
 /* ----- Student: Calendar (read-only) ----- */
@@ -3248,7 +3252,7 @@ async function renderStudentCalendar(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   await loadClassRefs();
   state._scalMonth=state._scalMonth||todayIST().slice(0,7);
-  M.innerHTML=`<div class="ph"><div><h2>My Calendar</h2><p>Class schedule &amp; school events</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Calendar${tip("Your class schedule plus school events and holidays. Online classes show a ‘Join Zoom’ button right here.")}</h2><p>Class schedule &amp; school events</p></div></div>
     <div class="searchbar" style="justify-content:space-between"><div><button class="kbtn ghost" onclick="scalShift(-1)">‹ Prev</button><b id="scalLabel" style="margin:0 12px"></b><button class="kbtn ghost" onclick="scalShift(1)">Next ›</button></div><button class="kbtn ghost" onclick="scalToday()">Today</button></div>
     <div id="scalGrid"><div class="empty">Loading…</div></div>`;
   loadStudentCalendar();
@@ -3300,7 +3304,7 @@ async function renderStudentJourney(){
   let wkCount=0, moCount=0; sessions.forEach(a=>{ const d=String(a.class_date).slice(0,10); if(d>=wk.start&&d<=wk.end) wkCount++; if(d.slice(0,7)===monthKey) moCount++; });
   const { data:rv } = await db.from("progress_reviews").select("quarter_label,scheduled_at,notes,status").eq("student_id",s.id).eq("status","completed").order("scheduled_at",{ascending:false});
   const journey=(rv&&rv.length)?rv.map(r=>`<div style="margin-bottom:12px"><div class="mini"><b>${r.scheduled_at?fmtDateTime(r.scheduled_at):fmtNiceDate(r.quarter_label)}</b></div><div style="white-space:pre-wrap;font-size:13px;margin-top:3px;line-height:1.5">${esc(r.notes||"—")}</div></div>`).join(""):`<div class="mini" style="color:var(--muted)">No feedback notes yet. After your next Guru Samvaad, your guru's notes will appear here.</div>`;
-  M.innerHTML=`<div class="ph"><div><h2>My Attendance</h2><p>Your sessions &amp; your guru's feedback</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>My Attendance${tip("Your class history and your guru's feedback — see how regularly you're attending.")}</h2><p>Your sessions &amp; your guru's feedback</p></div></div>
     <div class="kpis" style="margin-bottom:14px">
       <div class="kpi"><div class="l">Sessions this week</div><div class="v">${wkCount}<span style="font-size:14px;color:var(--muted)"> / 2</span></div></div>
       <div class="kpi"><div class="l">Sessions this month</div><div class="v">${moCount}</div></div>
@@ -3403,7 +3407,7 @@ async function studentRespond(id, resp){
 /* ----- Anonymous feedback SUBMIT form (students & teachers) ----- */
 function renderSubmitFeedback(){
   const M=$("mainArea");
-  M.innerHTML=`<div class="ph"><div><h2>Suggestion Box</h2><p>Share feedback or an idea — it's completely anonymous</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Suggestion Box${tip("Share an idea or concern anonymously — your name is never attached to it.")}</h2><p>Share feedback or an idea — it's completely anonymous</p></div></div>
     <div class="panel" style="max-width:580px">
       <div id="fbForm">
         <div style="background:#fff7e8;border-radius:10px;padding:13px 15px;margin-bottom:14px;line-height:1.6;font-size:13.5px">
@@ -3482,7 +3486,7 @@ async function waReceipt(invId){
 /* ---------------- TEACHERS ---------------- */
 async function renderTeachers(){
   const M=$("mainArea");
-  M.innerHTML=`<div class="ph"><div><h2>Gurus</h2><p>Guru logins — gurus sign in on the <b>Staff</b> tab with email + password</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Gurus${tip("Add and manage guru logins, set each guru's payout %, default Zoom link, and view who has signed the Code of Conduct (with a printable copy).")}</h2><p>Guru logins — gurus sign in on the <b>Staff</b> tab with email + password</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Add a teacher</h3>
       <div class="form2">
         <div><div class="kf"><label>Full name *</label><input id="t_name"></div>
@@ -3613,7 +3617,7 @@ async function fnErr(ferr){ let d=ferr.message||"error"; try{ const b=await ferr
 async function renderSettings(){
   const M=$("mainArea"); state.refLoaded=false; await loadRef();
   const inp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v||0}" style="width:130px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
-  M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles${tip("Set each branch’s monthly fee, registration, UPI and whether it offers 3/6-month plans; manage your courses; and create front-desk admin logins.")}</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles${warn("Changing a branch’s monthly fee affects only NEW invoices, not ones already raised. The UPI ID here is where students’ money lands — get it exactly right.")}${tip("Set each branch’s monthly fee, registration, UPI and whether it offers 3/6-month plans; manage your courses; and create front-desk admin logins.")}</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
       <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th><th>3 / 6-mo plans</th></tr>
         ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td style="text-align:center"><input type="checkbox" id="pl_${b.id}"${b.allow_plans?" checked":""}></td></tr>`).join("")}</table>
