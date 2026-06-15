@@ -1923,7 +1923,7 @@ async function renderCalendar(){
       </div>
       <div class="form2">
         <div class="kf"><label>Mode</label><select id="cs_mode" onchange="onSessMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
-        <div class="kf" id="cs_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cs_zoom" placeholder="https://…"></div>
+        <div class="kf" id="cs_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cs_zoom" placeholder="https://…"><span class="mini" style="color:var(--warn)">⚠️ All online classes share ONE school Zoom account — only one can run at a time. Check no other guru has an online class in this slot.</span><span class="mini" style="color:var(--muted)">Leave blank to use this guru's saved Zoom link.</span></div>
       </div>
       <div class="formmsg" id="csMsg"></div>
       <button class="kbtn teal" id="addCs" onclick="saveSession()">Add class to calendar</button>
@@ -2015,12 +2015,15 @@ async function saveSession(){
   const rec={ title, teacher_id:$("cs_teacher").value||null, branch_id:$("cs_branch").value||null, session_date:date,
     start_time:$("cs_time").value||null, mode, capacity:Number($("cs_cap").value)||8, room,
     zoom_link:((mode==="online"||mode==="hybrid")&&$("cs_zoom").value.trim())||null };
+  rec.zoom_link = await resolveZoom(mode, $("cs_zoom").value, rec.teacher_id);
+  if((mode==="online"||mode==="hybrid") && !rec.zoom_link) return failMsg(m,"This online/hybrid session has no Zoom link. Type one here, or set this guru's default link in Gurus → Edit.");
   if(room && rec.start_time){
     let cq=db.from("class_sessions").select("id,title").eq("session_date",date).eq("start_time",rec.start_time).ilike("room",room);
     if(state._sessEdit) cq=cq.neq("id",state._sessEdit);
     const { data:clash } = await cq;
     if(clash&&clash.length) return failMsg(m,`Room clash — ${room} is already booked at that time (${clash[0].title}). Pick another room or time.`);
   }
+  if(!(await onlineSlotOK({mode, kind:"session", date, start:rec.start_time, end:rec.end_time||null, excludeId:state._sessEdit||null}))){ m.className="formmsg"; m.textContent=""; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("addCs").disabled=true;
   let error;
   if(state._sessEdit){ ({ error } = await db.from("class_sessions").update(rec).eq("id",state._sessEdit)); }
@@ -2142,7 +2145,7 @@ function weeklyClassesHTML(){
         <div class="kf"><label>Mode</label><select id="cl_mode" onchange="onClassMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
         <div class="kf"><label>Capacity</label><input id="cl_cap" type="number" min="1" value="8"></div>
       </div>
-      <div class="kf" id="cl_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cl_zoom" placeholder="https://…"></div>
+      <div class="kf" id="cl_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cl_zoom" placeholder="https://…"><span class="mini" style="color:var(--warn)">⚠️ All online classes share ONE school Zoom account — only one can run at a time. Check no other guru has an online class in this slot.</span><span class="mini" style="color:var(--muted)">Leave blank to use this guru's saved Zoom link.</span></div>
       <p class="footnote">One class = one weekly slot. For a class that meets twice a week (e.g. Mon &amp; Thu), add two classes.</p>
       <div class="formmsg" id="clMsg"></div>
       <button class="kbtn teal" id="addCls" onclick="saveClass()">Add weekly class</button>
@@ -2157,6 +2160,30 @@ function wireWeeklyClasses(){
   if($("clsBranchF")) $("clsBranchF").onchange=drawClasses;
   if($("tplMonth")) $("tplMonth").value=todayIST().slice(0,7);
   loadClasses();
+}
+async function resolveZoom(mode, typed, teacherId){
+  if(mode!=="online" && mode!=="hybrid") return null;
+  const t=(typed||"").trim(); if(t) return t;
+  if(teacherId){ const { data } = await db.from("teachers").select("zoom_link").eq("id",teacherId).maybeSingle(); if(data && (data.zoom_link||"").trim()) return data.zoom_link.trim(); }
+  return null;
+}
+function _toMin(t){ if(!t) return null; const x=String(t).split(":"); return Number(x[0])*60+Number(x[1]||0); }
+function _ovl(s1,e1,s2,e2){ return s1<e2 && s2<e1; }
+async function onlineSlotOK(o){
+  if((o.mode!=="online"&&o.mode!=="hybrid")||!o.start) return true;
+  const s1=_toMin(o.start), e1=o.end?_toMin(o.end):s1+60; let rows=[];
+  if(o.kind==="session"){
+    if(!o.date) return true;
+    const { data } = await db.from("class_sessions").select("id,title,start_time,end_time").in("mode",["online","hybrid"]).eq("session_date",o.date);
+    rows=(data||[]).filter(c=> c.id!==o.excludeId && c.start_time && _ovl(s1,e1,_toMin(c.start_time), c.end_time?_toMin(c.end_time):_toMin(c.start_time)+60)).map(c=>({n:c.title,t:c.start_time}));
+  } else {
+    if(o.dow==null) return true;
+    const { data } = await db.from("batches").select("id,name,start_time").in("mode",["online","hybrid"]).eq("day_of_week",o.dow).eq("is_active",true);
+    rows=(data||[]).filter(b=> b.id!==o.excludeId && b.start_time && _ovl(s1,e1,_toMin(b.start_time),_toMin(b.start_time)+60)).map(b=>({n:b.name,t:b.start_time}));
+  }
+  if(!rows.length) return true;
+  const list=rows.map(r=>`• ${r.n}${r.t?" at "+fmtTime(String(r.t).slice(0,5)):""}`).join("\n");
+  return confirm("⚠️ SHARED ZOOM ACCOUNT\n\nKala Kuteer has ONE Zoom account, so only one online class can run at a time. Another online class is already in this slot:\n\n"+list+"\n\nPlease check with that guru before going ahead.\n\nSave anyway?");
 }
 function onClassMode(){ const m=$("cl_mode")?$("cl_mode").value:"in_person"; if($("cl_zoomWrap")) $("cl_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
 async function loadClasses(){
@@ -2231,6 +2258,8 @@ async function saveClass(){
   const rec={ name, course_id:$("cl_course").value||null, teacher_id:$("cl_teacher").value||null, branch_id:$("cl_branch").value||null,
     mode, day_of_week: dow===""?null:Number(dow), start_time:$("cl_time").value||null, room:room||null,
     capacity:Number($("cl_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("cl_zoom").value.trim())||null };
+  rec.zoom_link = await resolveZoom(mode, $("cl_zoom").value, rec.teacher_id);
+  if((mode==="online"||mode==="hybrid") && !rec.zoom_link) return failMsg(m,"This online/hybrid class has no Zoom link. Type one here, or set this guru's default link in Gurus → Edit.");
   // room clash guard: no two classes in the same branch + room + day + time
   if(rec.branch_id && room && rec.day_of_week!=null && rec.start_time){
     let cq=db.from("batches").select("id,name").eq("branch_id",rec.branch_id).eq("day_of_week",rec.day_of_week).eq("start_time",rec.start_time).ilike("room",room).eq("is_active",true);
@@ -2238,6 +2267,7 @@ async function saveClass(){
     const { data:clash } = await cq;
     if(clash&&clash.length) return failMsg(m,`Room clash: "${clash[0].name}" already uses ${room} on that day & time. Pick another room or time.`);
   }
+  if(!(await onlineSlotOK({mode, kind:"batch", dow:rec.day_of_week, start:rec.start_time, excludeId:state._clsEdit||null}))){ m.className="formmsg"; m.textContent=""; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("addCls").disabled=true;
   let error;
   if(state._clsEdit){ ({ error } = await db.from("batches").update(rec).eq("id",state._clsEdit)); }
@@ -2354,7 +2384,7 @@ async function renderMyClasses(){
       </div>
       <div class="form2">
         <div class="kf"><label>Mode</label><select id="pc_mode" onchange="onProposeMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
-        <div class="kf" id="pc_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="pc_zoom" placeholder="https://…"></div>
+        <div class="kf" id="pc_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="pc_zoom" placeholder="https://…"><span class="mini" style="color:var(--warn)">⚠️ All online classes share ONE school Zoom account — only one can run at a time. Check with other gurus that no one else has an online class in this slot.</span><span class="mini" style="color:var(--muted)">Leave blank to use your saved Zoom link.</span></div>
       </div>
       <div class="formmsg" id="pcMsg"></div>
       <button class="kbtn teal" id="proposeCls" onclick="submitProposedClass()">Add my class</button>
@@ -2379,6 +2409,9 @@ async function submitProposedClass(){
     mode, day_of_week: dow===""?null:Number(dow), start_time:$("pc_time").value||null,
     capacity:Number($("pc_cap").value)||8, zoom_link:((mode==="online"||mode==="hybrid")&&$("pc_zoom").value.trim())||null,
     is_published:true, published_at:new Date().toISOString() };
+  rec.zoom_link = await resolveZoom(mode, $("pc_zoom").value, tid);
+  if((mode==="online"||mode==="hybrid") && !rec.zoom_link){ m.className="formmsg err"; m.textContent="This online/hybrid class has no Zoom link. Type one above, or ask the admin to set your default Zoom link."; return; }
+  if(!(await onlineSlotOK({mode, kind:"batch", dow: dow===""?null:Number(dow), start:$("pc_time").value||null, excludeId:null}))){ m.className="formmsg"; m.textContent=""; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("proposeCls").disabled=true;
   const { error } = await db.from("batches").insert(rec);
   $("proposeCls").disabled=false;
@@ -3346,7 +3379,7 @@ async function renderTeachers(){
   loadTeachers();
 }
 async function loadTeachers(){
-  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,coc_agreed,coc_signed_at,coc_signed_by,profiles(full_name,email)").order("created_at",{ascending:false});
+  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,zoom_link,coc_agreed,coc_signed_at,coc_signed_by,profiles(full_name,email)").order("created_at",{ascending:false});
   if(error){ $("tList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   state._teachers=data||[]; drawTeachers();
   const have=new Set((data||[]).map(t=>t.profile_id));
@@ -3414,6 +3447,7 @@ function editTeacher(id){
       <div class="kf"><label>Subjects (comma-separated)</label><input id="te_disc" value="${esc((t.disciplines||[]).join(", "))}"></div>
     </div>
     <div class="kf" style="max-width:220px"><label>Payout %</label><input id="te_pay" type="number" min="0" max="100" value="${t.payout_pct||40}"></div>
+    <div class="kf"><label>Default Zoom link <span class="mini" style="color:var(--muted)">(used for this guru's online/hybrid classes)</span></label><input id="te_zoom" value="${esc(t.zoom_link||"")}" placeholder="https://us05web.zoom.us/j/…"></div>
     <div class="kf"><label>Login email</label><input value="${esc(t.profiles?.email||"")}" disabled style="background:#f1f1f1"></div>
     <p class="footnote">The login email can't be changed here — tell me if a teacher's email needs updating and I'll handle it safely.</p>
     <div class="formmsg" id="teMsg"></div>
@@ -3428,7 +3462,8 @@ async function saveTeacherEdits(id, profileId){
   m.className="formmsg ok"; m.textContent="Saving…";
   const { error:e1 } = await db.from("profiles").update({ full_name:name }).eq("id",profileId);
   if(e1){ m.className="formmsg err"; m.textContent="Couldn't save name — "+e1.message; return; }
-  const { error:e2 } = await db.from("teachers").update({ disciplines:disc, payout_pct:pay }).eq("id",id);
+  const zoom=($("te_zoom")&&$("te_zoom").value.trim())||null;
+  const { error:e2 } = await db.from("teachers").update({ disciplines:disc, payout_pct:pay, zoom_link:zoom }).eq("id",id);
   if(e2){ m.className="formmsg err"; m.textContent="Couldn't save — "+e2.message; return; }
   loadTeachers();
 }
