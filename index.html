@@ -1971,7 +1971,7 @@ async function loadCalendar(){
   const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
   const { data:annc, error } = await db.from("news_posts").select("id,title,event_type,event_date,event_end,body").not("event_date","is",null).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link,room").gte("session_date",start).lte("session_date",end).order("session_date");
+  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link,room,batch_id").gte("session_date",start).lte("session_date",end).order("session_date");
   state._events=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end, event_type:e.event_type, description:e.body })); state._calSess=sess||[];
   const { data:bd } = await db.from("students").select("full_name,date_of_birth").eq("status","active").not("date_of_birth","is",null);
   state._calBdays=(bd||[]).filter(s=>Number(String(s.date_of_birth).slice(5,7))===mo).map(s=>({ name:s.full_name, day:Number(String(s.date_of_birth).slice(8,10)) }));
@@ -2050,12 +2050,22 @@ async function saveSession(){
   else { ({ error } = await db.from("class_sessions").insert(rec)); }
   $("addCs").disabled=false;
   if(error) return failMsg(m,"Couldn't save — "+error.message);
+  if(state._sessEdit){
+    const orig=state._sessOrig||{}; const ch=[];
+    const ot=(orig.start_time||"").slice(0,5), nt=(rec.start_time||"").slice(0,5);
+    if((orig.session_date||"")!==(rec.session_date||"")) ch.push(`Date: ${orig.session_date||"—"} → ${rec.session_date||"—"}`);
+    if(ot!==nt) ch.push(`Time: ${ot||"—"} → ${nt||"—"}`);
+    if((orig.mode||"")!==(rec.mode||"")) ch.push(`Mode: ${orig.mode||"—"} → ${rec.mode||"—"}`);
+    if((orig.room||"")!==(rec.room||"")) ch.push(`Room: ${orig.room||"—"} → ${rec.room||"—"}`);
+    if((orig.zoom_link||"")!==(rec.zoom_link||"")) ch.push("Zoom link updated");
+    if(ch.length && orig.batch_id){ notifyClassChange({ action:"changed", batch_id:orig.batch_id, title:rec.title, date:rec.session_date, start_time:rec.start_time, end_time:rec.end_time||null, mode:rec.mode, room:rec.room, zoom_link:rec.zoom_link, old_date:(orig.session_date!==rec.session_date)?orig.session_date:null, changes:ch }); }
+  }
   m.className="formmsg ok"; m.textContent=state._sessEdit?"✓ Class updated.":"✓ Class added to the calendar.";
   state._calMonth=date.slice(0,7); cancelSessEdit(); loadCalendar();
 }
 function editSession(id){
   const c=(state._calSess||[]).find(x=>x.id===id); if(!c) return;
-  state._sessEdit=id;
+  state._sessEdit=id; state._sessOrig=c;
   $("cs_title").value=c.title||""; $("cs_teacher").value=c.teacher_id||""; $("cs_branch").value=c.branch_id||"";
   $("cs_date").value=c.session_date||""; $("cs_time").value=c.start_time?c.start_time.slice(0,5):"";
   $("cs_mode").value=c.mode||"in_person"; $("cs_cap").value=c.capacity||8; if($("cs_zoom")) $("cs_zoom").value=c.zoom_link||""; if($("cs_room")) $("cs_room").value=c.room||"";
@@ -2073,10 +2083,15 @@ function cancelSessEdit(){
   if($("addCs")) $("addCs").textContent="Add class to calendar";
   if($("csCancelBtn")) $("csCancelBtn").style.display="none";
 }
+function notifyClassChange(payload){
+  try{ db.functions.invoke("notify-class-change",{ body:payload }); }catch(e){}
+}
 async function delSession(id){
-  if(!confirm("Delete this class from the calendar?")) return;
+  if(!confirm("Delete this class from the calendar? Enrolled students will be emailed that it's cancelled.")) return;
+  const c=(state._calSess||[]).find(x=>x.id===id)||{};
   const { error } = await db.from("class_sessions").delete().eq("id",id);
   if(error){ alert("Couldn't delete — "+error.message); return; }
+  if(c.batch_id) notifyClassChange({ action:"cancelled", batch_id:c.batch_id, title:c.title, date:c.session_date, start_time:c.start_time });
   loadCalendar();
 }
 function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); state._calMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); state._calEdit=null; loadCalendar(); }
@@ -2261,7 +2276,7 @@ async function fillMonthFromTemplate(){
         if(b.day_of_week!==dow) return;
         const key=`${b.name}|${ds}|${(b.start_time||"").slice(0,5)}`;
         if(seen.has(key)) return; seen.add(key);
-        rows.push({ title:b.name, teacher_id:b.teacher_id||null, branch_id:b.branch_id||null, session_date:ds, start_time:b.start_time||null, mode:b.mode||"in_person", capacity:b.capacity||8, zoom_link:b.zoom_link||null, room:b.room||null });
+        rows.push({ title:b.name, teacher_id:b.teacher_id||null, branch_id:b.branch_id||null, session_date:ds, start_time:b.start_time||null, mode:b.mode||"in_person", capacity:b.capacity||8, zoom_link:b.zoom_link||null, room:b.room||null, batch_id:b.id });
       });
     }
     if(!rows.length){ m.className="formmsg ok"; m.textContent="Nothing to add — that month is already filled from the template."; return; }
