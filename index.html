@@ -520,6 +520,7 @@ async function renderDashboard(name, warn){
   M.innerHTML=`<div class="welcome"><div class="ava">${(name[0]||"K").toUpperCase()}</div>
       <div><h2>Welcome, ${esc((name||"").split(" ")[0])}</h2><p>${ROLE_LABELS[state.role]} · Kala Kuteer portal</p></div></div>
     ${warn?`<div class="cfgwarn">⚠️ ${esc(warn)}</div>`:`<span class="ok-pill">✓ Connected to the live database</span>`}
+    ${state.role==="student"?'<div id="dashOnline"></div>':""}
     ${state.role==="student"?'<div id="dashFees"></div>':""}
     ${state.role==="super_admin"?'<div id="ownerStats"></div>':""}
     ${state.role==="super_admin"?'<div id="atRisk"></div>':""}
@@ -532,6 +533,7 @@ async function renderDashboard(name, warn){
     ${admin?'<div id="dashBdays"></div>':""}
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(state.role==="student") loadDashFees();
+  if(state.role==="student") loadDashOnline();
   if(state.role==="super_admin") loadOwnerStats();
   if(state.role==="super_admin") loadAtRisk();
   if(admin){
@@ -555,6 +557,16 @@ async function renderDashboard(name, warn){
   }
 }
 
+async function loadDashOnline(){
+  const C=$("dashOnline"); if(!C) return;
+  const s=await myStudent(); if(!s) return;
+  const today=todayIST(); const end=new Date(Date.now()+7*864e5).toISOString().slice(0,10);
+  const { data } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,zoom_link").in("mode",["online","hybrid"]).not("zoom_link","is",null).gte("session_date",today).lte("session_date",end).order("session_date").order("start_time");
+  let list=data||[];
+  if(s.primary_teacher_id){ const mine=list.filter(c=>c.teacher_id===s.primary_teacher_id); if(mine.length) list=mine; }
+  if(!list.length){ C.innerHTML=""; return; }
+  C.innerHTML=`<div class="panel" style="margin-top:16px;border:1.5px solid var(--saffron)"><h3 style="margin:0 0 8px">🔴 Your online classes — Join</h3>${list.map(c=>{ const isToday=String(c.session_date).slice(0,10)===today; return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)"><div><b>${esc(c.title)}</b>${isToday?` <span class="badge b-green">Today</span>`:""}<div class="mini" style="color:var(--muted)">${esc(String(c.session_date).slice(0,10))}${c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""}</div></div><a class="kbtn teal" href="${esc(safeUrl(c.zoom_link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`; }).join("")}<p class="footnote" style="margin:8px 0 0">Also in My Calendar. Online &amp; hybrid classes both show here.</p></div>`;
+}
 async function loadDashFees(){
   const C=$("dashFees"); if(!C) return;
   const s=await myStudent(); if(!s) return;
