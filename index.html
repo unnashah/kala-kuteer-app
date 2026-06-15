@@ -561,11 +561,19 @@ async function loadDashOnline(){
   const C=$("dashOnline"); if(!C) return;
   const s=await myStudent(); if(!s) return;
   const today=todayIST(); const end=new Date(Date.now()+7*864e5).toISOString().slice(0,10);
+  const wdN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const { data } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,zoom_link").in("mode",["online","hybrid"]).not("zoom_link","is",null).gte("session_date",today).lte("session_date",end).order("session_date").order("start_time");
   let list=data||[];
   if(s.primary_teacher_id){ const mine=list.filter(c=>c.teacher_id===s.primary_teacher_id); if(mine.length) list=mine; }
-  if(!list.length){ C.innerHTML=""; return; }
-  C.innerHTML=`<div class="panel" style="margin-top:16px;border:1.5px solid var(--saffron)"><h3 style="margin:0 0 8px">🔴 Your online classes — Join</h3>${list.map(c=>{ const isToday=String(c.session_date).slice(0,10)===today; return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)"><div><b>${esc(c.title)}</b>${isToday?` <span class="badge b-green">Today</span>`:""}<div class="mini" style="color:var(--muted)">${esc(String(c.session_date).slice(0,10))}${c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""}</div></div><a class="kbtn teal" href="${esc(safeUrl(c.zoom_link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`; }).join("")}<p class="footnote" style="margin:8px 0 0">Also in My Calendar. Online &amp; hybrid classes both show here.</p></div>`;
+  // recurring weekly online classes (work even if no dated sessions yet), scoped to the student's guru
+  let bq=db.from("batches").select("id,name,teacher_id,day_of_week,start_time,mode,zoom_link").in("mode",["online","hybrid"]).not("zoom_link","is",null).eq("is_active",true);
+  if(s.primary_teacher_id) bq=bq.eq("teacher_id",s.primary_teacher_id);
+  const { data:bz } = await bq; const recur=bz||[];
+  if(!list.length && !recur.length){ C.innerHTML=""; return; }
+  const jr=(title,sub,badge,link)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)"><div><b>${esc(title)}</b>${badge}<div class="mini" style="color:var(--muted)">${esc(sub)}</div></div><a class="kbtn teal" href="${esc(safeUrl(link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`;
+  const recurHtml=recur.map(b=>jr(b.name, "Every "+(b.day_of_week!=null?wdN[b.day_of_week]:"week")+(b.start_time?" · "+fmtTime(String(b.start_time).slice(0,5)):"")+(b.mode==="hybrid"?" · hybrid":""), "", b.zoom_link)).join("");
+  const datedHtml=list.map(c=>{ const isToday=String(c.session_date).slice(0,10)===today; return jr(c.title, String(c.session_date).slice(0,10)+(c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""), isToday?` <span class="badge b-green">Today</span>`:"", c.zoom_link); }).join("");
+  C.innerHTML=`<div class="panel" style="margin-top:16px;border:1.5px solid var(--saffron)"><h3 style="margin:0 0 8px">🔴 Your online classes — Join</h3>${recurHtml}${datedHtml}<p class="footnote" style="margin:8px 0 0">Also in My Calendar. Online &amp; hybrid classes both show here.</p></div>`;
 }
 async function loadDashFees(){
   const C=$("dashFees"); if(!C) return;
@@ -3177,6 +3185,8 @@ async function loadStudentCalendar(){
   const me=await myStudent(); const aud=["all"]; if(me){ if(me.branch_id) aud.push("branch:"+me.branch_id); if(me.course_id) aud.push("course:"+me.course_id); }
   const { data:annc } = await db.from("news_posts").select("id,title,event_date,event_end,audience").not("event_date","is",null).in("audience",aud).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
+  const { data:bz } = await db.from("batches").select("id,name,day_of_week,start_time,mode,zoom_link,is_active").in("mode",["online","hybrid"]).not("zoom_link","is",null).eq("is_active",true);
+  state._scalBatch=bz||[];
   state._scalEvents=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end })); state._scalSess=sess||[]; drawStudentCalendar();
 }
 function drawStudentCalendar(){
@@ -3194,8 +3204,13 @@ function drawStudentCalendar(){
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
     cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
   }
+  const wdN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const joinRow=(title,sub,link)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(title)}</b><div class="mini" style="color:var(--muted)">${esc(sub)}</div></div><a class="kbtn teal" href="${esc(safeUrl(link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`;
+  const recur=(state._scalBatch||[]).filter(b=>b.zoom_link);
+  const recurHtml=recur.map(b=>joinRow(b.name, "Every "+(b.day_of_week!=null?wdN[b.day_of_week]:"week")+(b.start_time?" · "+fmtTime(String(b.start_time).slice(0,5)):"")+(b.mode==="hybrid"?" · hybrid":""), b.zoom_link)).join("");
   const online=(state._scalSess||[]).filter(c=>(c.mode==="online"||c.mode==="hybrid")&&c.zoom_link).sort((a,b)=>String((a.session_date||"")+(a.start_time||"")).localeCompare(String((b.session_date||"")+(b.start_time||""))));
-  const onlineHtml=online.length?`<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 8px">🔴 Online classes — Join links</h3>${online.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(c.title)}</b><div class="mini" style="color:var(--muted)">${esc(String(c.session_date).slice(0,10))}${c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""}</div></div><a class="kbtn teal" href="${esc(safeUrl(c.zoom_link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`).join("")}</div>`:"";
+  const datedHtml=online.map(c=>joinRow(c.title, String(c.session_date).slice(0,10)+(c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""), c.zoom_link)).join("");
+  const onlineHtml=(recur.length||online.length)?`<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 8px">🔴 Online classes — Join links</h3>${recurHtml}${datedHtml}</div>`:"";
   $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>${onlineHtml}`;
 }
 function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); state._scalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadStudentCalendar(); }
