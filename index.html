@@ -2010,7 +2010,7 @@ function drawCalendar(){
       <td><b>${esc(c.title)}</b>${c.room?` <span class="mini">· ${esc(c.room)}</span>`:""}${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td>
       <td>${esc(teacherName(c.teacher_id))}</td>
       <td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td>
-      <td class="mini"><span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
+      <td class="mini">${c.batch_id?`<span class="rowbtn" onclick="manageClass('${c.batch_id}')">👥 Students</span>`:`<span class="mini" style="color:var(--muted)" title="A one-off class isn't a weekly class, so it has no enrolment. Enrol on the weekly class instead.">one-off</span>`}<span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
     </tr>`).join("")}</table></div>`:`<div class="empty">No classes scheduled in ${MONS[mo-1]} ${y} — schedule one above or click a day.</div>`;
   const list=state._events||[];
   const evList=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
@@ -2340,12 +2340,13 @@ async function delClass(id){
 /* ----- enrol / remove students in a class ----- */
 async function manageClass(id){
   const M=$("mainArea");
-  const b=(state._classes||[]).find(x=>x.id===id);
+  let b=(state._classes||[]).find(x=>x.id===id);
   M.innerHTML=`<div class="empty">Loading…</div>`;
   await loadClassRefs();
+  if(!b){ const { data:bb } = await db.from("batches").select("id,name,teacher_id,day_of_week,start_time,capacity,branch_id,branches(name),courses(name)").eq("id",id).maybeSingle(); b=bb||null; }
   const { data:enr } = await db.from("enrollments").select("id,student_id,status,students(full_name,branches(name))").eq("batch_id",id).order("created_at");
   state._mc={ id, b, enr:enr||[] };
-  const { data:studs } = await db.from("students").select("id,full_name,branches(name)").eq("status","active").order("full_name");
+  const { data:studs } = await db.from("students").select("id,full_name,branch_id,course_id,branches(name),courses(name)").eq("status","active").order("full_name");
   const enrolledIds=new Set((enr||[]).map(e=>e.student_id));
   state._mcStuds=(studs||[]).filter(s=>!enrolledIds.has(s.id));
   drawManageClass();
@@ -2354,14 +2355,28 @@ function drawManageClass(){
   const { id, b, enr } = state._mc;
   const M=$("mainArea");
   const enrolled=enr.length?`<table><tr><th>Student</th><th>Branch</th><th></th></tr>${enr.map(e=>`<tr><td><b>${esc(e.students?.full_name||"—")}</b></td><td class="mini">${esc(e.students?.branches?.name||"—")}</td><td class="mini"><span class="rowbtn danger" onclick="removeEnrollment('${e.id}')">Remove</span></td></tr>`).join("")}</table>`:`<div class="empty">No students enrolled yet.</div>`;
-  const addOpts=(state._mcStuds||[]).map(s=>`<option value="${s.id}">${esc(s.full_name)}${s.branches?.name?" · "+esc(s.branches.name):""}</option>`).join("");
+  const branchOpts=state.branches.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");
+  const cMap={}; (state._mcStuds||[]).forEach(s=>{ if(s.course_id) cMap[s.course_id]=s.courses?.name||"Course"; });
+  const courseOpts=Object.keys(cMap).map(cid=>`<option value="${cid}">${esc(cMap[cid])}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>${esc(b?b.name:"Class")} — students</h2><p>${esc(teacherName(b&&b.teacher_id))} · ${esc(b?classSchedule(b):"")} · ${enr.length} enrolled</p></div>
       <button class="kbtn ghost" onclick="gotoNav('calendar')">← Back to Calendar</button></div>
     <div class="panel" style="margin-bottom:14px"><h3>Enrol a student</h3>
-      <div class="searchbar"><select id="mc_student" style="flex:1">${addOpts?`<option value="">Select a student…</option>${addOpts}`:`<option value="">No more active students to add</option>`}</select>
+      <div class="form2" style="margin-bottom:8px">
+        <div class="kf"><label>Filter by centre</label><select id="mcBranchF" onchange="mcFillStudents()"><option value="">All centres</option>${branchOpts}</select></div>
+        <div class="kf"><label>Filter by course</label><select id="mcCourseF" onchange="mcFillStudents()"><option value="">All courses</option>${courseOpts}</select></div>
+      </div>
+      <div class="searchbar"><select id="mc_student" style="flex:1"></select>
         <button class="kbtn teal" onclick="addEnrollment()">Enrol</button></div>
+      <p class="mini" id="mcCount" style="color:var(--muted);margin:6px 0 0"></p>
       <div class="formmsg" id="mcMsg"></div></div>
     <div class="panel"><h3>Enrolled students</h3>${enrolled}</div>`;
+  mcFillStudents();
+}
+function mcFillStudents(){
+  const bf=($("mcBranchF")&&$("mcBranchF").value)||""; const cf=($("mcCourseF")&&$("mcCourseF").value)||"";
+  const list=(state._mcStuds||[]).filter(s=>(!bf||s.branch_id===bf)&&(!cf||s.course_id===cf));
+  const sel=$("mc_student"); if(sel) sel.innerHTML=list.length?`<option value="">Select a student…</option>`+list.map(s=>`<option value="${s.id}">${esc(s.full_name)}${s.branches?.name?" · "+esc(s.branches.name):""}</option>`).join(""):`<option value="">No matching students</option>`;
+  if($("mcCount")) $("mcCount").textContent=`${list.length} student${list.length===1?"":"s"} match — pick one and tap Enrol.`;
 }
 async function addEnrollment(){
   const m=$("mcMsg"); const sid=$("mc_student").value; if(!sid){ m.className="formmsg err"; m.textContent="Pick a student first."; return; }
