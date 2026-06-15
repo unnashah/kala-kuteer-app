@@ -1,1 +1,28 @@
+name: Class reminders (evening, for next day)
 
+# Runs every evening and emails each student the class(es) they have
+# the NEXT day, with a Join Zoom link for online/hybrid classes.
+on:
+  schedule:
+    - cron: "30 13 * * *"     # 13:30 UTC = 7:00 PM IST, every day
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Send ONE test CLASS REMINDER to this address (leave blank for a normal run)"
+        required: false
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Class reminders
+        run: |
+          if [ -n "${{ github.event.inputs.test_email }}" ]; then
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\",\"test\":\"${{ github.event.inputs.test_email }}\"}"
+          else
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\"}"
+          fi
+          curl -fsS -X POST "https://qazimpjrscihrfjaycxb.supabase.co/functions/v1/send-class-reminders" \
+            -H "x-cron-key: ${{ secrets.CRON_SECRET }}" -H "Content-Type: application/json" -d "$BODY"
+          echo ""
