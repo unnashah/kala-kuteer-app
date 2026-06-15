@@ -3365,6 +3365,7 @@ async function renderTeachers(){
         <div><div class="kf"><label>Starting password *</label><input id="t_pass" placeholder="min 6 chars — they can change it later"></div>
           <div class="kf"><label>Instrument / subject (optional)</label><input id="t_disc" placeholder="e.g. Sitar, Tabla"></div></div>
       </div>
+      <div class="kf"><label>Default Zoom link (optional) <span class="mini" style="color:var(--muted)">— their room for online/hybrid classes; you can add this later via Edit</span></label><input id="t_zoom" placeholder="https://us06web.zoom.us/j/…"></div>
       <div class="formmsg" id="tMsg"></div>
       <button class="kbtn teal" id="addTeacher">Create teacher login</button>
     </div>
@@ -3468,7 +3469,7 @@ async function saveTeacherEdits(id, profileId){
   loadTeachers();
 }
 async function addTeacher(){
-  const m=$("tMsg"); const name=$("t_name").value.trim(), email=$("t_email").value.trim(), pass=$("t_pass").value, disc=$("t_disc").value.trim();
+  const m=$("tMsg"); const name=$("t_name").value.trim(), email=$("t_email").value.trim(), pass=$("t_pass").value, disc=$("t_disc").value.trim(); const zoom=($("t_zoom")&&$("t_zoom").value.trim())||"";
   if(!name) return failMsg(m,"Enter the teacher's name.");
   if(!email) return failMsg(m,"Enter an email.");
   if(!pass||pass.length<6) return failMsg(m,"Starting password must be at least 6 characters.");
@@ -3476,7 +3477,9 @@ async function addTeacher(){
   const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"create_staff", role:"teacher", name, email, password:pass, disciplines: disc?disc.split(",").map(x=>x.trim()).filter(Boolean):[] } });
   $("addTeacher").disabled=false;
   if(ferr){ return failMsg(m,"Couldn't create — "+(await fnErr(ferr))); }
-  if(fn && fn.ok){ m.className="formmsg ok"; m.textContent="✓ Teacher created. They sign in on the Staff tab with "+email+" and the password you set."; ["t_name","t_email","t_pass","t_disc"].forEach(i=>$(i).value=""); loadTeachers(); }
+  if(fn && fn.ok){
+    if(zoom){ try{ const { data:tt } = await db.from("teachers").select("id,profiles(email)").order("created_at",{ascending:false}).limit(25); const mine=(tt||[]).find(x=>((x.profiles&&x.profiles.email)||"").toLowerCase()===email.toLowerCase()); if(mine) await db.from("teachers").update({ zoom_link:zoom }).eq("id",mine.id); }catch(e){} }
+    m.className="formmsg ok"; m.textContent="✓ Teacher created. They sign in on the Staff tab with "+email+" and the password you set."; ["t_name","t_email","t_pass","t_disc","t_zoom"].forEach(i=>{ if($(i)) $(i).value=""; }); loadTeachers(); }
   else failMsg(m,"Couldn't create — "+((fn&&fn.error)||"unknown"));
 }
 function failMsg(m,t){ if(m){ m.className="formmsg err"; m.textContent=t; } return false; }
