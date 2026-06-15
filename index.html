@@ -1922,6 +1922,8 @@ async function renderCalendar(){
   state._calMonth = state._calMonth || todayIST().slice(0,7);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  const courseOpts=(state._classCourses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  state._csChecked=new Set();
   M.innerHTML=`<div class="ph"><div><h2>Calendar</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Add a one-off class</h3>
       <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place a class on it. Schedules can differ week to week.</p>
@@ -1945,6 +1947,17 @@ async function renderCalendar(){
         <div class="kf"><label>Mode</label><select id="cs_mode" onchange="onSessMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
         <div class="kf" id="cs_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cs_zoom" placeholder="https://…"><span class="mini" style="color:var(--warn)">⚠️ All online classes share ONE school Zoom account — only one can run at a time. Check no other guru has an online class in this slot.</span><span class="mini" style="color:var(--muted)">Leave blank to use this guru's saved Zoom link.</span></div>
       </div>
+      <details class="panel" id="cs_enrolBox" style="margin:6px 0 10px;background:#fff;border-color:#E3C285"><summary style="cursor:pointer;font-weight:700;font-size:13px">👥 Enrol students into this class (optional)</summary>
+        <div style="margin-top:10px">
+          <div class="form2">
+            <div class="kf"><label>Centre</label><select id="cs_fBranch" onchange="cs_fillStudents()"><option value="">All centres</option>${branchOpts}</select></div>
+            <div class="kf"><label>Guru</label><select id="cs_fGuru" onchange="cs_fillStudents()"><option value="">All gurus</option>${teachOpts}</select></div>
+          </div>
+          <div class="kf"><label>Course</label><select id="cs_fCourse" onchange="cs_fillStudents()"><option value="">All courses</option>${courseOpts}</select></div>
+          <div id="cs_stuList" style="max-height:220px;overflow:auto;border:1px solid #E3C285;border-radius:8px;padding:8px;margin-top:8px"></div>
+          <p class="mini" id="cs_stuCount" style="color:var(--muted);margin:6px 0 0"></p>
+        </div>
+      </details>
       <div class="formmsg" id="csMsg"></div>
       <button class="kbtn teal" id="addCs" onclick="saveSession()">Add class to calendar</button>
       <button class="kbtn ghost" id="csCancelBtn" style="display:none;margin-left:6px" onclick="cancelSessEdit()">Cancel</button>
@@ -1964,6 +1977,7 @@ async function renderCalendar(){
   const t=todayIST();
   if($("cs_date")) $("cs_date").value=t;
   wireWeeklyClasses();
+  cs_fillStudents();
   loadCalendar();
 }
 async function loadCalendar(){
@@ -2010,7 +2024,7 @@ function drawCalendar(){
       <td><b>${esc(c.title)}</b>${c.room?` <span class="mini">· ${esc(c.room)}</span>`:""}${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td>
       <td>${esc(teacherName(c.teacher_id))}</td>
       <td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td>
-      <td class="mini">${c.batch_id?`<span class="rowbtn" onclick="manageClass('${c.batch_id}')">👥 Students</span>`:`<span class="mini" style="color:var(--muted)" title="A one-off class isn't a weekly class, so it has no enrolment. Enrol on the weekly class instead.">one-off</span>`}<span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
+      <td class="mini">${c.batch_id?`<span class="rowbtn" onclick="manageClass('${c.batch_id}')">👥 Students</span>`:`<span class="rowbtn" onclick="editSession('${c.id}')">👥 Students</span>`}<span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
     </tr>`).join("")}</table></div>`:`<div class="empty">No classes scheduled in ${MONS[mo-1]} ${y} — schedule one above or click a day.</div>`;
   const list=state._events||[];
   const evList=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
@@ -2025,6 +2039,24 @@ function drawCalendar(){
   if($("cs_roomList")) $("cs_roomList").innerHTML=_rooms.map(r=>`<option value="${esc(r)}">`).join("");
 }
 function onSessMode(){ const m=$("cs_mode")?$("cs_mode").value:"in_person"; if($("cs_zoomWrap")) $("cs_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
+function cs_fillStudents(){
+  const bf=($("cs_fBranch")&&$("cs_fBranch").value)||"", gf=($("cs_fGuru")&&$("cs_fGuru").value)||"", cf=($("cs_fCourse")&&$("cs_fCourse").value)||"";
+  state._csChecked=state._csChecked||new Set();
+  const list=(state._calStuds||[]).filter(s=>(!bf||s.branch_id===bf)&&(!gf||s.primary_teacher_id===gf)&&(!cf||s.course_id===cf));
+  const el=$("cs_stuList"); if(!el) return;
+  el.innerHTML=list.length?list.map(s=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px"><input type="checkbox" value="${s.id}" ${state._csChecked.has(s.id)?"checked":""} onchange="cs_toggleStu('${s.id}',this.checked)"> ${esc(s.full_name)}${s.branches?.name?` <span class="mini" style="color:var(--muted)">· ${esc(s.branches.name)}</span>`:""}</label>`).join(""):`<div class="mini" style="color:var(--muted)">No matching students.</div>`;
+  cs_updateCount();
+}
+function cs_toggleStu(id,on){ state._csChecked=state._csChecked||new Set(); if(on) state._csChecked.add(id); else state._csChecked.delete(id); cs_updateCount(); }
+function cs_updateCount(){ const n=(state._csChecked||new Set()).size; if($("cs_stuCount")) $("cs_stuCount").textContent=n?`${n} student${n===1?"":"s"} selected — they'll be saved to this class.`:"No students selected yet."; }
+async function sessionRecipients(sess){
+  let ids=[];
+  try{ const { data:ss } = await db.from("session_students").select("student_id").eq("session_id",sess.id); ids=(ss||[]).map(r=>r.student_id); }catch(e){}
+  if(!ids.length && sess.batch_id){ const { data:en } = await db.from("enrollments").select("student_id").eq("batch_id",sess.batch_id).eq("status","confirmed"); ids=(en||[]).map(r=>r.student_id); }
+  if(!ids.length) return [];
+  const { data:st } = await db.from("students").select("id,full_name,is_minor,status,email,parent_email,parent_name").in("id",ids).eq("status","active");
+  return (st||[]).map(s=>{ const to=s.is_minor?(s.parent_email||s.email):(s.email||s.parent_email); const name=(s.is_minor&&s.parent_name)?s.parent_name:(s.full_name||"there"); return to?{email:to,name}:null; }).filter(Boolean);
+}
 function pickSessionDate(ds){ if($("cs_date")) $("cs_date").value=ds; const m=$("csMsg"); if(m){ m.className="formmsg ok"; m.textContent="Date set to "+ds+" — fill the class details and Add."; } window.scrollTo({top:0,behavior:"smooth"}); if($("cs_title")) $("cs_title").focus(); }
 async function saveSession(){
   const m=$("csMsg"); const title=$("cs_title").value.trim(), date=$("cs_date").value;
@@ -2046,10 +2078,13 @@ async function saveSession(){
   if(!(await onlineSlotOK({mode, kind:"session", date, start:rec.start_time, end:rec.end_time||null, excludeId:state._sessEdit||null}))){ m.className="formmsg"; m.textContent=""; return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("addCs").disabled=true;
   let error;
+  let newId=null;
   if(state._sessEdit){ ({ error } = await db.from("class_sessions").update(rec).eq("id",state._sessEdit)); }
-  else { ({ error } = await db.from("class_sessions").insert(rec)); }
+  else { const ins=await db.from("class_sessions").insert(rec).select("id").single(); error=ins.error; newId=ins.data&&ins.data.id; }
   $("addCs").disabled=false;
   if(error) return failMsg(m,"Couldn't save — "+error.message);
+  const _sid=state._sessEdit||newId;
+  if(_sid){ const want=[...(state._csChecked||new Set())]; await db.from("session_students").delete().eq("session_id",_sid); if(want.length){ await db.from("session_students").insert(want.map(x=>({session_id:_sid, student_id:x}))); } }
   if(state._sessEdit){
     const orig=state._sessOrig||{}; const ch=[];
     const ot=(orig.start_time||"").slice(0,5), nt=(rec.start_time||"").slice(0,5);
@@ -2058,14 +2093,17 @@ async function saveSession(){
     if((orig.mode||"")!==(rec.mode||"")) ch.push(`Mode: ${orig.mode||"—"} → ${rec.mode||"—"}`);
     if((orig.room||"")!==(rec.room||"")) ch.push(`Room: ${orig.room||"—"} → ${rec.room||"—"}`);
     if((orig.zoom_link||"")!==(rec.zoom_link||"")) ch.push("Zoom link updated");
-    if(ch.length && orig.batch_id){ notifyClassChange({ action:"changed", batch_id:orig.batch_id, title:rec.title, date:rec.session_date, start_time:rec.start_time, end_time:rec.end_time||null, mode:rec.mode, room:rec.room, zoom_link:rec.zoom_link, old_date:(orig.session_date!==rec.session_date)?orig.session_date:null, changes:ch }); }
+    if(ch.length){ const recips=await sessionRecipients({id:state._sessEdit, batch_id:orig.batch_id}); if(recips.length) notifyClassChange({ action:"changed", recipients:recips, session_id:state._sessEdit, batch_id:orig.batch_id||null, title:rec.title, date:rec.session_date, start_time:rec.start_time, end_time:rec.end_time||null, mode:rec.mode, room:rec.room, zoom_link:rec.zoom_link, old_date:(orig.session_date!==rec.session_date)?orig.session_date:null, changes:ch }); }
   }
   m.className="formmsg ok"; m.textContent=state._sessEdit?"✓ Class updated.":"✓ Class added to the calendar.";
   state._calMonth=date.slice(0,7); cancelSessEdit(); loadCalendar();
 }
-function editSession(id){
+async function editSession(id){
   const c=(state._calSess||[]).find(x=>x.id===id); if(!c) return;
   state._sessEdit=id; state._sessOrig=c;
+  state._csChecked=new Set();
+  try{ const { data:rs } = await db.from("session_students").select("student_id").eq("session_id",id); (rs||[]).forEach(r=>state._csChecked.add(r.student_id)); }catch(e){}
+  if($("cs_enrolBox")) $("cs_enrolBox").open=true; cs_fillStudents();
   $("cs_title").value=c.title||""; $("cs_teacher").value=c.teacher_id||""; $("cs_branch").value=c.branch_id||"";
   $("cs_date").value=c.session_date||""; $("cs_time").value=c.start_time?c.start_time.slice(0,5):"";
   $("cs_mode").value=c.mode||"in_person"; $("cs_cap").value=c.capacity||8; if($("cs_zoom")) $("cs_zoom").value=c.zoom_link||""; if($("cs_room")) $("cs_room").value=c.room||"";
@@ -2082,6 +2120,7 @@ function cancelSessEdit(){
   if($("csFormTitle")) $("csFormTitle").textContent="Add a one-off class";
   if($("addCs")) $("addCs").textContent="Add class to calendar";
   if($("csCancelBtn")) $("csCancelBtn").style.display="none";
+  state._csChecked=new Set(); ["cs_fBranch","cs_fGuru","cs_fCourse"].forEach(x=>{ if($(x)) $(x).value=""; }); cs_fillStudents();
 }
 function notifyClassChange(payload){
   try{ db.functions.invoke("notify-class-change",{ body:payload }); }catch(e){}
@@ -2089,9 +2128,10 @@ function notifyClassChange(payload){
 async function delSession(id){
   if(!confirm("Delete this class from the calendar? Enrolled students will be emailed that it's cancelled.")) return;
   const c=(state._calSess||[]).find(x=>x.id===id)||{};
+  const recips=await sessionRecipients({id, batch_id:c.batch_id});
   const { error } = await db.from("class_sessions").delete().eq("id",id);
   if(error){ alert("Couldn't delete — "+error.message); return; }
-  if(c.batch_id) notifyClassChange({ action:"cancelled", batch_id:c.batch_id, title:c.title, date:c.session_date, start_time:c.start_time });
+  if(recips.length) notifyClassChange({ action:"cancelled", recipients:recips, session_id:id, batch_id:c.batch_id||null, title:c.title, date:c.session_date, start_time:c.start_time });
   loadCalendar();
 }
 function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); state._calMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); state._calEdit=null; loadCalendar(); }
@@ -2148,6 +2188,10 @@ function classSchedule(b){ const d=(b.day_of_week!=null)?DOW[b.day_of_week]:null
 async function loadClassRefs(){
   const { data:t } = await db.from("teachers").select("id,profiles(full_name)").eq("is_active",true);
   state._classTeachers=(t||[]).map(x=>({ id:x.id, name:x.profiles?.full_name||"(unnamed)" }));
+  const { data:cc } = await db.from("courses").select("id,name").eq("is_active",true).order("name");
+  state._classCourses=cc||[];
+  const { data:ss } = await db.from("students").select("id,full_name,branch_id,course_id,primary_teacher_id,branches(name)").eq("status","active").order("full_name");
+  state._calStuds=ss||[];
 }
 function teacherName(id){ const t=(state._classTeachers||[]).find(x=>x.id===id); return t?t.name:"—"; }
 async function renderClasses(){ return renderCalendar(); }
