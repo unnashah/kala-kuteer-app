@@ -3939,12 +3939,13 @@ async function renderStudentDetail(id){
 }
 async function loadStudentCourses(id){
   const C=$("stuCourses"); if(!C) return;
+  try{ await loadRef(); }catch(e){}
   let scs=[], errored=false;
-  try{ const r=await db.from("student_courses").select("id,course_id,teacher_id,monthly_fee,status,courses(name)").eq("student_id",id).order("start_date"); if(r.error) errored=true; else scs=r.data||[]; }
+  try{ const r=await db.from("student_courses").select("id,course_id,teacher_id,monthly_fee,status").eq("student_id",id).order("start_date"); if(r.error) errored=true; else scs=r.data||[]; }
   catch(e){ errored=true; }
   if(errored){ C.innerHTML=`<div class="panel"><h3>Courses</h3><div class="cfgwarn">Multi-course isn't switched on in the database yet — run <b>migration-multi-course.sql</b> in Supabase, then this panel will work.</div></div>`; return; }
   const cName=cid=>{ const c=(state.courses||[]).find(x=>x.id===cid); return c?c.name:"—"; };
-  const rows = scs.length ? scs.map(sc=>`<div class="dl"><span class="k">${esc(sc.courses?.name||cName(sc.course_id))}</span><span>${esc(teacherName(sc.teacher_id))} · <b>${INR(sc.monthly_fee)}</b> · <span class="badge ${STATUS_BADGE[sc.status]||"b-grey"}">${esc((sc.status||"").replace("_"," "))}</span> &nbsp;<span class="rowbtn edit" onclick="editStudentCourse('${id}','${sc.id}')">✏️ Edit</span> <span class="rowbtn danger" onclick="removeStudentCourse('${id}','${sc.id}')">Remove</span></span></div>`).join("") : `<div class="empty">No courses yet — add the first one below.</div>`;
+  const rows = scs.length ? scs.map(sc=>`<div class="dl"><span class="k">${esc(cName(sc.course_id))}</span><span>${esc(teacherName(sc.teacher_id))} · <b>${INR(sc.monthly_fee)}</b> · <span class="badge ${STATUS_BADGE[sc.status]||"b-grey"}">${esc((sc.status||"").replace("_"," "))}</span> &nbsp;<span class="rowbtn edit" onclick="editStudentCourse('${id}','${sc.id}')">✏️ Edit</span> <span class="rowbtn danger" onclick="removeStudentCourse('${id}','${sc.id}')">Remove</span></span></div>`).join("") : `<div class="empty">No courses yet — add the first one below.</div>`;
   const courseOpts=(state.courses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const statusOpts=["active","on_break","completed"].map(x=>`<option value="${x}">${x.replace("_"," ")}</option>`).join("");
