@@ -158,7 +158,7 @@
         <button class="signin" id="signinBtn">Sign in</button>
       </div>
       <div class="msg" id="loginMsg"></div>
-      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.<br>Forgot your PIN or password? Please contact the school office.</div>
+      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.<br>Forgot your PIN or password? Please contact the school office.<br><a href="#checkin" onclick="renderKiosk();return false;" style="color:var(--maroon);font-weight:600;text-decoration:none">🏫 School iPad — self check-in</a></div>
     </form>
   </div>
 
@@ -197,6 +197,7 @@ const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let kioskDb = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:false, autoRefreshToken:false, storageKey:"kk-kiosk" } }) : null;
 const state = { role:"student", name:"", branches:[], courses:[], refLoaded:false };
 
 const $ = id => document.getElementById(id);
@@ -210,11 +211,75 @@ function msg(t, ok){ const m=$("loginMsg"); m.textContent=t; m.className="msg "+
 function ageFromDOB(d){ if(!d) return null; const b=new Date(d), n=new Date(); let a=n.getFullYear()-b.getFullYear(); const m=n.getMonth()-b.getMonth(); if(m<0||(m===0&&n.getDate()<b.getDate())) a--; return a; }
 
 async function init(){
+  if(location.hash==="#checkin"){ try{ await db.auth.signOut(); }catch(e){} return renderKiosk(); }
   if(!cfgOk){ $("cfgwarn").classList.remove("hide"); show("login"); return; }
   const { data:{ session } } = await db.auth.getSession();
   if(session) loadApp(session); else show("login");
   db.auth.onAuthStateChange((_e,s)=>{ if(s) loadApp(s); else show("login"); });
 }
+window.addEventListener("hashchange",function(){ if(location.hash==="#checkin") renderKiosk(); });
+
+/* ---------------- SELF CHECK-IN KIOSK (shared school iPad) ---------------- */
+function renderKiosk(){
+  try{ if(location.hash!=="#checkin") history.replaceState(null,"","#checkin"); }catch(e){}
+  show("login");
+  $("login").innerHTML=`<div style="max-width:470px;margin:22px auto;padding:0 14px">
+    <div style="text-align:center;margin-bottom:14px"><img src="apple-touch-icon.png" alt="Kala Kuteer" style="height:64px" onerror="this.style.display='none'"><div style="font-size:12px;color:var(--maroon);font-weight:700;letter-spacing:2px;margin-top:6px">KALA KUTEER · CHECK-IN</div></div>
+    <div class="panel" id="kioskCard"></div>
+    <div style="text-align:center;margin-top:12px"><a href="#" onclick="location.hash='';location.reload();return false;" class="mini" style="color:var(--muted)">Exit check-in (staff)</a></div>
+  </div>`;
+  kioskStep1();
+}
+function kioskStep1(){
+  if(window._kioskTimer) clearTimeout(window._kioskTimer);
+  $("kioskCard").innerHTML=`<h2 style="margin:0 0 4px;color:var(--maroon)">Mark your attendance</h2>
+    <p class="mini" style="color:var(--muted);margin:0 0 14px">Enter your mobile number and PIN, then pick your class.</p>
+    <div class="kf"><label>Mobile number</label><div style="display:flex;gap:6px"><select id="k_cc" style="max-width:88px"><option value="+91" selected>+91</option><option value="+1">+1</option><option value="+44">+44</option><option value="+971">+971</option></select><input id="k_num" inputmode="numeric" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')" style="font-size:17px"></div></div>
+    <div class="kf"><label>Your 6-digit PIN</label><input id="k_pin" inputmode="numeric" maxlength="6" type="password" placeholder="••••••" oninput="this.value=this.value.replace(/\\D/g,'')" style="font-size:17px;letter-spacing:4px"></div>
+    <div class="formmsg" id="k_msg"></div>
+    <button class="kbtn teal" style="width:100%;font-size:16px;padding:13px" id="k_find" onclick="kioskFind()">Find my classes →</button>`;
+  setTimeout(()=>{ if($("k_num")) $("k_num").focus(); },60);
+}
+async function kioskFind(){
+  const m=$("k_msg"); const cc=($("k_cc").value||"+91").replace("+",""), num=($("k_num").value||"").replace(/\D/g,""), pin=$("k_pin").value;
+  if(!num||(pin||"").length<4){ m.className="formmsg err"; m.textContent="Enter your mobile number and PIN."; return; }
+  m.className="formmsg ok"; m.textContent="Checking…"; if($("k_find")) $("k_find").disabled=true;
+  const email=cc+num+"@student.kalakuteer.org";
+  const { data:au, error } = await kioskDb.auth.signInWithPassword({ email, password:pin });
+  if($("k_find")) $("k_find").disabled=false;
+  if(error||!au||!au.user){ m.className="formmsg err"; m.textContent="Couldn't verify — please check your mobile number and PIN, or ask the front desk."; return; }
+  let name="there"; try{ const { data:st } = await kioskDb.from("students").select("full_name").eq("profile_id",au.user.id).maybeSingle(); if(st&&st.full_name) name=st.full_name.split(" ")[0]; }catch(e){}
+  let cls=[]; try{ const { data } = await kioskDb.rpc("my_classes_today"); cls=data||[]; }catch(e){}
+  kioskStep2(name, cls);
+}
+function kioskStep2(name, cls){
+  if(window._kioskTimer) clearTimeout(window._kioskTimer);
+  window._kioskTimer=setTimeout(kioskReset, 45000);
+  const list=cls.length?cls.slice().sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<button class="kbtn ghost" style="width:100%;text-align:left;padding:13px 14px;margin-bottom:8px;font-size:15px" onclick="kioskPick('${c.batch_id}', this)"><b>${esc(c.name)}</b>${c.start_time?" · "+fmtTime(String(c.start_time).slice(0,5)):""}${c.branch?" · "+esc(c.branch):""}</button>`).join(""):`<div class="mini" style="color:var(--muted);padding:8px 0">No classes scheduled for you today. If this looks wrong, please tell the front desk.</div>`;
+  $("kioskCard").innerHTML=`<h2 style="margin:0 0 2px;color:var(--maroon)">Hi ${esc(name)} 👋</h2>
+    <p class="mini" style="color:var(--muted);margin:0 0 14px">Tap the class you're attending:</p>
+    ${list}
+    <div class="formmsg" id="k_msg2"></div>
+    <button class="kbtn ghost" style="width:100%;margin-top:6px" onclick="kioskReset()">← Not you? Start over</button>`;
+}
+async function kioskPick(batchId, btn){
+  if(window._kioskTimer) clearTimeout(window._kioskTimer);
+  const m=$("k_msg2"); if(btn) btn.disabled=true; if(m){ m.className="formmsg ok"; m.textContent="Marking present…"; }
+  let res, error; try{ ({ data:res, error } = await kioskDb.rpc("student_self_checkin",{ p_batch:batchId })); }catch(e){ error=e; }
+  if(error||res!=="ok"){ if(m){ m.className="formmsg err"; m.textContent=res==="not_today"?"That class isn't scheduled today.":res==="not_your_class"?"That isn't one of your classes.":"Couldn't mark you — please tell the front desk."; } if(btn) btn.disabled=false; window._kioskTimer=setTimeout(kioskReset,45000); return; }
+  kioskDone();
+}
+function kioskDone(){
+  if(window._kioskTimer) clearTimeout(window._kioskTimer);
+  try{ kioskDb.auth.signOut(); }catch(e){}
+  $("kioskCard").innerHTML=`<div style="text-align:center;padding:20px 6px">
+    <div style="font-size:52px;line-height:1">✅</div>
+    <h2 style="color:var(--good);margin:10px 0 4px">You're marked present!</h2>
+    <p class="mini" style="color:var(--muted)">Have a wonderful class. 🎶</p>
+    <button class="kbtn teal" style="margin-top:14px;padding:12px 24px" onclick="kioskReset()">Done</button></div>`;
+  window._kioskTimer=setTimeout(kioskReset, 5000);
+}
+function kioskReset(){ if(window._kioskTimer) clearTimeout(window._kioskTimer); try{ kioskDb.auth.signOut(); }catch(e){} kioskStep1(); }
 async function signIn(){
   const email=$("email").value.trim(), password=$("password").value;
   if(!email||!password){ msg("Please enter your email and password."); return; }
@@ -1017,46 +1082,46 @@ async function loadFees(){
   $("feeList").innerHTML=`<div class="empty">Loading…</div>`;
   const { data:studs, error } = await db.from("students").select("id,full_name,join_date,branches(name,monthly_fee,allow_plans)").or(`status.eq.active,status_effective_date.gt.${P.start}`).order("full_name");
   if(error){ $("feeList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
-  const { data:inv } = await db.from("invoices").select("id,student_id,amount,due_date,status,student_response,period_label,period_start,period_end,months").lte("period_start",P.end).gte("period_end",P.start);
-  const invMap={}; (inv||[]).forEach(i=>invMap[i.student_id]=i);
+  const { data:inv } = await db.from("invoices").select("id,student_id,course_id,amount,due_date,status,student_response,period_label,period_start,period_end,months").lte("period_start",P.end).gte("period_end",P.start);
+  const invByStu={}; (inv||[]).forEach(i=>{ (invByStu[i.student_id]=invByStu[i.student_id]||[]).push(i); });
   const invIds=(inv||[]).map(i=>i.id); let payMap={};
   if(invIds.length){ const { data:pays } = await db.from("payments").select("invoice_id,method").in("invoice_id",invIds); (pays||[]).forEach(p=>payMap[p.invoice_id]=p.method); }
   const [py,pm]=P.v.split("-").map(Number); const pnext=`${pm===12?py+1:py}-${PAD(pm===12?1:pm+1)}-01`;
   const periodPays = await fetchAll(()=> db.from("payments").select("amount,method,paid_at,invoices(registration)").gte("paid_at",P.start).lt("paid_at",pnext));
-  state._fee={ studs, invMap, payMap, periodPays:periodPays||[], P };
+  state._fee={ studs, invByStu, payMap, periodPays:periodPays||[], P };
   drawFees();
 }
 function drawFees(){
-  const { studs, invMap, payMap, P } = state._fee;
+  const { studs, invByStu, payMap, P } = state._fee;
   const today=todayIST();
   let billed=0, collected=0;
-  const rows=studs.map(s=>{
-    const inv=invMap[s.id]; const allow=!!(s.branches&&s.branches.allow_plans);
-    let stHtml, action="", amtCell="—";
-    if(inv){
-      const startsThis = inv.period_start? (inv.period_start>=P.start) : true;
-      const multi=(inv.months||1)>1;
-      if(startsThis){
-        billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount);
-        amtCell=INR(inv.amount)+(multi?` <span class="mini" style="color:var(--muted)">· ${inv.months}mo</span>`:"");
-        if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>${multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:""}`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>${state.role==="super_admin"?` <span class="rowbtn edit" onclick="voidPayment('${inv.id}')">↩︎ Undo</span>`:""}`; }
-        else { const overdue=inv.due_date<today;
-          stHtml=(overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`)+(multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:"");
-          if(inv.student_response==="says_paid"||inv.student_response==="paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
-          else if(inv.student_response==="will_pay_later") stHtml+=` <span class="badge b-grey">Student: will pay later</span>`;
-          action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
-        }
-      } else {
-        stHtml=`<span class="badge b-green">Covered · paid ahead${inv.period_end?" through "+esc(inv.period_end):""}</span>`;
+  const courseName=cid=>{ const c=(state.courses||[]).find(x=>x.id===cid); return c?c.name:""; };
+  const noInvRow=(s)=>{ const allow=!!(s.branches&&s.branches.allow_plans);
+    const amtCell=(s.branches&&s.branches.monthly_fee)?INR(s.branches.monthly_fee):"—";
+    const opts= allow? `<option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option>` : `<option value="1">1 month</option>`;
+    const action=`<select id="rp_${s.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">${opts}</select> <span class="rowbtn edit" onclick="adminRaisePlan('${s.id}')">Raise</span>`;
+    return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amtCell}</td><td><span class="badge b-grey">No invoice</span></td><td>${action}</td></tr>`;
+  };
+  const invRow=(s,inv)=>{ let stHtml, action="", amtCell="—";
+    const startsThis = inv.period_start? (inv.period_start>=P.start) : true;
+    const multi=(inv.months||1)>1;
+    if(startsThis){
+      billed+=Number(inv.amount); if(inv.status==="paid") collected+=Number(inv.amount);
+      amtCell=INR(inv.amount)+(multi?` <span class="mini" style="color:var(--muted)">· ${inv.months}mo</span>`:"");
+      if(inv.status==="paid"){ stHtml=`<span class="badge b-green">Paid${payMap[inv.id]?" · "+payMap[inv.id]:""}</span>${multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:""}`; action=`<span class="rowbtn" onclick="genReceipt('${inv.id}')">🧾 Receipt</span> <span class="rowbtn" onclick="waReceipt('${inv.id}')">WhatsApp</span>${state.role==="super_admin"?` <span class="rowbtn edit" onclick="voidPayment('${inv.id}')">↩︎ Undo</span>`:""}`; }
+      else { const overdue=inv.due_date<today;
+        stHtml=(overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`)+(multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:"");
+        if(inv.student_response==="says_paid"||inv.student_response==="paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
+        else if(inv.student_response==="will_pay_later") stHtml+=` <span class="badge b-grey">Student: will pay later</span>`;
+        action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
       }
     } else {
-      stHtml=`<span class="badge b-grey">No invoice</span>`;
-      amtCell=(s.branches&&s.branches.monthly_fee)?INR(s.branches.monthly_fee):"—";
-      const opts= allow? `<option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option>` : `<option value="1">1 month</option>`;
-      action=`<select id="rp_${s.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">${opts}</select> <span class="rowbtn edit" onclick="adminRaisePlan('${s.id}')">Raise</span>`;
+      stHtml=`<span class="badge b-green">Covered · paid ahead${inv.period_end?" through "+esc(inv.period_end):""}</span>`;
     }
-    return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amtCell}</td><td>${stHtml}</td><td>${action}</td></tr>`;
-  }).join("");
+    const cl=inv.course_id?courseName(inv.course_id):"";
+    return `<tr><td><b>${esc(s.full_name)}</b>${cl?`<br><span class="mini" style="color:var(--muted)">${esc(cl)}</span>`:""}</td><td>${esc(s.branches?.name||"—")}</td><td>${amtCell}</td><td>${stHtml}</td><td>${action}</td></tr>`;
+  };
+  const rows=studs.map(s=>{ const invs=invByStu[s.id]||[]; if(!invs.length) return noInvRow(s); return invs.map(inv=>invRow(s,inv)).join(""); }).join("");
   const pending=billed-collected;
   $("feeKpis").innerHTML=`<div class="kpi"><div class="l">Billed (${esc(P.label)})</div><div class="v">${INR(billed)}</div></div>
     <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div></div>
@@ -1337,7 +1402,7 @@ async function loadPayouts(){
   if(!ggErr && Array.isArray(gg)){ gg.forEach(r=>{ grossByT[r.teacher_id]=Number(r.gross||0); }); }
   else {
     let invMap={};
-    if(sids.length){ const invs = await fetchAll(()=> db.from("invoices").select("id,student_id,amount").in("student_id",sids)); (invs||[]).forEach(i=>{ invMap[i.id]={t:stuTeacher[i.student_id], amt:Number(i.amount||0)}; }); }
+    if(sids.length){ const invs = await fetchAll(()=> db.from("invoices").select("id,student_id,amount,teacher_id").in("student_id",sids)); (invs||[]).forEach(i=>{ invMap[i.id]={t:(i.teacher_id||stuTeacher[i.student_id]), amt:Number(i.amount||0)}; }); }
     const invIds=Object.keys(invMap);
     // guru share is on TUITION only (invoice.amount); registration invoices have amount 0, so they're excluded. Count each invoice once.
     if(invIds.length){ const pays = await fetchAll(()=> db.from("payments").select("invoice_id,paid_at").in("invoice_id",invIds).gte("paid_at",start).lt("paid_at",next)); const counted=new Set(); (pays||[]).forEach(p=>{ if(counted.has(p.invoice_id)) return; counted.add(p.invoice_id); const mp=invMap[p.invoice_id]; if(mp&&mp.t) grossByT[mp.t]=(grossByT[mp.t]||0)+mp.amt; }); }
