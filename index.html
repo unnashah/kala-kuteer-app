@@ -193,7 +193,7 @@ const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Guru", 
 const NAV = {
   super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Gurus","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
-  teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🗓","My Calendar","mycalendar"],["🎵","My Classes","myclasses"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
+  teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🎵","My Classes","myclasses"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
 const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1, classes:1 }; // built modules
@@ -2536,8 +2536,8 @@ async function renderMyClasses(){
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const dowOpts=DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
-  M.innerHTML=`<div class="ph"><div><h2>My Classes${tip("Your classes and their students. You can also propose a new class here — it goes live straight away and the admin reviews it.")}</h2><p>Your classes &amp; students — and propose new ones for admin approval</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3>Schedule a class</h3>
+  M.innerHTML=`<div class="ph"><div><h2>My Classes${tip("Everything for your classes in one place: add a weekly class (it goes live and the admin reviews it), enrol your students, get Join links, and see your monthly schedule.")}</h2><p>Your classes, students &amp; schedule — all in one place</p></div></div>
+    <div class="panel" style="margin-bottom:14px"><h3>Add a weekly class</h3>
       <p class="footnote" style="margin:0 0 10px">Set up a class here — it becomes <b>active right away</b> and is sent to the super admin to review. You can take attendance for it immediately.</p>
       <div class="form2">
         <div class="kf"><label>Class name *</label><input id="pc_name" placeholder="e.g. Vocals — Intermediate"></div>
@@ -2566,7 +2566,37 @@ async function renderMyClasses(){
         </div>
         <div style="margin-top:10px"><span class="rowbtn edit" onclick="manageMyClass('${c.id}')">👥 Students</span>${c.zoom_link?` <a class="rowbtn" href="${esc(safeUrl(c.zoom_link))}" target="_blank" rel="noopener" style="text-decoration:none">🔗 Join link</a>`:""}</div>
         <div id="roster_${c.id}"></div>
-      </div>`).join(""):`<div class="empty">You don't have any classes yet. Schedule one above, or the admin can assign you a class.</div>`}`;
+      </div>`).join(""):`<div class="empty">You don't have any classes yet. Schedule one above, or the admin can assign you a class.</div>`}
+    <div class="panel" style="margin-top:16px"><h3>📅 My schedule${tip("Your timetable for the month: your classes, other gurus' classes (greyed), and school events. Tap one of your classes to edit it.")}</h3>
+      <details id="mcsDetails" style="margin:6px 0 12px"><summary style="cursor:pointer;font-weight:600;font-size:13px">➕ Place a one-off class (e.g. a make-up)</summary>
+        <div style="margin-top:10px">
+          <div id="mcsFormTitle" style="font-weight:600;font-size:13px;margin-bottom:6px;color:var(--maroon)">New one-off class</div>
+          <div class="form2">
+            <div class="kf"><label>Class name *</label><input id="mcs_title" placeholder="e.g. Kathak — Beginners"></div>
+            <div class="kf"><label>Branch</label><select id="mcs_branch"><option value="">—</option>${branchOpts}</select></div>
+          </div>
+          <div class="form2">
+            <div class="kf"><label>Date *</label><input id="mcs_date" type="date"></div>
+            <div class="kf"><label>Start time</label><input id="mcs_time" type="time"></div>
+          </div>
+          <div class="form2">
+            <div class="kf"><label>Capacity</label><input id="mcs_cap" type="number" min="1" value="8"></div>
+            <div class="kf"><label>Mode</label><select id="mcs_mode" onchange="onMySessMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
+          </div>
+          <div class="kf" id="mcs_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="mcs_zoom" placeholder="https://…"></div>
+          <div class="formmsg" id="mcsMsg"></div>
+          <button class="kbtn teal" id="addMcs" onclick="saveMySession()">Add to my schedule</button>
+          <button class="kbtn ghost" id="mcsCancelBtn" style="display:none;margin-left:6px" onclick="cancelMySessEdit()">Cancel</button>
+        </div>
+      </details>
+      <div class="searchbar" style="justify-content:space-between"><div><button class="kbtn ghost" onclick="mcalShift(-1)">‹ Prev</button><b id="mcalLabel" style="margin:0 12px"></b><button class="kbtn ghost" onclick="mcalShift(1)">Next ›</button></div><button class="kbtn ghost" onclick="mcalToday()">Today</button></div>
+      <div id="mcalGrid"><div class="empty">Loading…</div></div>
+      <div id="mcalList"></div>
+    </div>`;
+  state._mcalTid=tid; state._mcalMonth=state._mcalMonth||todayIST().slice(0,7); state._mySessEdit=null;
+  if($("mcs_date")) $("mcs_date").value=todayIST();
+  await loadClassRefs();
+  loadMyCalendar();
 }
 function onProposeMode(){ const m=$("pc_mode")?$("pc_mode").value:"in_person"; if($("pc_zoomWrap")) $("pc_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
 async function submitProposedClass(){
@@ -2931,7 +2961,7 @@ function drawMyCalendar(){
     <table><tr><th>Date</th><th>Class</th><th>Time</th><th></th></tr>${mine.map(c=>`<tr><td>${esc(c.session_date)}</td><td><b>${esc(c.title)}</b></td><td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td><td class="mini"><span class="rowbtn edit" onclick="editMySession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delMySession('${c.id}')">Delete</span></td></tr>`).join("")}</table></div>`:`<div class="empty">You haven't scheduled any classes in ${MONS[mo-1]} ${y} — add one above or click a day.</div>`;
 }
 function onMySessMode(){ const m=$("mcs_mode")?$("mcs_mode").value:"in_person"; if($("mcs_zoomWrap")) $("mcs_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
-function pickMySessDate(ds){ if($("mcs_date")) $("mcs_date").value=ds; const m=$("mcsMsg"); if(m){ m.className="formmsg ok"; m.textContent="Date set to "+ds+" — fill the details and Add."; } window.scrollTo({top:0,behavior:"smooth"}); if($("mcs_title")) $("mcs_title").focus(); }
+function pickMySessDate(ds){ if($("mcsDetails")) $("mcsDetails").open=true; if($("mcs_date")) $("mcs_date").value=ds; const m=$("mcsMsg"); if(m){ m.className="formmsg ok"; m.textContent="Date set to "+ds+" — fill the details and Add."; } window.scrollTo({top:0,behavior:"smooth"}); if($("mcs_title")) $("mcs_title").focus(); }
 async function saveMySession(){
   const m=$("mcsMsg"); const title=$("mcs_title").value.trim(), date=$("mcs_date").value, tid=state._mcalTid;
   if(!title){ m.className="formmsg err"; m.textContent="Enter a class name."; return; }
@@ -2950,6 +2980,7 @@ async function saveMySession(){
 function editMySession(id){
   const c=(state._mcalSess||[]).find(x=>x.id===id); if(!c||c.teacher_id!==state._mcalTid) return;
   state._mySessEdit=id;
+  if($("mcsDetails")) $("mcsDetails").open=true;
   $("mcs_title").value=c.title||""; $("mcs_branch").value=c.branch_id||""; $("mcs_date").value=c.session_date||"";
   $("mcs_time").value=c.start_time?c.start_time.slice(0,5):""; $("mcs_mode").value=c.mode||"in_person"; $("mcs_cap").value=c.capacity||8; if($("mcs_zoom")) $("mcs_zoom").value=c.zoom_link||"";
   onMySessMode();
