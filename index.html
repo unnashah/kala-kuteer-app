@@ -2147,7 +2147,7 @@ async function delSession(id){
   if(recips.length) notifyClassChange({ action:"cancelled", recipients:recips, session_id:id, batch_id:c.batch_id||null, title:c.title, date:c.session_date, start_time:c.start_time });
   loadCalendar();
 }
-function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); state._calMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); state._calEdit=null; loadCalendar(); }
+function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); const t=y*12+(mo-1)+d; state._calMonth=Math.floor(t/12)+"-"+PAD((t%12)+1); state._calEdit=null; loadCalendar(); }
 function calToday(){ state._calMonth=todayIST().slice(0,7); loadCalendar(); }
 async function saveEvent(){
   const m=$("evMsg"); const title=$("ev_title").value.trim(), date=$("ev_date").value;
@@ -2909,7 +2909,7 @@ async function delMySession(id){
   if(error){ alert("Couldn't delete — "+error.message); return; }
   loadMyCalendar();
 }
-function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); state._mcalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadMyCalendar(); }
+function mcalShift(d){ const [y,mo]=state._mcalMonth.split("-").map(Number); const t=y*12+(mo-1)+d; state._mcalMonth=Math.floor(t/12)+"-"+PAD((t%12)+1); loadMyCalendar(); }
 function mcalToday(){ state._mcalMonth=todayIST().slice(0,7); loadMyCalendar(); }
 
 /* ---------------- ANNOUNCEMENTS — shared response helpers ---------------- */
@@ -3300,7 +3300,7 @@ function drawStudentCalendar(){
   const onlineHtml=(recur.length||online.length)?`<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 8px">🔴 Online classes — Join links</h3>${recurHtml}${datedHtml}</div>`:"";
   $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>${onlineHtml}`;
 }
-function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); state._scalMonth=new Date(y,mo-1+d,1).toISOString().slice(0,7); loadStudentCalendar(); }
+function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); const t=y*12+(mo-1)+d; state._scalMonth=Math.floor(t/12)+"-"+PAD((t%12)+1); loadStudentCalendar(); }
 function scalToday(){ state._scalMonth=todayIST().slice(0,7); loadStudentCalendar(); }
 /* ----- Student: My Attendance / Journey ----- */
 async function renderStudentJourney(){
