@@ -158,7 +158,7 @@
         <button class="signin" id="signinBtn">Sign in</button>
       </div>
       <div class="msg" id="loginMsg"></div>
-      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.<br>Forgot your PIN or password? Please contact the school office.<br><a href="#checkin" onclick="renderKiosk();return false;" style="color:var(--maroon);font-weight:600;text-decoration:none">🏫 School iPad — self check-in</a></div>
+      <div class="loginfoot">Students &amp; parents: mobile + PIN. Staff: use the Staff tab.<br>Forgot your PIN or password? Please contact the school office.</div>
     </form>
   </div>
 
@@ -197,7 +197,6 @@ const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-let kioskDb = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:false, autoRefreshToken:false, storageKey:"kk-kiosk" } }) : null;
 const state = { role:"student", name:"", branches:[], courses:[], refLoaded:false };
 
 const $ = id => document.getElementById(id);
@@ -211,75 +210,11 @@ function msg(t, ok){ const m=$("loginMsg"); m.textContent=t; m.className="msg "+
 function ageFromDOB(d){ if(!d) return null; const b=new Date(d), n=new Date(); let a=n.getFullYear()-b.getFullYear(); const m=n.getMonth()-b.getMonth(); if(m<0||(m===0&&n.getDate()<b.getDate())) a--; return a; }
 
 async function init(){
-  if(location.hash==="#checkin"){ try{ await db.auth.signOut(); }catch(e){} return renderKiosk(); }
   if(!cfgOk){ $("cfgwarn").classList.remove("hide"); show("login"); return; }
   const { data:{ session } } = await db.auth.getSession();
   if(session) loadApp(session); else show("login");
   db.auth.onAuthStateChange((_e,s)=>{ if(s) loadApp(s); else show("login"); });
 }
-window.addEventListener("hashchange",function(){ if(location.hash==="#checkin") renderKiosk(); });
-
-/* ---------------- SELF CHECK-IN KIOSK (shared school iPad) ---------------- */
-function renderKiosk(){
-  try{ if(location.hash!=="#checkin") history.replaceState(null,"","#checkin"); }catch(e){}
-  show("login");
-  $("login").innerHTML=`<div style="max-width:470px;margin:22px auto;padding:0 14px">
-    <div style="text-align:center;margin-bottom:14px"><img src="apple-touch-icon.png" alt="Kala Kuteer" style="height:64px" onerror="this.style.display='none'"><div style="font-size:12px;color:var(--maroon);font-weight:700;letter-spacing:2px;margin-top:6px">KALA KUTEER · CHECK-IN</div></div>
-    <div class="panel" id="kioskCard"></div>
-    <div style="text-align:center;margin-top:12px"><a href="#" onclick="location.hash='';location.reload();return false;" class="mini" style="color:var(--muted)">Exit check-in (staff)</a></div>
-  </div>`;
-  kioskStep1();
-}
-function kioskStep1(){
-  if(window._kioskTimer) clearTimeout(window._kioskTimer);
-  $("kioskCard").innerHTML=`<h2 style="margin:0 0 4px;color:var(--maroon)">Mark your attendance</h2>
-    <p class="mini" style="color:var(--muted);margin:0 0 14px">Enter your mobile number and PIN, then pick your class.</p>
-    <div class="kf"><label>Mobile number</label><div style="display:flex;gap:6px"><select id="k_cc" style="max-width:88px"><option value="+91" selected>+91</option><option value="+1">+1</option><option value="+44">+44</option><option value="+971">+971</option></select><input id="k_num" inputmode="numeric" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')" style="font-size:17px"></div></div>
-    <div class="kf"><label>Your 6-digit PIN</label><input id="k_pin" inputmode="numeric" maxlength="6" type="password" placeholder="••••••" oninput="this.value=this.value.replace(/\\D/g,'')" style="font-size:17px;letter-spacing:4px"></div>
-    <div class="formmsg" id="k_msg"></div>
-    <button class="kbtn teal" style="width:100%;font-size:16px;padding:13px" id="k_find" onclick="kioskFind()">Find my classes →</button>`;
-  setTimeout(()=>{ if($("k_num")) $("k_num").focus(); },60);
-}
-async function kioskFind(){
-  const m=$("k_msg"); const cc=($("k_cc").value||"+91").replace("+",""), num=($("k_num").value||"").replace(/\D/g,""), pin=$("k_pin").value;
-  if(!num||(pin||"").length<4){ m.className="formmsg err"; m.textContent="Enter your mobile number and PIN."; return; }
-  m.className="formmsg ok"; m.textContent="Checking…"; if($("k_find")) $("k_find").disabled=true;
-  const email=cc+num+"@student.kalakuteer.org";
-  const { data:au, error } = await kioskDb.auth.signInWithPassword({ email, password:pin });
-  if($("k_find")) $("k_find").disabled=false;
-  if(error||!au||!au.user){ m.className="formmsg err"; m.textContent="Couldn't verify — please check your mobile number and PIN, or ask the front desk."; return; }
-  let name="there"; try{ const { data:st } = await kioskDb.from("students").select("full_name").eq("profile_id",au.user.id).maybeSingle(); if(st&&st.full_name) name=st.full_name.split(" ")[0]; }catch(e){}
-  let cls=[]; try{ const { data } = await kioskDb.rpc("my_classes_today"); cls=data||[]; }catch(e){}
-  kioskStep2(name, cls);
-}
-function kioskStep2(name, cls){
-  if(window._kioskTimer) clearTimeout(window._kioskTimer);
-  window._kioskTimer=setTimeout(kioskReset, 45000);
-  const list=cls.length?cls.slice().sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<button class="kbtn ghost" style="width:100%;text-align:left;padding:13px 14px;margin-bottom:8px;font-size:15px" onclick="kioskPick('${c.batch_id}', this)"><b>${esc(c.name)}</b>${c.start_time?" · "+fmtTime(String(c.start_time).slice(0,5)):""}${c.branch?" · "+esc(c.branch):""}</button>`).join(""):`<div class="mini" style="color:var(--muted);padding:8px 0">No classes scheduled for you today. If this looks wrong, please tell the front desk.</div>`;
-  $("kioskCard").innerHTML=`<h2 style="margin:0 0 2px;color:var(--maroon)">Hi ${esc(name)} 👋</h2>
-    <p class="mini" style="color:var(--muted);margin:0 0 14px">Tap the class you're attending:</p>
-    ${list}
-    <div class="formmsg" id="k_msg2"></div>
-    <button class="kbtn ghost" style="width:100%;margin-top:6px" onclick="kioskReset()">← Not you? Start over</button>`;
-}
-async function kioskPick(batchId, btn){
-  if(window._kioskTimer) clearTimeout(window._kioskTimer);
-  const m=$("k_msg2"); if(btn) btn.disabled=true; if(m){ m.className="formmsg ok"; m.textContent="Marking present…"; }
-  let res, error; try{ ({ data:res, error } = await kioskDb.rpc("student_self_checkin",{ p_batch:batchId })); }catch(e){ error=e; }
-  if(error||res!=="ok"){ if(m){ m.className="formmsg err"; m.textContent=res==="not_today"?"That class isn't scheduled today.":res==="not_your_class"?"That isn't one of your classes.":"Couldn't mark you — please tell the front desk."; } if(btn) btn.disabled=false; window._kioskTimer=setTimeout(kioskReset,45000); return; }
-  kioskDone();
-}
-function kioskDone(){
-  if(window._kioskTimer) clearTimeout(window._kioskTimer);
-  try{ kioskDb.auth.signOut(); }catch(e){}
-  $("kioskCard").innerHTML=`<div style="text-align:center;padding:20px 6px">
-    <div style="font-size:52px;line-height:1">✅</div>
-    <h2 style="color:var(--good);margin:10px 0 4px">You're marked present!</h2>
-    <p class="mini" style="color:var(--muted)">Have a wonderful class. 🎶</p>
-    <button class="kbtn teal" style="margin-top:14px;padding:12px 24px" onclick="kioskReset()">Done</button></div>`;
-  window._kioskTimer=setTimeout(kioskReset, 5000);
-}
-function kioskReset(){ if(window._kioskTimer) clearTimeout(window._kioskTimer); try{ kioskDb.auth.signOut(); }catch(e){} kioskStep1(); }
 async function signIn(){
   const email=$("email").value.trim(), password=$("password").value;
   if(!email||!password){ msg("Please enter your email and password."); return; }
@@ -296,8 +231,9 @@ async function loadApp(session){
   state.role=role; state.name=name;
   if((role==="student"||role==="teacher"||role==="admin") && !pinSet){ renderSetPin(name, role); show("app"); return; }
   if(role==="student"){
-    const { data:st } = await db.from("students").select("id,full_name,date_of_birth,is_minor,phone,parent_phone,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,goal,owns_instrument,health_notes,heard_via,intake_completed,branch_id,course_id,primary_teacher_id,branches(name),courses(name)").eq("profile_id", session.user.id).maybeSingle();
-    if(st && st.intake_completed!==true){ state._intakeSt=st; show("app"); renderStudentIntake(st); return; }
+    const { data:st } = await db.from("students").select("id,full_name,date_of_birth,is_minor,phone,parent_phone,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,status,goal,owns_instrument,health_notes,heard_via,intake_completed,branch_id,course_id,primary_teacher_id,branches(name),courses(name)").eq("profile_id", session.user.id).maybeSingle();
+    if(!st || (st.status||"")!=="active"){ show("app"); renderInactiveStudent(name); return; }
+    if(st.intake_completed!==true){ state._intakeSt=st; show("app"); renderStudentIntake(st); return; }
   }
   if(role==="teacher"){
     const { data:tc } = await db.from("teachers").select("id,coc_agreed").eq("profile_id", session.user.id).maybeSingle();
@@ -335,6 +271,17 @@ async function saveNewPin(){
   loadApp(session);
 }
 
+function renderInactiveStudent(name){
+  if($("whoName")) $("whoName").textContent="Hi, "+(((name||"").split(" ")[0])||"there");
+  if($("whoRole")) $("whoRole").textContent="Student";
+  if($("sideNav")) $("sideNav").innerHTML="";
+  $("mainArea").innerHTML=`<div style="max-width:520px;margin:34px auto;text-align:center;padding:0 18px">
+    <div style="font-size:42px;margin-bottom:6px">🔒</div>
+    <h2 style="font-size:21px;margin:0 0 10px;color:var(--navy)">Your account isn't active</h2>
+    <p style="font-size:14px;color:var(--muted);line-height:1.7">The Kala Kuteer portal is for currently <b>active</b> students only. Your account isn't active right now, so it can't be opened.<br><br>If you think this is a mistake, please contact the school office.</p>
+    <button class="kbtn teal" style="margin-top:18px" onclick="db.auth.signOut().then(()=>location.reload())">Log out</button>
+  </div>`;
+}
 async function renderStudentIntake(st){
   try{ await loadClassRefs(); }catch(e){}
   $("whoName").textContent="Hi, "+(((st.full_name||"").split(" ")[0])||"there");
@@ -761,7 +708,7 @@ async function loadDashBdays(){
 async function renderStudents(){
   const M=$("mainArea");
   M.innerHTML = `<div class="ph"><div><h2>Students${tip("Everyone on record. Tap a name for full details, fees, attendance and journey. Use the status filter for Active / On-break / Alumni, and ➕ New Student to add one.")}</h2><p>Loading…</p></div><button class="kbtn" id="newStu">+ New Student</button></div>
-    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…" style="flex:1"><select id="stuStatus" style="max-width:160px;flex:none"><option value="">All statuses</option><option value="active">Active</option><option value="on_break">On break</option><option value="completed">Completed</option><option value="alumni">Alumni</option><option value="suspended">Suspended</option></select><button class="kbtn ghost" id="stuExport" onclick="exportStudentsCSV()" style="flex:none">⬇ Export CSV</button></div>
+    <div class="searchbar"><input id="stuSearch" placeholder="🔍 Search by name…" style="flex:1"><select id="stuStatus" style="max-width:160px;flex:none"><option value="">All statuses</option><option value="active">Active</option><option value="on_break">On break</option><option value="completed">Completed</option><option value="alumni">Alumni</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select><button class="kbtn ghost" id="stuExport" onclick="exportStudentsCSV()" style="flex:none">⬇ Export CSV</button></div>
     <div id="stuList"><div class="empty">Loading students…</div></div>`;
   $("newStu").onclick = ()=> gotoNav("intake");
   const { data, error } = await db.from("students")
@@ -774,12 +721,13 @@ async function renderStudents(){
   $("stuSearch").oninput = filterStudents;
   if($("stuStatus")) $("stuStatus").onchange = filterStudents;
 }
-const STATUS_BADGE = { active:"b-green", on_break:"b-amber", suspended:"b-red", alumni:"b-grey", completed:"b-teal" };
+const STATUS_BADGE = { active:"b-green", on_break:"b-amber", suspended:"b-red", alumni:"b-grey", completed:"b-teal", archived:"b-grey" };
 function filterStudents(){
   const q=(($("stuSearch")&&$("stuSearch").value)||"").toLowerCase().trim();
   const st=($("stuStatus")&&$("stuStatus").value)||"";
   let list=(state._students||[]);
   if(st) list=list.filter(s=>(s.status||"")===st);
+  else list=list.filter(s=>(s.status||"")!=="archived");
   if(q) list=list.filter(s=>(s.full_name||"").toLowerCase().includes(q));
   state._studentsView=list;
   const pe=$("mainArea")&&$("mainArea").querySelector(".ph p");
@@ -3939,10 +3887,12 @@ async function renderStudentDetail(id){
       <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Intake form:</span>${s.intake_completed?`<span class="badge b-green">✓ completed${s.consent_signed_at?" · signed "+String(s.consent_signed_at).slice(0,10):""}</span>`:`<span class="badge b-amber">⏳ pending</span>`} <span class="rowbtn edit" onclick="askIntake('${s.id}')">📝 Ask to complete / refresh</span></div>
-      ${state.role==="super_admin"?`<button class="kbtn" style="background:var(--warn);color:#fff" onclick="deleteStudent('${s.id}')">🗑 Delete student</button>`:""}
+      ${s.status==="archived"
+        ? `<button class="kbtn teal" onclick="restoreStudent('${s.id}')">♻️ Restore student</button>`
+        : `<button class="kbtn" style="background:var(--warn);color:#fff" onclick="archiveStudent('${s.id}')">🗃 Archive student</button>`}
       <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
       <div class="formmsg" id="manageMsg"></div>
-      <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Delete</b> is permanent — use it only for mistakes or test entries.</p>
+      <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Archive</b> hides a student from the active list and stops billing, but keeps their full record — you can <b>Restore</b> them anytime. Nothing is ever deleted.</p>
     </div>
     <div id="stuMilestones" style="margin-top:14px"></div>`;
   loadMilestonesInto("stuMilestones", id, "school");
@@ -4030,6 +3980,18 @@ async function askIntake(id){
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
   const { error } = await db.from("students").update({ intake_completed:false }).eq("id",id);
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
+  renderStudentDetail(id);
+}
+async function archiveStudent(id){
+  if(!confirm("Archive this student?\n\nThey'll be hidden from the active list and won't be billed, but their FULL record is kept and can be restored anytime. Nothing is deleted.")) return;
+  const { error } = await db.from("students").update({ status:"archived", status_effective_date: todayIST() }).eq("id", id);
+  if(error){ alert("Couldn't archive — "+error.message); return; }
+  gotoNav("students");
+}
+async function restoreStudent(id){
+  if(!confirm("Restore this student to Active?")) return;
+  const { error } = await db.from("students").update({ status:"active", status_effective_date: todayIST() }).eq("id", id);
+  if(error){ alert("Couldn't restore — "+error.message); return; }
   renderStudentDetail(id);
 }
 async function deleteStudent(id){
