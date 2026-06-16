@@ -1101,16 +1101,36 @@ async function generateInvoices(){
   try{
   const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
   const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`);
-  const { data:inv } = await db.from("invoices").select("student_id").lte("period_start",P.end).gte("period_end",P.start);
-  const have=new Set((inv||[]).map(i=>i.student_id));
+  // existing invoices this period, keyed per student+course so each course bills once
+  const { data:inv } = await db.from("invoices").select("student_id,course_id").lte("period_start",P.end).gte("period_end",P.start);
+  const have=new Set((inv||[]).map(i=>i.student_id+"|"+(i.course_id||"")));
   const today=todayIST();
   const dim=new Date(P.year, P.monthIdx+1, 0).getDate();
-  const rows=(studs||[]).filter(s=>!have.has(s.id) && s.branches && Number(s.branches.monthly_fee)>0).map(s=>{
-    const day=s.join_date?new Date(s.join_date).getDate():1;
-    const due=`${P.year}-${PAD(P.monthIdx+1)}-${PAD(Math.min(day,dim))}`;
-    return { student_id:s.id, period_label:P.label, amount:s.branches.monthly_fee, due_date:due, status: due<today?"overdue":"pending", months:1, period_start:P.start, period_end:P.end };
+  const dueFor=s=>{ const day=s.join_date?new Date(s.join_date).getDate():1; return `${P.year}-${PAD(P.monthIdx+1)}-${PAD(Math.min(day,dim))}`; };
+  // each student's course enrolments (multi-course); safe if table not present yet
+  const sids=(studs||[]).map(s=>s.id);
+  let scList=[];
+  if(sids.length){ try{ const r=await db.from("student_courses").select("student_id,course_id,teacher_id,monthly_fee,status").in("student_id",sids); if(!r.error) scList=r.data||[]; }catch(e){} }
+  const scByStu={}; scList.forEach(sc=>{ (scByStu[sc.student_id]=scByStu[sc.student_id]||[]).push(sc); });
+  const rows=[];
+  (studs||[]).forEach(s=>{
+    const courses=(scByStu[s.id]||[]).filter(sc=>(!sc.status||sc.status==="active") && Number(sc.monthly_fee)>0);
+    if(courses.length){
+      // multi-course: one full-fee invoice per active course, credited to that course's guru
+      courses.forEach(sc=>{
+        const key=s.id+"|"+(sc.course_id||""); if(have.has(key)) return;
+        const due=dueFor(s);
+        rows.push({ student_id:s.id, course_id:sc.course_id, teacher_id:sc.teacher_id, period_label:P.label, amount:sc.monthly_fee, due_date:due, status: due<today?"overdue":"pending", months:1, period_start:P.start, period_end:P.end });
+      });
+    } else {
+      // fallback: single branch fee per student (no course rows set up yet)
+      if(have.has(s.id+"|")) return;
+      const fee=(s.branches&&Number(s.branches.monthly_fee))||0; if(!(fee>0)) return;
+      const due=dueFor(s);
+      rows.push({ student_id:s.id, period_label:P.label, amount:fee, due_date:due, status: due<today?"overdue":"pending", months:1, period_start:P.start, period_end:P.end });
+    }
   });
-  if(!rows.length){ m.className="formmsg ok"; m.textContent="Everyone already has an invoice for "+P.label+" (or has no branch fee set)."; loadFees(); return; }
+  if(!rows.length){ m.className="formmsg ok"; m.textContent="Everyone already has an invoice for "+P.label+" (or has no fee set)."; loadFees(); return; }
   const { error } = await db.from("invoices").insert(rows);
   if(error){ m.className="formmsg err"; m.textContent="Couldn't generate — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Created "+rows.length+" invoice(s) for "+P.label+".";
@@ -3292,10 +3312,14 @@ async function loadStudentCalendar(){
   const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
   const me=await myStudent(); const aud=["all"]; if(me){ if(me.branch_id) aud.push("branch:"+me.branch_id); if(me.course_id) aud.push("course:"+me.course_id); }
   const { data:annc } = await db.from("news_posts").select("id,title,event_date,event_end,audience").not("event_date","is",null).in("audience",aud).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
-  const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,zoom_link").gte("session_date",start).lte("session_date",end).order("session_date");
-  const { data:bz } = await db.from("batches").select("id,name,day_of_week,start_time,mode,zoom_link,is_active").in("mode",["online","hybrid"]).not("zoom_link","is",null).eq("is_active",true);
+  const { data:sess } = await db.rpc("my_class_sessions",{ p_start:start, p_end:end });
+  const { data:bz } = await db.rpc("my_online_classes");
   state._scalBatch=bz||[];
-  state._scalEvents=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end })); state._scalSess=sess||[]; drawStudentCalendar();
+  const { data:bd } = await db.rpc("school_birthdays",{ p_month:mo });
+  state._scalBdays=(bd||[]).map(r=>({ name:r.full_name, day:r.dom }));
+  state._scalEvents=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end }));
+  state._scalSess=(sess||[]).slice().sort((a,b)=>String(a.session_date||"").localeCompare(String(b.session_date||"")));
+  drawStudentCalendar();
 }
 function drawStudentCalendar(){
   const [y,mo]=state._scalMonth.split("-").map(Number);
@@ -3304,13 +3328,15 @@ function drawStudentCalendar(){
   const todayS=todayIST();
   const byDay={}; (state._scalEvents||[]).forEach(e=>{ const s=parseD(String(e.event_date).slice(0,10)); const en=e.end_date?parseD(String(e.end_date).slice(0,10)):s; let d=new Date(Math.max(s,mStart)); const last=new Date(Math.min(en,mEnd)); for(;d<=last;d.setDate(d.getDate()+1)){ const day=d.getDate(); (byDay[day]=byDay[day]||[]).push(e); } });
   const sessByDay={}; (state._scalSess||[]).forEach(c=>{ const day=Number(String(c.session_date).slice(8,10)); (sessByDay[day]=sessByDay[day]||[]).push(c); });
+  const bdayByDay={}; (state._scalBdays||[]).forEach(b=>{ (bdayByDay[b.day]=bdayByDay[b.day]||[]).push(b); });
   const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
   for(let d=1;d<=dim;d++){ const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
     const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
-    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${evs}</div>`;
+    const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FBEAF0;color:#993556;border-color:#EDC9D7" title="${esc(b.name)}'s birthday">🎂 ${esc(b.name)}</div>`).join("");
+    cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
   }
   const wdN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const joinRow=(title,sub,link)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)"><div><b>${esc(title)}</b><div class="mini" style="color:var(--muted)">${esc(sub)}</div></div><a class="kbtn teal" href="${esc(safeUrl(link))}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">Join Zoom →</a></div>`;
@@ -3319,7 +3345,7 @@ function drawStudentCalendar(){
   const online=(state._scalSess||[]).filter(c=>(c.mode==="online"||c.mode==="hybrid")&&c.zoom_link).sort((a,b)=>String((a.session_date||"")+(a.start_time||"")).localeCompare(String((b.session_date||"")+(b.start_time||""))));
   const datedHtml=online.map(c=>joinRow(c.title, String(c.session_date).slice(0,10)+(c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""), c.zoom_link)).join("");
   const onlineHtml=(recur.length||online.length)?`<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 8px">🔴 Online classes — Join links</h3>${recurHtml}${datedHtml}</div>`:"";
-  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span></div>${onlineHtml}`;
+  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">your classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FBEAF0;color:#993556">🎂 birthdays</span></div>${onlineHtml}`;
 }
 function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); const t=y*12+(mo-1)+d; state._scalMonth=Math.floor(t/12)+"-"+PAD((t%12)+1); loadStudentCalendar(); }
 function scalToday(){ state._scalMonth=todayIST().slice(0,7); loadStudentCalendar(); }
@@ -3843,6 +3869,7 @@ async function renderStudentDetail(id){
         <div class="dl"><span class="k">Media consent</span><span>${s.consent_media?("☑ "+(s.consent_signed_at?String(s.consent_signed_at).slice(0,10):"")):"—"}</span></div>
       </div>
     </div>
+    <div id="stuCourses" style="margin-top:14px"></div>
     <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
       <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
@@ -3854,6 +3881,72 @@ async function renderStudentDetail(id){
     </div>
     <div id="stuMilestones" style="margin-top:14px"></div>`;
   loadMilestonesInto("stuMilestones", id, "school");
+  loadStudentCourses(id);
+}
+async function loadStudentCourses(id){
+  const C=$("stuCourses"); if(!C) return;
+  let scs=[], errored=false;
+  try{ const r=await db.from("student_courses").select("id,course_id,teacher_id,monthly_fee,status,courses(name)").eq("student_id",id).order("start_date"); if(r.error) errored=true; else scs=r.data||[]; }
+  catch(e){ errored=true; }
+  if(errored){ C.innerHTML=`<div class="panel"><h3>Courses</h3><div class="cfgwarn">Multi-course isn't switched on in the database yet — run <b>migration-multi-course.sql</b> in Supabase, then this panel will work.</div></div>`; return; }
+  const cName=cid=>{ const c=(state.courses||[]).find(x=>x.id===cid); return c?c.name:"—"; };
+  const rows = scs.length ? scs.map(sc=>`<div class="dl"><span class="k">${esc(sc.courses?.name||cName(sc.course_id))}</span><span>${esc(teacherName(sc.teacher_id))} · <b>${INR(sc.monthly_fee)}</b> · <span class="badge ${STATUS_BADGE[sc.status]||"b-grey"}">${esc((sc.status||"").replace("_"," "))}</span> &nbsp;<span class="rowbtn edit" onclick="editStudentCourse('${id}','${sc.id}')">✏️ Edit</span> <span class="rowbtn danger" onclick="removeStudentCourse('${id}','${sc.id}')">Remove</span></span></div>`).join("") : `<div class="empty">No courses yet — add the first one below.</div>`;
+  const courseOpts=(state.courses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  const statusOpts=["active","on_break","completed"].map(x=>`<option value="${x}">${x.replace("_"," ")}</option>`).join("");
+  C.innerHTML=`<div class="panel"><h3>Courses${tip("A student can take more than one course — each with its own guru and its own full monthly fee. Each course is billed as a separate line and each guru is paid for their own course.")}</h3>
+    ${rows}
+    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <h4 id="scFormTitle" style="margin:0 0 8px">Add a course</h4>
+      <input type="hidden" id="sc_editId" value="">
+      <div class="form2">
+        <div class="kf"><label>Course</label><select id="sc_course"><option value="">— select —</option>${courseOpts}</select></div>
+        <div class="kf"><label>Guru</label><select id="sc_guru"><option value="">— select —</option>${guruOpts}</select></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Monthly fee (₹) — full fee for this course</label><input id="sc_fee" type="number" min="0" placeholder="e.g. 4500"></div>
+        <div class="kf"><label>Status</label><select id="sc_status">${statusOpts}</select></div>
+      </div>
+      <div class="formmsg" id="scMsg"></div>
+      <button class="kbtn teal" onclick="saveStudentCourse('${id}')">Save course</button>
+      <button class="kbtn ghost" id="scCancel" style="display:none;margin-left:6px" onclick="loadStudentCourses('${id}')">Cancel</button>
+    </div></div>`;
+}
+async function editStudentCourse(studentId, scId){
+  const { data:sc } = await db.from("student_courses").select("*").eq("id",scId).single();
+  if(!sc) return;
+  if($("sc_editId")) $("sc_editId").value=scId;
+  if($("sc_course")) $("sc_course").value=sc.course_id||"";
+  if($("sc_guru")) $("sc_guru").value=sc.teacher_id||"";
+  if($("sc_fee")) $("sc_fee").value=sc.monthly_fee||"";
+  if($("sc_status")) $("sc_status").value=sc.status||"active";
+  if($("scFormTitle")) $("scFormTitle").textContent="Edit course";
+  if($("scCancel")) $("scCancel").style.display="inline-block";
+  if($("sc_course")) $("sc_course").focus();
+}
+async function saveStudentCourse(studentId){
+  const m=$("scMsg");
+  const course_id=($("sc_course")&&$("sc_course").value)||null;
+  const teacher_id=($("sc_guru")&&$("sc_guru").value)||null;
+  const fee=($("sc_fee")&&$("sc_fee").value)?Number($("sc_fee").value):0;
+  const status=($("sc_status")&&$("sc_status").value)||"active";
+  if(!course_id) return failMsg(m,"Choose a course.");
+  if(!teacher_id) return failMsg(m,"Choose a guru.");
+  if(!(fee>0)) return failMsg(m,"Enter this course's monthly fee.");
+  const rec={ student_id:studentId, course_id, teacher_id, monthly_fee:fee, status };
+  m.className="formmsg ok"; m.textContent="Saving…";
+  const editId=($("sc_editId")&&$("sc_editId").value)||"";
+  let error;
+  if(editId){ ({ error } = await db.from("student_courses").update(rec).eq("id",editId)); }
+  else { ({ error } = await db.from("student_courses").insert(rec)); }
+  if(error){ return failMsg(m,"Couldn't save — "+error.message); }
+  loadStudentCourses(studentId);
+}
+async function removeStudentCourse(studentId, scId){
+  if(!confirm("Remove this course from the student? Their invoices already raised are not affected.")) return;
+  const { error } = await db.from("student_courses").delete().eq("id",scId);
+  if(error){ alert("Couldn't remove — "+error.message); return; }
+  loadStudentCourses(studentId);
 }
 async function setStudentStatus(id, status){
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
@@ -4034,6 +4127,12 @@ async function saveQuickStudent(){
   }catch(e){ m.textContent="✓ Student created."; }
   m.className="formmsg ok";
   if(state._convertEnq && state._convertEnq.id){ try{ await db.from("enquiries").update({ converted_student_id: ins.id }).eq("id", state._convertEnq.id); }catch(e){} state._convertEnq=null; }
+  // multi-course: record this first course as a course-enrolment (full-fee model; fee defaults to the branch fee, editable on the profile)
+  try{
+    const _b=(state.branches||[]).find(x=>x.id===rec.branch_id);
+    const _cfee=_b?Number(_b.monthly_fee)||0:0;
+    if(rec.course_id) await db.from("student_courses").insert({ student_id:ins.id, course_id:rec.course_id, teacher_id:rec.primary_teacher_id||null, monthly_fee:_cfee, status:"active", start_date:rec.join_date||todayIST() });
+  }catch(e){}
   // record the one-time registration fee as a PAID invoice (shows in income; family can download a receipt)
   try{
     const regHas=$("q_reghas")&&$("q_reghas").checked;
