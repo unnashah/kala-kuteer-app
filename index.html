@@ -117,6 +117,8 @@
   .tip:hover .tipbub{display:block}
   .tipbtn.warn{border-color:#7A1B14;background:#C0392B}
   .tipbub.warn{background:#7A1B14;border-color:#5a130e;border-left-color:#F0A92B;color:#fff}
+  .chiptab{display:block;width:100%;text-align:left;margin:0 0 4px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;font-weight:600}
+  .chiptab.on{background:var(--maroon);color:#fff;border-color:var(--maroon)}
   .panel h3{margin-bottom:14px}
   .footnote{background:#fdf3f1;border:1px solid #e7b9b0;border-left:4px solid var(--warn);color:#9e3b2a;border-radius:9px;padding:10px 13px;font-size:12.5px;line-height:1.55;margin:10px 0}
   .footnote b{color:#7d2c1e}
@@ -232,9 +234,9 @@ async function loadApp(session){
   state.role=role; state.name=name;
   if((role==="student"||role==="teacher"||role==="admin") && !pinSet){ renderSetPin(name, role); show("app"); return; }
   if(role==="student"){
-    const { data:st } = await db.from("students").select("id,full_name,date_of_birth,is_minor,phone,parent_phone,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,status,goal,owns_instrument,health_notes,heard_via,intake_completed,branch_id,course_id,primary_teacher_id,branches(name),courses(name)").eq("profile_id", session.user.id).maybeSingle();
-    if(!st || (st.status||"")!=="active"){ show("app"); renderInactiveStudent(name); return; }
-    if(st.intake_completed!==true){ state._intakeSt=st; show("app"); renderStudentIntake(st); return; }
+    const kids = await loadFamily();
+    if(!kids.length){ show("app"); renderInactiveStudent(name); return; }
+    if(kids.length===1 && kids[0].intake_completed!==true){ state._intakeSt=kids[0]; show("app"); renderStudentIntake(kids[0]); return; }
   }
   if(role==="teacher"){
     const { data:tc } = await db.from("teachers").select("id,coc_agreed").eq("profile_id", session.user.id).maybeSingle();
@@ -246,7 +248,7 @@ async function loadApp(session){
 function renderSetPin(name, role){
   const staff = role!=="student"; state._setRole=role;
   $("whoName").textContent="Hi, "+(name||"").split(" ")[0];
-  $("whoRole").textContent= role==="teacher"?"Teacher":(role==="admin"?"Admin":"Student");
+  $("whoRole").textContent= role==="teacher"?"Guru":(role==="admin"?"Admin":"Student");
   $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
     <h2 style="font-size:20px;margin-bottom:6px">${staff?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
@@ -327,7 +329,7 @@ async function renderStudentIntake(st){
         <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
         <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
         <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
-        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your teacher and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
+        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your guru and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
         <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
       <div class="check"><input type="checkbox" id="si_terms"><label for="si_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="si_signer" value="${esc(st.parent_name||st.full_name||"")}"></div>
@@ -441,6 +443,10 @@ function renderShell(role, name, warn){
       var _app=document.getElementById("app"); if(_app) _app.classList.remove("nav-open");
     };
   });
+  if(role==="student" && (state._children||[]).length>1){
+    const sw=`<div id="childSwitch" style="padding:8px 8px 12px;border-bottom:1px solid var(--line);margin-bottom:8px"><div class="mini" style="color:var(--muted);margin:0 0 6px;font-weight:700">Family — switch</div>${state._children.map(c=>`<button type="button" class="chiptab${c.id===state._childId?' on':''}" data-id="${c.id}" onclick="setChild('${c.id}')">${esc(c.full_name)}</button>`).join("")}</div>`;
+    $("sideNav").insertAdjacentHTML("afterbegin", sw);
+  }
   navigate(items[0][2], name, warn);
 }
 
@@ -452,6 +458,7 @@ if(!window._tipInit){ window._tipInit=true; document.addEventListener("click",fu
 
 function navigate(key, name, warn){
   const M = $("mainArea");
+  state._navKey=key; state._name=name; state._warn=warn;
   if(key==="dashboard") return renderDashboard(name, warn);
   if(key==="students")  return renderStudents();
   if(key==="attendance") return renderAttendance();
@@ -760,7 +767,7 @@ async function renderAttendance(){
   const today=todayIST();
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
-  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Pick a day and a class, then mark who attended. Use the Center &amp; Course filters to narrow the student list. Gurus also mark their own classes from the teacher app.")}</h2><p>Mark who attended each class</p></div></div>
+  M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Pick a day and a class, then mark who attended. Use the Center &amp; Course filters to narrow the student list. Gurus also mark their own classes from the guru app.")}</h2><p>Mark who attended each class</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a class</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar">
       <span class="mini">Date</span><input id="attDate" type="date" max="${today}" value="${today}" style="max-width:150px;flex:none">
@@ -1933,7 +1940,7 @@ const SUGG_STAGES=[["new","New"],["reviewed","Reviewed"],["actioned","Actioned"]
 const SUGG_BADGE={ new:"b-amber", reviewed:"b-teal", actioned:"b-green" };
 async function renderSuggestions(){
   const M=$("mainArea");
-  M.innerHTML=`<div class="ph"><div><h2>Suggestions${tip("Anonymous feedback from students and gurus — no names are ever stored, so people can be candid.")}</h2><p>Anonymous suggestions from students &amp; teachers — no names are stored</p></div></div>
+  M.innerHTML=`<div class="ph"><div><h2>Suggestions${tip("Anonymous feedback from students and gurus — no names are ever stored, so people can be candid.")}</h2><p>Anonymous suggestions from students &amp; gurus — no names are stored</p></div></div>
     <div class="kpis" id="sugKpis" style="margin-bottom:12px"></div>
     <div class="searchbar"><input id="sugSearch" placeholder="🔍 Search text…" style="flex:1">
       <select id="sugFilter" style="max-width:170px;flex:none"><option value="open">To review (New + Reviewed)</option><option value="">All</option>${SUGG_STAGES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}</select></div>
@@ -1961,7 +1968,7 @@ function drawSuggestions(){
     if(q && !((s.body||"").toLowerCase().includes(q))) return false;
     return true;
   });
-  if(!list.length){ $("sugList").innerHTML=`<div class="empty">No suggestions${f||q?" match this filter":" yet. These arrive once students & teachers can submit from their app."}.</div>`; return; }
+  if(!list.length){ $("sugList").innerHTML=`<div class="empty">No suggestions${f||q?" match this filter":" yet. These arrive once students & gurus can submit from their app."}.</div>`; return; }
   const stageSel=s=>`<select class="rowbtn" style="padding:5px 8px" onchange="setSuggStatus('${s.id}',this.value)">${SUGG_STAGES.map(x=>`<option value="${x[0]}"${s.status===x[0]?" selected":""}>${x[1]}</option>`).join("")}</select>`;
   $("sugList").innerHTML=list.map(s=>`<div class="panel" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -2279,7 +2286,7 @@ function weeklyClassesHTML(){
         <div class="kf"><label>Course</label><select id="cl_course"><option value="">—</option>${courseOpts}</select></div>
       </div>
       <div class="form2">
-        <div class="kf"><label>Teacher</label><select id="cl_teacher"><option value="">— unassigned —</option>${teachOpts}</select></div>
+        <div class="kf"><label>Guru</label><select id="cl_teacher"><option value="">— unassigned —</option>${teachOpts}</select></div>
         <div class="kf"><label>Branch</label><select id="cl_branch"><option value="">—</option>${branchOpts}</select></div>
       </div>
       <div class="form2">
@@ -2298,7 +2305,7 @@ function weeklyClassesHTML(){
       <button class="kbtn teal" id="addCls" onclick="saveClass()">Add weekly class</button>
       <button class="kbtn ghost" id="clsCancelBtn" style="display:none;margin-left:6px" onclick="cancelClsEdit()">Cancel</button>
     </div>
-    <div class="searchbar"><input id="clsSearch" placeholder="🔍 Search class or teacher…" style="flex:1">
+    <div class="searchbar"><input id="clsSearch" placeholder="🔍 Search class or guru…" style="flex:1">
       <select id="clsBranchF" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
     <div id="clsList"><div class="empty">Loading…</div></div>`;
 }
@@ -2354,7 +2361,7 @@ function drawClasses(){
   const pending=all.filter(needsReview).length;
   const banner=pending?`<div class="cfgwarn" style="background:#fff7e8;border:0">🔔 <b>${pending}</b> class${pending===1?"":"es"} added by gurus — already active, please review.</div>`:"";
   if(!list.length){ $("clsList").innerHTML=banner+`<div class="empty">No classes${q||bf?" match":" yet — add your first above"}.</div>`; return; }
-  $("clsList").innerHTML=banner+`<table><tr><th>Class</th><th>Teacher</th><th>Branch</th><th>Schedule</th><th>Enrolled</th><th></th></tr>
+  $("clsList").innerHTML=banner+`<table><tr><th>Class</th><th>Guru</th><th>Branch</th><th>Schedule</th><th>Enrolled</th><th></th></tr>
     ${list.map(b=>`<tr>
       <td><b>${esc(b.name)}</b>${needsReview(b)?` <span class="badge b-amber">🆕 To review</span>`:""}${b.courses?.name?`<br><span class="mini">${esc(b.courses.name)}</span>`:""}${b.mode&&b.mode!=="in_person"?` <span class="badge b-teal">${esc(b.mode)}</span>`:""}</td>
       <td>${esc(teacherName(b.teacher_id))}</td>
@@ -3214,12 +3221,27 @@ async function cancelPTM(rid){
 }
 
 /* ================= STUDENT / PARENT APP ================= */
-async function myStudent(){
-  if(state._stuRec!==undefined) return state._stuRec;
+async function loadFamily(){
   const { data:{ user } } = await db.auth.getUser();
-  if(!user){ state._stuRec=null; return null; }
-  const { data } = await db.from("students").select("id,full_name,branch_id,course_id,level,join_date,goal,primary_teacher_id,upi_id,branches(name,upi_id),courses(name)").eq("profile_id",user.id).maybeSingle();
-  state._stuRec=data||null; return state._stuRec;
+  if(!user){ state._children=[]; state._childId=null; return []; }
+  const { data } = await db.from("students")
+    .select("id,full_name,status,intake_completed,is_minor,branch_id,course_id,level,join_date,goal,primary_teacher_id,upi_id,branches(name,upi_id),courses(name)")
+    .eq("profile_id",user.id).eq("status","active").order("full_name");
+  state._children = data||[];
+  if(!state._childId || !state._children.some(c=>c.id===state._childId)){
+    let saved=null; try{ saved=localStorage.getItem("kk_childId"); }catch(e){}
+    state._childId = (saved && state._children.some(c=>c.id===saved)) ? saved : (state._children[0]? state._children[0].id : null);
+  }
+  return state._children;
+}
+function setChild(id){
+  state._childId=id; try{ localStorage.setItem("kk_childId",id); }catch(e){}
+  if($("childSwitch")) $("childSwitch").querySelectorAll(".chiptab").forEach(b=>b.classList.toggle("on", b.dataset.id===id));
+  navigate(state._navKey||"dashboard", state._name, state._warn);
+}
+async function myStudent(){
+  if(!state._children){ await loadFamily(); }
+  return (state._children||[]).find(c=>c.id===state._childId) || (state._children||[])[0] || null;
 }
 /* ----- Journey milestones (shared: student + admin/guru) ----- */
 const MS_TYPES=[["exam","🎓 Exam","#E6F1FB","#0C447C"],["competition","🏆 Competition","#FAEEDA","#854F0B"],["performance","🎤 Performance","#FBEAF0","#993556"],["achievement","⭐ Achievement","#EAF3DE","#3B6D11"],["workshop","🛠 Workshop","#EEEDFE","#3C3489"],["other","📌 Other","#F1EFE8","#444441"]];
@@ -3557,7 +3579,7 @@ async function waReceipt(invId){
 async function renderTeachers(){
   const M=$("mainArea");
   M.innerHTML=`<div class="ph"><div><h2>Gurus${tip("Add and manage guru logins, set each guru's payout %, default Zoom link, and view who has signed the Code of Conduct (with a printable copy).")}</h2><p>Guru logins — gurus sign in on the <b>Staff</b> tab with email + password</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3>Add a teacher</h3>
+    <div class="panel" style="margin-bottom:14px"><h3>Add a guru</h3>
       <div class="form2">
         <div><div class="kf"><label>Full name *</label><input id="t_name"></div>
           <div class="kf"><label>Email *</label><input id="t_email" type="email"></div></div>
@@ -3566,7 +3588,7 @@ async function renderTeachers(){
       </div>
       <div class="kf"><label>Default Zoom link (optional) <span class="mini" style="color:var(--muted)">— their room for online/hybrid classes; you can add this later via Edit</span></label><input id="t_zoom" placeholder="https://us06web.zoom.us/j/…"></div>
       <div class="formmsg" id="tMsg"></div>
-      <button class="kbtn teal" id="addTeacher">Create teacher login</button>
+      <button class="kbtn teal" id="addTeacher">Create guru login</button>
     </div>
     <div class="panel" style="margin-bottom:14px"><h3>Owner / admin who also teaches</h3>
       <p class="footnote" style="margin:0 0 10px">If a super admin or front-desk admin also takes classes (e.g. Abhinav), add them as a guru here. They keep their existing login — this just makes them assignable to classes and Guru Samvaad.</p>
@@ -3574,7 +3596,7 @@ async function renderTeachers(){
         <button class="kbtn teal" onclick="addStaffAsGuru()">Make guru</button></div>
       <div class="formmsg" id="staffGuruMsg"></div>
     </div>
-    <div id="tList"><div class="empty">Loading teachers…</div></div>`;
+    <div id="tList"><div class="empty">Loading gurus…</div></div>`;
   $("addTeacher").onclick=addTeacher;
   loadTeachers();
 }
@@ -3599,7 +3621,7 @@ async function addStaffAsGuru(){
 }
 function drawTeachers(){
   const data=state._teachers||[];
-  if(!data.length){ $("tList").innerHTML=`<div class="empty">No teachers yet — add one above.</div>`; return; }
+  if(!data.length){ $("tList").innerHTML=`<div class="empty">No gurus yet — add one above.</div>`; return; }
   $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn edit" onclick="viewCoCCopy('${t.id}')">View copy</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
 }
 function viewCoCCopy(id){
@@ -3641,7 +3663,7 @@ async function reAskCoC(id){
 }
 function editTeacher(id){
   const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
-  $("tList").innerHTML=`<div class="panel"><h3>Edit teacher</h3>
+  $("tList").innerHTML=`<div class="panel"><h3>Edit guru</h3>
     <div class="form2">
       <div class="kf"><label>Full name</label><input id="te_name" value="${esc(t.profiles?.full_name||"")}"></div>
       <div class="kf"><label>Subjects (comma-separated)</label><input id="te_disc" value="${esc((t.disciplines||[]).join(", "))}"></div>
@@ -3649,7 +3671,7 @@ function editTeacher(id){
     <div class="kf" style="max-width:220px"><label>Payout %</label><input id="te_pay" type="number" min="0" max="100" value="${t.payout_pct||40}"></div>
     <div class="kf"><label>Default Zoom link <span class="mini" style="color:var(--muted)">(used for this guru's online/hybrid classes)</span></label><input id="te_zoom" value="${esc(t.zoom_link||"")}" placeholder="https://us05web.zoom.us/j/…"></div>
     <div class="kf"><label>Login email</label><input value="${esc(t.profiles?.email||"")}" disabled style="background:#f1f1f1"></div>
-    <p class="footnote">The login email can't be changed here — tell me if a teacher's email needs updating and I'll handle it safely.</p>
+    <p class="footnote">The login email can't be changed here — tell me if a guru's email needs updating and I'll handle it safely.</p>
     <div class="formmsg" id="teMsg"></div>
     <button class="kbtn teal" onclick="saveTeacherEdits('${id}','${t.profile_id}')">Save changes</button>
     <button class="kbtn ghost" style="margin-left:6px" onclick="drawTeachers()">Cancel</button></div>`;
@@ -3669,7 +3691,7 @@ async function saveTeacherEdits(id, profileId){
 }
 async function addTeacher(){
   const m=$("tMsg"); const name=$("t_name").value.trim(), email=$("t_email").value.trim(), pass=$("t_pass").value, disc=$("t_disc").value.trim(); const zoom=($("t_zoom")&&$("t_zoom").value.trim())||"";
-  if(!name) return failMsg(m,"Enter the teacher's name.");
+  if(!name) return failMsg(m,"Enter the guru's name.");
   if(!email) return failMsg(m,"Enter an email.");
   if(!pass||pass.length<6) return failMsg(m,"Starting password must be at least 6 characters.");
   m.className="formmsg ok"; m.textContent="Creating…"; $("addTeacher").disabled=true;
@@ -3678,7 +3700,7 @@ async function addTeacher(){
   if(ferr){ return failMsg(m,"Couldn't create — "+(await fnErr(ferr))); }
   if(fn && fn.ok){
     if(zoom){ try{ const { data:tt } = await db.from("teachers").select("id,profiles(email)").order("created_at",{ascending:false}).limit(25); const mine=(tt||[]).find(x=>((x.profiles&&x.profiles.email)||"").toLowerCase()===email.toLowerCase()); if(mine) await db.from("teachers").update({ zoom_link:zoom }).eq("id",mine.id); }catch(e){} }
-    m.className="formmsg ok"; m.textContent="✓ Teacher created. They sign in on the Staff tab with "+email+" and the password you set."; ["t_name","t_email","t_pass","t_disc","t_zoom"].forEach(i=>{ if($(i)) $(i).value=""; }); loadTeachers(); }
+    m.className="formmsg ok"; m.textContent="✓ Guru created. They sign in on the Staff tab with "+email+" and the password you set."; ["t_name","t_email","t_pass","t_disc","t_zoom"].forEach(i=>{ if($(i)) $(i).value=""; }); loadTeachers(); }
   else failMsg(m,"Couldn't create — "+((fn&&fn.error)||"unknown"));
 }
 function failMsg(m,t){ if(m){ m.className="formmsg err"; m.textContent=t; } return false; }
@@ -3796,7 +3818,7 @@ function drawStaff(){
     const editing=state._staffEdit===p.id;
     const nameCell=editing?`<input id="sn_${p.id}" value="${esc(p.full_name||"")}" style="width:150px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`:`<b>${esc(p.full_name||"—")}</b>`;
     const badge=`<span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc((p.role||"").replace("_"," "))}</span>`;
-    const actions=p.role==="teacher"?`<span class="mini" style="color:var(--muted)">Edit in Teachers</span>`:(editing?`<span class="rowbtn edit" onclick="saveStaffName('${p.id}')">Save</span><span class="rowbtn" onclick="cancelStaffEdit()">Cancel</span>`:`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span>`);
+    const actions=p.role==="teacher"?`<span class="mini" style="color:var(--muted)">Edit in Gurus</span>`:(editing?`<span class="rowbtn edit" onclick="saveStaffName('${p.id}')">Save</span><span class="rowbtn" onclick="cancelStaffEdit()">Cancel</span>`:`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span>`);
     return `<tr><td>${nameCell}</td><td>${esc(p.email||"—")}</td><td>${badge}</td><td class="mini" style="white-space:nowrap">${actions}</td></tr>`;
   }).join("")}</table>`;
 }
@@ -4213,7 +4235,7 @@ async function renderIntake(){
         <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
         <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
         <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
-        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your teacher and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
+        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your guru and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
         <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
       <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer"></div>
