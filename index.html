@@ -1593,6 +1593,10 @@ async function delEnquiry(id){
 const INV_TYPES=["Instrument","Prop","Costume","Equipment","Other"];
 const INV_CONDS=["Good","Needs service","Under repair","Retired"];
 const INV_COND_BADGE={ "Good":"b-green", "Needs service":"b-amber", "Under repair":"b-red", "Retired":"b-grey" };
+const INV_LEAD_DAYS=7;
+function invAddMonths(dateStr,months){ const [y,m,d]=String(dateStr).slice(0,10).split("-").map(Number); const b=new Date(Date.UTC(y,(m-1)+months,d)); return b.getUTCFullYear()+"-"+String(b.getUTCMonth()+1).padStart(2,"0")+"-"+String(b.getUTCDate()).padStart(2,"0"); }
+function invNextDue(i){ if(!i.service_interval_months||Number(i.service_interval_months)<=0) return null; const base=i.last_serviced||i.purchase_date; if(!base) return null; return invAddMonths(base,Number(i.service_interval_months)); }
+function invDueStatus(i){ const nd=invNextDue(i); if(!nd) return null; const t=todayIST(); const gap=Math.round((Date.parse(nd+"T00:00:00Z")-Date.parse(t+"T00:00:00Z"))/86400000); return { nextDue:nd, gap, overdue:gap<0, dueNow:gap<=0, dueSoon:gap>0&&gap<=INV_LEAD_DAYS }; }
 async function renderActivityLog(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const { data, error } = await db.from("audit_log").select("at,actor_name,action,entity,detail").order("at",{ascending:false}).limit(200);
@@ -1612,6 +1616,7 @@ async function renderInventory(){
   const condOpts=INV_CONDS.map(c=>`<option>${c}</option>`).join("");
   M.innerHTML=`<div class="ph"><div><h2>Inventory${tip("Track the instruments, props and equipment the school owns — condition and repair-vs-replace — per branch.")}</h2><p>Instruments, props, costumes &amp; equipment — across every centre</p></div></div>
     <div class="kpis" id="invKpis" style="margin-bottom:12px"></div>
+    <div id="invDueBanner"></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="invFormTitle">Add an item</h3>
       <div class="form2">
         <div class="kf"><label>Item name *</label><input id="i_name" placeholder="e.g. Tabla set #2"></div>
@@ -1629,6 +1634,10 @@ async function renderInventory(){
         <div class="kf"><label>Last serviced</label><input id="i_serv" type="date"></div>
         <div class="kf"><label>Notes</label><input id="i_notes" placeholder="e.g. spare skin needed"></div>
       </div>
+      <div class="form2">
+        <div class="kf"><label>Service every (months)${tip("How often this item needs servicing — e.g. 6. The super admin gets an email 7 days before it's due and again on the day. Leave blank for no reminders.")}</label><input id="i_interval" type="number" min="0" placeholder="e.g. 6 — blank = no reminder"></div>
+        <div class="kf"><label>Service type</label><input id="i_servlabel" placeholder="e.g. Service / Tuning / Upgrade review"></div>
+      </div>
       <div class="formmsg" id="iMsg"></div>
       <button class="kbtn teal" id="addInv">Add item</button>
       <button class="kbtn ghost" id="invCancelBtn" style="display:none;margin-left:6px" onclick="cancelInvEdit()">Cancel</button>
@@ -1642,18 +1651,20 @@ async function renderInventory(){
   loadInventory();
 }
 async function loadInventory(){
-  const { data, error } = await db.from("inventory").select("id,name,item_type,branch_id,condition,purchase_date,purchase_cost,last_serviced,notes").order("name");
+  const { data, error } = await db.from("inventory").select("id,name,item_type,branch_id,condition,purchase_date,purchase_cost,last_serviced,service_interval_months,service_label,notes").order("name");
   if(error){ $("invList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._inv=data||[]; drawInventory();
 }
 function drawInventory(){
   const all=state._inv||[];
   const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
-  let totVal=0, attention=0;
-  all.forEach(i=>{ totVal+=Number(i.purchase_cost||0); if(i.condition==="Needs service"||i.condition==="Under repair") attention++; });
+  let totVal=0, attention=0, dueNow=0, dueSoon=0;
+  all.forEach(i=>{ totVal+=Number(i.purchase_cost||0); if(i.condition==="Needs service"||i.condition==="Under repair") attention++; const st=invDueStatus(i); if(st){ if(st.dueNow) dueNow++; else if(st.dueSoon) dueSoon++; } });
   $("invKpis").innerHTML=`<div class="kpi"><div class="l">Total items</div><div class="v">${all.length}</div></div>
     <div class="kpi"><div class="l">Needs attention</div><div class="v" style="color:var(--warn)">${attention}</div></div>
+    <div class="kpi"><div class="l">Service due</div><div class="v" style="color:${dueNow?"var(--warn)":"inherit"}">${dueNow}</div><div class="mini">${dueSoon} coming up</div></div>
     <div class="kpi"><div class="l">Total purchase value</div><div class="v">${INR(totVal)}</div></div>`;
+  if($("invDueBanner")){ if(dueNow||dueSoon){ const red=dueNow>0; $("invDueBanner").innerHTML=`<div style="margin:0 0 14px;background:${red?"#fdecea":"#FCF3DD"};border:1px solid ${red?"#f3c0b8":"#e7cf95"};border-radius:9px;padding:10px 13px;font-size:13px;color:${red?"#9B2226":"#7a5d12"}">${red?"⚠️":"🛠"} <b>${dueNow}</b> item${dueNow===1?"":"s"} due or overdue for service${dueSoon?`, <b>${dueSoon}</b> coming up in the next ${INV_LEAD_DAYS} days`:""}. The super admin also gets these by email.</div>`; } else $("invDueBanner").innerHTML=""; }
   const q=(($("invSearch")&&$("invSearch").value)||"").toLowerCase().trim();
   const bf=($("invBranchF")&&$("invBranchF").value)||"";
   const cf=($("invCondF")&&$("invCondF").value)||"";
@@ -1664,15 +1675,16 @@ function drawInventory(){
     return true;
   });
   if(!list.length){ $("invList").innerHTML=`<div class="empty">No items${q||bf||cf?" match this filter":" yet — add your first above"}.</div>`; return; }
-  $("invList").innerHTML=`<table><tr><th>Item</th><th>Type</th><th>Branch</th><th>Condition</th><th>Last serviced</th><th>Cost</th><th></th></tr>
+  $("invList").innerHTML=`<table><tr><th>Item</th><th>Type</th><th>Branch</th><th>Condition</th><th>Last serviced</th><th>Next service</th><th>Cost</th><th></th></tr>
     ${list.map(i=>`<tr>
       <td><b>${esc(i.name)}</b>${i.notes?`<br><span class="mini">${esc(i.notes)}</span>`:""}</td>
       <td>${esc(i.item_type||"—")}</td>
       <td>${esc(bname(i.branch_id))}</td>
       <td><span class="badge ${INV_COND_BADGE[i.condition]||"b-grey"}">${esc(i.condition||"—")}</span></td>
       <td class="mini">${i.last_serviced?esc(i.last_serviced):"—"}</td>
+      <td class="mini">${(()=>{ const st=invDueStatus(i); if(!st) return "—"; return `<span class="badge ${st.overdue?"b-red":(st.dueSoon?"b-amber":"b-green")}">${esc(st.nextDue)}</span>`+(st.overdue?`<br><span class="mini" style="color:#9B2226">${-st.gap}d overdue</span>`:""); })()}</td>
       <td>${i.purchase_cost?INR(i.purchase_cost):"—"}</td>
-      <td class="mini"><span class="rowbtn edit" onclick="editInvItem('${i.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delInvItem('${i.id}')">Delete</span></td>
+      <td class="mini">${invNextDue(i)?`<span class="rowbtn" onclick="markServicedToday('${i.id}')">🛠 Serviced today</span>`:""}<span class="rowbtn edit" onclick="editInvItem('${i.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delInvItem('${i.id}')">Delete</span></td>
     </tr>`).join("")}</table>
     <p class="footnote">Tip: log a repair or new-purchase <b>cost</b> as an expense in Finance &amp; P&amp;L (category “Instruments” or “Maintenance”) so it flows into your centre P&amp;L.</p>`;
 }
@@ -1682,7 +1694,9 @@ async function saveInventoryItem(){
   const rec={ name, item_type:$("i_type").value||null, branch_id:$("i_branch").value||null,
     condition:$("i_cond").value||"Good", purchase_date:$("i_pdate").value||null,
     purchase_cost:$("i_cost").value?Number($("i_cost").value):null,
-    last_serviced:$("i_serv").value||null, notes:$("i_notes").value.trim()||null };
+    last_serviced:$("i_serv").value||null, notes:$("i_notes").value.trim()||null,
+    service_interval_months: ($("i_interval")&&$("i_interval").value)?Number($("i_interval").value):null,
+    service_label: ($("i_servlabel")&&$("i_servlabel").value.trim())||null };
   m.className="formmsg ok"; m.textContent="Saving…"; $("addInv").disabled=true;
   let error;
   if(state._invEdit){ ({ error } = await db.from("inventory").update(rec).eq("id",state._invEdit)); }
@@ -1699,17 +1713,25 @@ function editInvItem(id){
   $("i_branch").value=i.branch_id||""; $("i_cond").value=i.condition||"Good";
   $("i_pdate").value=i.purchase_date||""; $("i_cost").value=i.purchase_cost||"";
   $("i_serv").value=i.last_serviced||""; $("i_notes").value=i.notes||"";
+  if($("i_interval")) $("i_interval").value=i.service_interval_months||""; if($("i_servlabel")) $("i_servlabel").value=i.service_label||"";
   $("invFormTitle").textContent="Edit item — "+(i.name||"");
   $("addInv").textContent="Save changes"; $("invCancelBtn").style.display="inline-block";
   window.scrollTo({top:0,behavior:"smooth"});
 }
 function cancelInvEdit(){
   state._invEdit=null;
-  ["i_name","i_pdate","i_cost","i_serv","i_notes"].forEach(x=>{ if($(x)) $(x).value=""; });
+  ["i_name","i_pdate","i_cost","i_serv","i_notes","i_interval","i_servlabel"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("i_type")) $("i_type").value=""; if($("i_branch")) $("i_branch").value=""; if($("i_cond")) $("i_cond").value="Good";
   if($("invFormTitle")) $("invFormTitle").textContent="Add an item";
   if($("addInv")) $("addInv").textContent="Add item";
   if($("invCancelBtn")) $("invCancelBtn").style.display="none";
+}
+async function markServicedToday(id){
+  const t=todayIST();
+  const { error } = await db.from("inventory").update({ last_serviced:t }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  const it=(state._inv||[]).find(x=>x.id===id); if(it) it.last_serviced=t;
+  drawInventory();
 }
 async function delInvItem(id){
   if(!confirm("Delete this item from inventory? This can't be undone.")) return;
