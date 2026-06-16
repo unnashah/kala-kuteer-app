@@ -1,0 +1,29 @@
+name: Inventory maintenance reminders
+
+# Runs every morning. Emails the super admin(s) about inventory items
+# that are due for service soon (heads-up) or due/overdue today.
+# Nothing is emailed twice for the same item + due date.
+on:
+  schedule:
+    - cron: "30 3 * * *"     # 03:30 UTC = 9:00 AM IST, every day
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Send ONE test INVENTORY REMINDER to this address (leave blank for a normal run)"
+        required: false
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inventory reminders
+        run: |
+          if [ -n "${{ github.event.inputs.test_email }}" ]; then
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\",\"test\":\"${{ github.event.inputs.test_email }}\"}"
+          else
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\"}"
+          fi
+          curl -fsS -X POST "https://qazimpjrscihrfjaycxb.supabase.co/functions/v1/send-inventory-reminders" \
+            -H "x-cron-key: ${{ secrets.CRON_SECRET }}" -H "Content-Type: application/json" -d "$BODY"
+          echo ""
