@@ -1,0 +1,46 @@
+name: Daily Reminders & Greetings
+
+# Runs once a day: fee reminders (3/2/1 before due, 1/2/3 overdue) AND
+# birthday + school-anniversary greetings. Scheduled runs do the real
+# sends; the manual inputs below let you send a single test to yourself.
+on:
+  schedule:
+    - cron: "30 3 * * *"     # 03:30 UTC = 09:00 AM IST, every day
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Send ONE test FEE REMINDER to this address (leave blank for a normal run)"
+        required: false
+        default: ""
+      test_greeting:
+        description: "Send ONE test BIRTHDAY + ANNIVERSARY to this address (leave blank for a normal run)"
+        required: false
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fee reminders
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.test_email != '' }}
+        run: |
+          if [ -n "${{ github.event.inputs.test_email }}" ]; then
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\",\"test\":\"${{ github.event.inputs.test_email }}\"}"
+          else
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\"}"
+          fi
+          curl -fsS -X POST "https://qazimpjrscihrfjaycxb.supabase.co/functions/v1/send-fee-reminders" \
+            -H "x-cron-key: ${{ secrets.CRON_SECRET }}" -H "Content-Type: application/json" -d "$BODY"
+          echo ""
+
+      - name: Birthday & anniversary greetings
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.test_greeting != '' }}
+        run: |
+          if [ -n "${{ github.event.inputs.test_greeting }}" ]; then
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\",\"test\":\"${{ github.event.inputs.test_greeting }}\"}"
+          else
+            BODY="{\"key\":\"${{ secrets.CRON_SECRET }}\"}"
+          fi
+          curl -fsS -X POST "https://qazimpjrscihrfjaycxb.supabase.co/functions/v1/send-greetings" \
+            -H "x-cron-key: ${{ secrets.CRON_SECRET }}" -H "Content-Type: application/json" -d "$BODY"
+          echo ""
