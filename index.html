@@ -3842,6 +3842,20 @@ async function addAdmin(){
   if(fn&&fn.ok){ m.className="formmsg ok"; m.textContent="✓ Admin created. They sign in on the Staff tab with "+email+"."; ["a_name","a_email","a_pass"].forEach(i=>$(i).value=""); loadStaff(); }
   else failMsg(m,"Couldn't create — "+((fn&&fn.error)||"unknown"));
 }
+async function createStudentLogin(id){
+  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Setting up login…"; }
+  const { data:st } = await db.from("students").select("phone,parent_phone,date_of_birth,full_name").eq("id",id).maybeSingle();
+  if(!st){ if(m){ m.className="formmsg err"; m.textContent="Couldn't load this student."; } return; }
+  const phone=st.phone||st.parent_phone;
+  if(!phone || !st.date_of_birth){ if(m){ m.className="formmsg err"; m.textContent="Add a mobile number and date of birth first, then create the login."; } return; }
+  const { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, dob:st.date_of_birth, name:st.full_name } });
+  if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't create login — "+(await fnErr(ferr)); } return; }
+  if(fn && (fn.ok || fn.attached)){
+    const [yy,mm,dd]=String(st.date_of_birth).split("-"); const pin=`${dd}${mm}${yy}`;
+    if(m){ m.className="formmsg ok"; m.textContent=fn.attached?"✓ Linked to the family's existing login (same mobile).":("✓ Login created. They sign in with their mobile + PIN "+pin+" (date of birth, DDMMYYYY)."); }
+    renderStudentDetail(id);
+  } else { if(m){ m.className="formmsg err"; m.textContent="Couldn't create login — "+((fn&&fn.error)||"unknown"); } }
+}
 async function resetStudentPin(id, dob){
   if(!dob){ alert("This student has no date of birth on record, so the PIN can't be reset to it."); return; }
   if(!confirm("Reset this student's PIN to their date of birth? They'll be asked to set a new private PIN the next time they log in.")) return;
@@ -3913,7 +3927,9 @@ async function renderStudentDetail(id){
       ${s.status==="archived"
         ? `<button class="kbtn teal" onclick="restoreStudent('${s.id}')">♻️ Restore student</button>`
         : `<button class="kbtn" style="background:var(--warn);color:#fff" onclick="archiveStudent('${s.id}')">🗃 Archive student</button>`}
-      <button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>
+      ${s.profile_id
+        ? `<button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>`
+        : `<button class="kbtn" style="margin-left:6px;background:var(--navy);color:#fff" onclick="createStudentLogin('${s.id}')">🔑 Create login</button>`}
       <div class="formmsg" id="manageMsg"></div>
       <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Archive</b> hides a student from the active list and stops billing, but keeps their full record — you can <b>Restore</b> them anytime. Nothing is ever deleted.</p>
     </div>
