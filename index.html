@@ -3941,7 +3941,7 @@ async function renderQuickRegister(){
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const cc=id=>`<select id="${id}_cc" style="max-width:150px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   const numIn=id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
-  M.innerHTML=`<div class="ph"><div><h2>Quick register${tip("Enter just the basics the school knows — name, login mobile, date of birth, course, branch and guru. The family fills their contact details and signs the consent on first login. This creates their login and adds them to <b>Students</b>.")}</h2><p>Create a basic account once the ₹1,000 registration is paid. The student completes &amp; signs the rest on their first login.</p></div>
+  M.innerHTML=`<div class="ph"><div><h2>Quick register${tip("Enter just the basics the school knows — name, login mobile, date of birth, course, branch and guru. The family fills their contact details and signs the consent on first login. This creates their login and adds them to <b>Students</b>.")}</h2><p>Create a basic account once the registration fee is paid. The student completes &amp; signs the rest on their first login.</p></div>
       <button class="kbtn ghost" onclick="state._intakeMode='full';gotoNav('intake')">📝 Full intake form</button></div>
     <div class="panel" style="max-width:640px">
       <div class="form2">
@@ -3958,9 +3958,9 @@ async function renderQuickRegister(){
       </div>
       <div class="kf"><label>Joining date *</label><input id="q_join" type="date"></div>
       <div style="border-top:1px solid var(--line);margin:14px 0 4px;padding-top:12px"><b>Registration fee</b></div>
-      <div class="check" style="margin:0 0 8px"><input type="checkbox" id="q_reghas" checked><label for="q_reghas" style="margin:0;font-size:13px">₹1,000 one-time registration has been collected</label></div>
+      <div class="check" style="margin:0 0 8px"><input type="checkbox" id="q_reghas" checked><label for="q_reghas" style="margin:0;font-size:13px">One-time registration fee has been collected</label></div>
       <div class="form2" id="q_regfields">
-        <div class="kf"><label>Amount (₹)</label><input id="q_regamt" inputmode="numeric" value="1000" oninput="this.value=this.value.replace(/\\D/g,'')"></div>
+        <div class="kf"><label>Amount (₹)</label><input id="q_regamt" inputmode="numeric" value="" placeholder="auto from branch" oninput="this.value=this.value.replace(/\\D/g,'')"></div>
         <div class="kf"><label>Paid via</label><select id="q_regmethod"><option value="upi">UPI / QR</option><option value="cash">Cash</option><option value="card">Card</option><option value="netbanking">Net banking</option></select></div>
         <div class="kf"><label>Date paid</label><input id="q_regdate" type="date"></div>
       </div>
@@ -3971,9 +3971,12 @@ async function renderQuickRegister(){
     </div>`;
   $("q_dob").onchange=()=>{ const a=ageFromDOB($("q_dob").value); if(a!=null) $("q_minor").checked=a<18; };
   $("qSave").onclick=saveQuickStudent;
+  function _setRegFromBranch(){ const _b=(state.branches||[]).find(x=>x.id===((($("q_branch")||{}).value)||"")); if($("q_regamt")) $("q_regamt").value=(_b&&_b.registration_fee!=null)?String(Number(_b.registration_fee)):""; }
+  if($("q_branch")) $("q_branch").addEventListener("change",_setRegFromBranch);
   if(state._convertEnq){ const c=state._convertEnq;
     if($("q_name")) $("q_name").value=c.name||"";
     if(c.branch_id && $("q_branch")) $("q_branch").value=c.branch_id;
+    if(typeof _setRegFromBranch==="function") _setRegFromBranch();
     if(c.course_id && $("q_course")) $("q_course").value=c.course_id;
     const ph=String(c.phone||c.whatsapp||"").replace(/\D/g,""); if(ph && $("q_phone")) $("q_phone").value=ph.length>10?ph.slice(-10):ph;
     const qm=$("qMsg"); if(qm){ qm.className="formmsg ok"; qm.textContent="Pre-filled from the enquiry — complete the rest and create the account."; }
@@ -4010,7 +4013,7 @@ async function saveQuickStudent(){
   }catch(e){ m.textContent="✓ Student created."; }
   m.className="formmsg ok";
   if(state._convertEnq && state._convertEnq.id){ try{ await db.from("enquiries").update({ converted_student_id: ins.id }).eq("id", state._convertEnq.id); }catch(e){} state._convertEnq=null; }
-  // record the one-time ₹1,000 registration as a PAID invoice (shows in income; family can download a receipt)
+  // record the one-time registration fee as a PAID invoice (shows in income; family can download a receipt)
   try{
     const regHas=$("q_reghas")&&$("q_reghas").checked;
     const regAmt=Number((($("q_regamt")||{}).value)||0);
@@ -4021,7 +4024,7 @@ async function saveQuickStudent(){
     }
   }catch(e){}
   ["q_name","q_dob","q_phone","q_branch","q_course","q_guru","q_level","q_join"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("q_minor")) $("q_minor").checked=false;
-  if($("q_regamt")) $("q_regamt").value="1000"; if($("q_regdate")) $("q_regdate").value=todayIST(); if($("q_reghas")) $("q_reghas").checked=true;
+  if($("q_regamt")) $("q_regamt").value=""; if(typeof _setRegFromBranch==="function") _setRegFromBranch(); if($("q_regdate")) $("q_regdate").value=todayIST(); if($("q_reghas")) $("q_reghas").checked=true;
   $("qSave").disabled=false;
 }
 async function renderIntake(){
