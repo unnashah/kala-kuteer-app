@@ -1684,7 +1684,7 @@ function drawInventory(){
       <td class="mini">${i.last_serviced?esc(i.last_serviced):"—"}</td>
       <td class="mini">${(()=>{ const st=invDueStatus(i); if(!st) return "—"; return `<span class="badge ${st.overdue?"b-red":(st.dueSoon?"b-amber":"b-green")}">${esc(st.nextDue)}</span>`+(st.overdue?`<br><span class="mini" style="color:#9B2226">${-st.gap}d overdue</span>`:""); })()}</td>
       <td>${i.purchase_cost?INR(i.purchase_cost):"—"}</td>
-      <td class="mini">${invNextDue(i)?`<span class="rowbtn" onclick="markServicedToday('${i.id}')">🛠 Serviced today</span>`:""}<span class="rowbtn edit" onclick="editInvItem('${i.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delInvItem('${i.id}')">Delete</span></td>
+      <td class="mini">${invNextDue(i)?`<span class="rowbtn" onclick="logServiceDate('${i.id}')">🛠 Log service</span>`:""}<span class="rowbtn edit" onclick="editInvItem('${i.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delInvItem('${i.id}')">Delete</span></td>
     </tr>`).join("")}</table>
     <p class="footnote">Tip: log a repair or new-purchase <b>cost</b> as an expense in Finance &amp; P&amp;L (category “Instruments” or “Maintenance”) so it flows into your centre P&amp;L.</p>`;
 }
@@ -1726,12 +1726,11 @@ function cancelInvEdit(){
   if($("addInv")) $("addInv").textContent="Add item";
   if($("invCancelBtn")) $("invCancelBtn").style.display="none";
 }
-async function markServicedToday(id){
-  const t=todayIST();
-  const { error } = await db.from("inventory").update({ last_serviced:t }).eq("id",id);
-  if(error){ alert("Couldn't update — "+error.message); return; }
-  const it=(state._inv||[]).find(x=>x.id===id); if(it) it.last_serviced=t;
-  drawInventory();
+function logServiceDate(id){
+  // open the item in the edit form and jump straight to the service-date field,
+  // so the super admin enters the actual date the service/upkeep happened.
+  editInvItem(id);
+  setTimeout(()=>{ const el=$("i_serv"); if(el){ el.focus(); el.style.outline="2px solid var(--saffron)"; el.style.borderColor="var(--saffron)"; try{ el.showPicker&&el.showPicker(); }catch(e){} setTimeout(()=>{ if(el){ el.style.outline=""; el.style.borderColor=""; } },3000); } if($("iMsg")){ $("iMsg").className="formmsg ok"; $("iMsg").textContent="Enter the date this item was serviced in “Last serviced”, then click Save changes."; } },160);
 }
 async function delInvItem(id){
   if(!confirm("Delete this item from inventory? This can't be undone.")) return;
