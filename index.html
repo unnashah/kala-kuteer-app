@@ -807,6 +807,8 @@ async function loadAttendance(){
   if(error){ $("attList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._attStudsAll=studs||[];
   const ids=state._attStudsAll.map(s=>s.id); let map={}, mc={};
+  state._attStuCourses={};
+  if(ids.length){ try{ const { data:scs } = await db.from("student_courses").select("student_id,course_id,status").in("student_id",ids); (scs||[]).forEach(r=>{ (state._attStuCourses[r.student_id]=state._attStuCourses[r.student_id]||[]).push(r); }); }catch(e){} }
   if(ids.length){
     const { data:marks } = await db.from("attendance").select("student_id,status").eq("session_id",sessId).in("student_id",ids);
     (marks||[]).forEach(m=>map[m.student_id]=m.status);
@@ -823,7 +825,7 @@ function applyAttFilters(){
   const cf=($("attCourseF")&&$("attCourseF").value)||"";
   let list=(state._attStudsAll||[]);
   if(bf) list=list.filter(s=>s.branch_id===bf);
-  if(cf) list=list.filter(s=>s.course_id===cf);
+  if(cf) list=list.filter(s=>{ const scs=(state._attStuCourses&&state._attStuCourses[s.id])||[]; if(scs.length) return scs.some(c=>(c.status||"active")==="active" && c.course_id===cf); return s.course_id===cf; });
   state._attStuds=list;
   drawAttendance(list, state._att||{});
 }
@@ -2724,7 +2726,14 @@ async function renderMyAttendance(){
   const tid=await myTeacherId();
   if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Attendance</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
   state._maTid=tid;
-  const { data:gs } = await db.from("students").select("id,full_name").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
+  // students this guru teaches — via the Courses list (covers a student's 2nd/3rd course),
+  // plus the legacy primary-guru link as a fallback.
+  const taughtIds=new Set();
+  try{ const { data:sc } = await db.from("student_courses").select("student_id").eq("teacher_id",tid).eq("status","active"); (sc||[]).forEach(r=>taughtIds.add(r.student_id)); }catch(e){}
+  try{ const { data:lg } = await db.from("students").select("id").eq("primary_teacher_id",tid).eq("status","active"); (lg||[]).forEach(r=>taughtIds.add(r.id)); }catch(e){}
+  let gs=[];
+  const allIds=[...taughtIds];
+  if(allIds.length){ const { data:studs } = await db.from("students").select("id,full_name").in("id",allIds).eq("status","active").order("full_name"); gs=studs||[]; }
   state._maStu=gs||[];
   const today=todayIST();
   M.innerHTML=`<div class="ph"><div><h2>Attendance${tip("Pick your class for the day, then tap the students who attended. What you save feeds each student's monthly attendance.")}</h2><p>Pick your class, then tap the students who came</p></div></div>
@@ -3938,7 +3947,7 @@ async function renderStudentDetail(id){
       </div>
       <div class="panel"><h3>School record</h3>
         <div class="dl"><span class="k">Branch</span><span><b>${esc(s.branches?.name||"—")}</b></span></div>
-        <div class="dl"><span class="k">Course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")}</span></div>
+        <div class="dl"><span class="k">Primary course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")} <span class="mini" style="color:var(--muted)">(full list in Courses below)</span></span></div>
         <div class="dl"><span class="k">Primary guru</span><span>${esc(teacherName(s.primary_teacher_id))}</span></div>
         ${s.upi_id?`<div class="dl"><span class="k">Payment UPI (override)</span><span>${esc(s.upi_id)}</span></div>`:""}
         <div class="dl"><span class="k">Attendance</span><span>${attPct!=null?attPct+"% ("+attPresent+"/"+attTotal+" days)":"—"}</span></div>
@@ -3972,16 +3981,19 @@ async function loadStudentCourses(id){
   const C=$("stuCourses"); if(!C) return;
   try{ await loadRef(); }catch(e){}
   let scs=[], errored=false, errMsg="";
-  try{ const r=await db.from("student_courses").select("id,course_id,teacher_id,monthly_fee,status").eq("student_id",id).order("start_date"); if(r.error){ errored=true; errMsg=(r.error.message||"")+" "+(r.error.code||""); } else scs=r.data||[]; }
+  try{ const r=await db.from("student_courses").select("id,course_id,teacher_id,monthly_fee,status,level").eq("student_id",id).order("start_date"); if(r.error){ errored=true; errMsg=(r.error.message||"")+" "+(r.error.code||""); } else scs=r.data||[]; }
   catch(e){ errored=true; errMsg=String((e&&e.message)||e); }
   if(errored){ C.innerHTML=`<div class="panel"><h3>Courses</h3><div class="cfgwarn">Couldn't load courses — <b>${esc(errMsg)}</b><br><span class="mini">If this says the table isn't found, re-run migration-multi-course.sql in Supabase.</span></div></div>`; return; }
   const cName=cid=>{ const c=(state.courses||[]).find(x=>x.id===cid); return c?c.name:"—"; };
-  const rows = scs.length ? scs.map(sc=>`<div class="dl"><span class="k">${esc(cName(sc.course_id))}</span><span>${esc(teacherName(sc.teacher_id))} · <b>${INR(sc.monthly_fee)}</b> · <span class="badge ${STATUS_BADGE[sc.status]||"b-grey"}">${esc((sc.status||"").replace("_"," "))}</span> &nbsp;<span class="rowbtn edit" onclick="editStudentCourse('${id}','${sc.id}')">✏️ Edit</span> <span class="rowbtn danger" onclick="removeStudentCourse('${id}','${sc.id}')">Remove</span></span></div>`).join("") : `<div class="empty">No courses yet — add the first one below.</div>`;
+  const noneActive = scs.length>0 && !scs.some(sc=>(sc.status||"active")==="active");
+  const rows = scs.length ? scs.map(sc=>`<div class="dl"><span class="k">${esc(cName(sc.course_id))}${sc.level?` · <span class="mini" style="font-weight:400;color:var(--muted)">${esc(sc.level)}</span>`:""}</span><span>${esc(teacherName(sc.teacher_id))} · <b>${INR(sc.monthly_fee)}</b> · <span class="badge ${STATUS_BADGE[sc.status]||"b-grey"}">${esc((sc.status||"").replace("_"," "))}</span> &nbsp;<span class="rowbtn edit" onclick="editStudentCourse('${id}','${sc.id}')">✏️ Edit</span> <span class="rowbtn danger" onclick="removeStudentCourse('${id}','${sc.id}')">Remove</span></span></div>`).join("") : `<div class="empty">No courses yet — add the first one below.</div>`;
+  const noneActiveBanner = noneActive ? `<div style="margin:8px 0 0;background:#fdecea;border:1px solid #f3c0b8;border-radius:9px;padding:9px 12px;font-size:13px;color:#9B2226">⚠️ This student has no <b>active</b> courses left. Consider updating their status (on-break / completed / alumni) in <b>Manage student</b> below.</div>` : "";
   const courseOpts=(state.courses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const statusOpts=["active","on_break","completed"].map(x=>`<option value="${x}">${x.replace("_"," ")}</option>`).join("");
-  C.innerHTML=`<div class="panel"><h3>Courses${tip("A student can take more than one course — each with its own guru and its own full monthly fee. Each course is billed as a separate line and each guru is paid for their own course.")}</h3>
+  C.innerHTML=`<div class="panel"><h3>Courses${tip("A student can take more than one course — each with its own guru, level and full monthly fee. Each course is billed as a separate line and each guru is paid for their own course. The top of the profile shows the FIRST course as the primary one.")}</h3>
     ${rows}
+    ${noneActiveBanner}
     <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
       <h4 id="scFormTitle" style="margin:0 0 8px">Add a course</h4>
       <input type="hidden" id="sc_editId" value="">
@@ -3991,7 +4003,11 @@ async function loadStudentCourses(id){
       </div>
       <div class="form2">
         <div class="kf"><label>Monthly fee (₹) — full fee for this course</label><input id="sc_fee" type="number" min="0" placeholder="e.g. 4500"></div>
+        <div class="kf"><label>Level</label><select id="sc_level"><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
+      </div>
+      <div class="form2">
         <div class="kf"><label>Status</label><select id="sc_status">${statusOpts}</select></div>
+        <div class="kf"></div>
       </div>
       <div class="formmsg" id="scMsg"></div>
       <button class="kbtn teal" onclick="saveStudentCourse('${id}')">Save course</button>
@@ -4006,6 +4022,7 @@ async function editStudentCourse(studentId, scId){
   if($("sc_guru")) $("sc_guru").value=sc.teacher_id||"";
   if($("sc_fee")) $("sc_fee").value=sc.monthly_fee||"";
   if($("sc_status")) $("sc_status").value=sc.status||"active";
+  if($("sc_level")) $("sc_level").value=sc.level||"Beginner";
   if($("scFormTitle")) $("scFormTitle").textContent="Edit course";
   if($("scCancel")) $("scCancel").style.display="inline-block";
   if($("sc_course")) $("sc_course").focus();
@@ -4016,23 +4033,38 @@ async function saveStudentCourse(studentId){
   const teacher_id=($("sc_guru")&&$("sc_guru").value)||null;
   const fee=($("sc_fee")&&$("sc_fee").value)?Number($("sc_fee").value):0;
   const status=($("sc_status")&&$("sc_status").value)||"active";
+  const level=($("sc_level")&&$("sc_level").value)||"Beginner";
   if(!course_id) return failMsg(m,"Choose a course.");
   if(!teacher_id) return failMsg(m,"Choose a guru.");
   if(!(fee>0)) return failMsg(m,"Enter this course's monthly fee.");
-  const rec={ student_id:studentId, course_id, teacher_id, monthly_fee:fee, status };
+  const rec={ student_id:studentId, course_id, teacher_id, monthly_fee:fee, status, level };
   m.className="formmsg ok"; m.textContent="Saving…";
   const editId=($("sc_editId")&&$("sc_editId").value)||"";
   let error;
   if(editId){ ({ error } = await db.from("student_courses").update(rec).eq("id",editId)); }
   else { ({ error } = await db.from("student_courses").insert(rec)); }
-  if(error){ return failMsg(m,"Couldn't save — "+error.message); }
-  loadStudentCourses(studentId);
+  if(error){
+    const dup=(error.code==="23505")||/duplicate key/i.test(error.message||"");
+    return failMsg(m, dup ? "This student already has that course. Pick a different course, or use Edit on the existing one." : ("Couldn't save — "+error.message));
+  }
+  await syncPrimaryCourse(studentId);
+  renderStudentDetail(studentId);
+}
+async function syncPrimaryCourse(studentId){
+  // keep the student's top-of-profile "primary" fields matching their first course
+  try{
+    const { data:list } = await db.from("student_courses").select("course_id,teacher_id,level,status,start_date").eq("student_id",studentId).order("start_date");
+    if(!list||!list.length) return;
+    const primary = list.find(c=>(c.status||"active")==="active") || list[0];
+    await db.from("students").update({ course_id:primary.course_id, primary_teacher_id:primary.teacher_id, level:primary.level||"Beginner" }).eq("id",studentId);
+  }catch(e){}
 }
 async function removeStudentCourse(studentId, scId){
   if(!confirm("Remove this course from the student? Their invoices already raised are not affected.")) return;
   const { error } = await db.from("student_courses").delete().eq("id",scId);
   if(error){ alert("Couldn't remove — "+error.message); return; }
-  loadStudentCourses(studentId);
+  await syncPrimaryCourse(studentId);
+  renderStudentDetail(studentId);
 }
 async function setStudentStatus(id, status){
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Updating…"; }
