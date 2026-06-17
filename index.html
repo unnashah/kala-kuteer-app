@@ -557,13 +557,13 @@ async function renderDashboard(name, warn){
     ${state.role==="student"?'<div id="dashFees"></div>':""}
     ${state.role==="super_admin"?'<div id="ownerStats"></div>':""}
     ${state.role==="super_admin"?'<div id="atRisk"></div>':""}
-    <div id="dashNotices" style="margin-top:16px"></div>
-    ${admin?`<div class="kpis" style="margin-top:16px">
+    ${admin&&state.role!=="super_admin"?`<div class="kpis" style="margin-top:16px">
       <div class="kpi"><div class="l">Active students</div><div class="v" id="kpiActive">…</div></div>
       <div class="kpi"><div class="l">Gurus</div><div class="v" id="kpiGurus">…</div></div>
       <div class="kpi"><div class="l">Branches</div><div class="v" id="kpiBranch">…</div></div>
     </div>`:""}
     ${admin?'<div id="dashBdays"></div>':""}
+    <div id="dashNotices" style="margin-top:16px"></div>
     ${admin?quickActions:`<div class="grid">${tiles}</div><p class="note">Tap any card to open it. 💛</p>`}`;
   if(state.role==="student") loadDashFees();
   if(state.role==="student") loadDashOnline();
@@ -585,7 +585,7 @@ async function renderDashboard(name, warn){
   if($("dashNotices") && notices && notices.length){
     const dest = state.role==="teacher"?"notices":(isAdmin()?"news":(state.role==="student"?"mynews":null));
     notices.forEach(regAnn);
-    $("dashNotices").innerHTML=`<div class="panel" style="background:linear-gradient(180deg,#FCF3DD,#F8EAC6);border:1.5px solid var(--saffron)"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:var(--maroon-deep)">📣 Latest announcements</h3>${dest?`<span class="rowbtn edit" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
+    $("dashNotices").innerHTML=`<div class="panel" style="background:linear-gradient(180deg,#EFD899,#E4C673);border:1.5px solid var(--saffron-deep)"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:var(--maroon-deep)">📣 Latest announcements</h3>${dest?`<span class="rowbtn edit" onclick="gotoNav('${dest}')">View all</span>`:""}</div>
       ${notices.map((n,i)=>`<div style="${i>0?"border-top:1px solid #ecd9a8;padding-top:10px;":""}margin-top:10px"><b>${esc(n.title)}</b> <span class="mini">· ${String(n.created_at).slice(0,10)}</span>${n.body?`<div class="mini" style="margin-top:3px;white-space:pre-wrap;color:#6b5836">${esc(n.body.slice(0,160))}${n.body.length>160?"…":""}</div>`:""}<div style="margin-top:6px"><span class="rowbtn" onclick="shareAnnounce('${n.id}')">🔗 Share</span></div></div>`).join("")}</div>`;
   }
 }
@@ -647,7 +647,7 @@ async function loadAtRisk(){
   const risk=((studs&&studs.data)||[]).map(s=>({ name:s.full_name, branch:s.branches&&s.branches.name, last:lastSeen[s.id]||null, join:s.join_date?String(s.join_date).slice(0,10):null }))
     .filter(s=>{ if(s.last) return s.last<cutoff; return s.join ? s.join<cutoff : true; })
     .sort((a,b)=>String(a.last||"").localeCompare(String(b.last||"")));
-  if(!risk.length){ C.innerHTML=`<div class="panel" style="margin-top:14px"><h3 style="margin:0">🌟 Retention</h3><div class="mini" style="color:var(--good);margin-top:6px">Every active student has attended within the last 3 weeks. 💛</div></div>`; return; }
+  if(!risk.length){ C.innerHTML=""; return; }
   C.innerHTML=`<div class="panel" style="margin-top:14px"><h3 style="margin:0">⚠️ At-risk — no class in 3+ weeks (${risk.length})</h3>
     <p class="mini" style="color:var(--muted);margin:4px 0 8px">Active students who haven't attended recently — a quiet warning before they drift away. A quick call often saves them.</p>
     ${risk.slice(0,25).map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span><b>${esc(s.name)}</b>${s.branch?` <span class="mini" style="color:var(--muted)">· ${esc(s.branch)}</span>`:""}</span><span class="mini" style="color:var(--warn)">${s.last?"last seen "+esc(s.last):"never attended"}</span></div>`).join("")}
@@ -660,14 +660,16 @@ async function loadOwnerStats(){
   const mEnd=`${Y}-${PAD(Mo)}-${PAD(new Date(Y,Mo,0).getDate())}`;
   const mNext=`${Mo===12?Y+1:Y}-${PAD(Mo===12?1:Mo+1)}-01`;
   const weekEnd=new Date(Date.now()+19800000+7*86400000).toISOString().slice(0,10);
-  const [invMonth, unpaid, pays, regInv, newCnt, breakCnt, activeCnt] = await Promise.all([
+  const [invMonth, unpaid, pays, regInv, newCnt, breakCnt, activeCnt, gurusCnt, branchesCnt] = await Promise.all([
     fetchAll(()=> db.from("invoices").select("amount,status,period_start,period_end").lte("period_start",mEnd).gte("period_end",mStart)),
     fetchAll(()=> db.from("invoices").select("amount,due_date,status").neq("status","paid")),
     fetchAll(()=> db.from("payments").select("amount,invoices(students(branch_id))").gte("paid_at",mStart).lt("paid_at",mNext)),
     fetchAll(()=> db.from("invoices").select("registration,status").gt("registration",0).gte("due_date",mStart).lte("due_date",mEnd)),
     db.from("students").select("id",{count:"exact",head:true}).gte("join_date",mStart).lte("join_date",mEnd),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","on_break"),
-    db.from("students").select("id",{count:"exact",head:true}).eq("status","active")
+    db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
+    db.from("teachers").select("id",{count:"exact",head:true}).eq("is_active",true),
+    db.from("branches").select("id",{count:"exact",head:true})
   ]);
   let billed=0, collected=0, regCollected=0;
   (invMonth||[]).forEach(i=>{ const starts=i.period_start?(i.period_start>=mStart):true; if(!starts) return; billed+=Number(i.amount||0); if(i.status==="paid") collected+=Number(i.amount||0); });
@@ -694,8 +696,10 @@ async function loadOwnerStats(){
     </div>
     ${overdueN?`<div style="margin-top:10px;background:#fdecea;border:1px solid #f3c0b8;border-radius:9px;padding:9px 12px;font-size:13px;color:#9B2226">⚠️ <b>${overdueN}</b> overdue invoice${overdueN===1?'':'s'} (${INR(overdueAmt)}) — reminders go out automatically; <span class="rowbtn edit" onclick="gotoNav('fees')" style="margin-left:4px">review</span></div>`:""}
     <div style="margin-top:14px"><div class="mini" style="color:var(--muted);margin-bottom:2px">Collected by branch</div>${branchRows}</div>
-    <div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)">
-      <span>👥 <b>${activeCnt.count??0}</b> active</span>
+    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)">
+      <span>👥 <b>${activeCnt.count??0}</b> active students</span>
+      <span>🎓 <b>${gurusCnt.count??0}</b> gurus</span>
+      <span>🏢 <b>${branchesCnt.count??0}</b> branches</span>
       <span>⏸ <b>${breakCnt.count??0}</b> on break</span>
       <span>🗓 <b>${weekN}</b> due this week (${INR(weekAmt)})</span>
     </div>
