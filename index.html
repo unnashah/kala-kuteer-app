@@ -507,11 +507,12 @@ function navigate(key, name, warn){
 
 async function loadRef(){
   if(state.refLoaded) return;
-  const [b,c] = await Promise.all([
+  const [b,c,r] = await Promise.all([
     db.from("branches").select("id,name,monthly_fee,registration_fee,upi_id,allow_plans").order("name"),
-    db.from("courses").select("id,name").eq("is_active",true).order("name")
+    db.from("courses").select("id,name").eq("is_active",true).order("name"),
+    db.from("rooms").select("id,name").eq("is_active",true).order("name")
   ]);
-  state.branches = b.data||[]; state.courses = c.data||[]; state.refLoaded = true;
+  state.branches = b.data||[]; state.courses = c.data||[]; state.rooms = r.data||[]; state.refLoaded = true;
 }
 
 /* ---------------- DASHBOARD (every role) ---------------- */
@@ -2131,7 +2132,7 @@ function drawCalendar(){
       <td class="mini"><span class="rowbtn edit" onclick="gotoNav('news')">✏️ In Announcements</span></td>
     </tr>`).join("")}</table></div>`:"";
   $("calList").innerHTML=sessList+evList;
-  const _rooms=[...new Set((state._calSess||[]).map(c=>c.room).filter(Boolean))];
+  const _rooms=[...new Set([...(state.rooms||[]).map(r=>r.name),...(state._calSess||[]).map(c=>c.room).filter(Boolean)])];
   if($("cs_roomList")) $("cs_roomList").innerHTML=_rooms.map(r=>`<option value="${esc(r)}">`).join("");
 }
 function onSessMode(){ const m=$("cs_mode")?$("cs_mode").value:"in_person"; if($("cs_zoomWrap")) $("cs_zoomWrap").style.display=(m==="online"||m==="hybrid")?"":"none"; }
@@ -2334,7 +2335,7 @@ function weeklyClassesHTML(){
         <div class="kf"><label>Day</label><select id="cl_dow"><option value="">—</option>${dowOpts}</select></div>
         <div class="kf"><label>Start time</label><input id="cl_time" type="time"></div>
       </div>
-      <div class="kf"><label>Room / space</label><input id="cl_room" list="cl_rooms" placeholder="e.g. Room 1"><datalist id="cl_rooms"><option>Room 1</option><option>Room 2</option><option>Room 3</option><option>Room 4</option><option>Dance Hall</option></datalist>
+      <div class="kf"><label>Room / space</label><input id="cl_room" list="cl_rooms" placeholder="e.g. Room 1"><datalist id="cl_rooms">${(state.rooms||[]).map(r=>`<option value="${esc(r.name)}">`).join("")}</datalist>
         <span class="mini" style="color:var(--muted)">The system blocks two classes in the same room at the same day &amp; time.</span></div>
       <div class="form2">
         <div class="kf"><label>Mode</label><select id="cl_mode" onchange="onClassMode()"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
@@ -3910,6 +3911,16 @@ async function renderSettings(){
       </div>
       <div class="formmsg" id="ncMsg"></div>
     </div>
+    <div class="panel" style="margin-bottom:14px"><h3>Rooms &amp; spaces${tip("Name the physical rooms/spaces you teach in (e.g. Room 1, Dance Hall). These appear as choices when you add a class, and the calendar uses them to block two classes from sharing the same room at the same day &amp; time.")}</h3>
+      <p class="mini" style="color:var(--muted);margin:-2px 0 8px">Used for booking &amp; clash-checking the calendar. Rename anytime; <b>Hide</b> a room you no longer use (existing classes keep their room name).</p>
+      <div id="roomList"><div class="empty">Loading…</div></div>
+      <h3 style="margin-top:14px;font-size:13px">Add a room</h3>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="kf" style="margin:0"><label>Room / space name *</label><input id="nr_name" placeholder="e.g. Dance Hall"></div>
+        <button class="kbtn ghost" id="addRoomBtn">+ Add room</button>
+      </div>
+      <div class="formmsg" id="nrMsg"></div>
+    </div>
     <div class="panel"><h3>Staff &amp; access</h3>
       <div id="staffList"><div class="empty">Loading…</div></div>
       <h3 style="margin-top:16px;font-size:13px">Add a front-desk admin</h3>
@@ -3925,7 +3936,9 @@ async function renderSettings(){
   $("addAdmin").onclick=addAdmin;
   $("addBranchBtn").onclick=addBranch;
   $("addCourseBtn").onclick=addCourse;
+  $("addRoomBtn").onclick=addRoom;
   loadCoursesAdmin();
+  loadRoomsAdmin();
   loadStaff();
 }
 async function saveFeeStructure(){
@@ -3980,6 +3993,36 @@ async function addCourse(){
   if(error) return failMsg(m,"Couldn't add — "+error.message);
   $("nc_name").value=""; m.className="formmsg ok"; m.textContent="✓ Course added.";
   state.refLoaded=false; loadCoursesAdmin();
+}
+async function loadRoomsAdmin(){
+  const { data, error } = await db.from("rooms").select("id,name,is_active").order("name");
+  if(error){ $("roomList").innerHTML=`<div class="cfgwarn">Rooms aren't set up yet — run <b>migration-rooms-COPY-THIS.txt</b> in Supabase. <span class="mini">(${esc(error.message)})</span></div>`; return; }
+  state._roomsAdmin=data||[]; drawRoomsAdmin();
+}
+function drawRoomsAdmin(){
+  const list=state._roomsAdmin||[];
+  if(!list.length){ $("roomList").innerHTML=`<div class="mini" style="color:var(--muted)">No rooms yet — add one below.</div>`; return; }
+  $("roomList").innerHTML=`<table><tr><th>Room / space</th><th>Status</th><th></th></tr>${list.map(r=>`<tr><td><input id="rn_${r.id}" value="${esc(r.name)}" style="width:200px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${r.is_active?`<span class="badge b-green">Active</span>`:`<span class="badge b-grey">Hidden</span>`}</td><td class="mini" style="white-space:nowrap"><span class="rowbtn edit" onclick="saveRoomName('${r.id}')">Save</span><span class="rowbtn" onclick="toggleRoomActive('${r.id}',${r.is_active?"false":"true"})">${r.is_active?"Hide":"Activate"}</span></td></tr>`).join("")}</table>`;
+}
+async function saveRoomName(id){
+  const v=(($("rn_"+id)||{}).value||"").trim(); if(!v){ alert("Room name can't be empty."); return; }
+  const { error } = await db.from("rooms").update({ name:v }).eq("id",id);
+  if(error){ alert("Couldn't save — "+error.message); return; }
+  const el=$("rn_"+id); if(el) el.style.borderColor="var(--good)"; state.refLoaded=false; loadRoomsAdmin();
+}
+async function toggleRoomActive(id,makeActive){
+  const { error } = await db.from("rooms").update({ is_active:makeActive }).eq("id",id);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  state.refLoaded=false; loadRoomsAdmin();
+}
+async function addRoom(){
+  const m=$("nrMsg"); const name=(($("nr_name")||{}).value||"").trim();
+  if(!name) return failMsg(m,"Enter a room name.");
+  m.className="formmsg ok"; m.textContent="Adding…"; $("addRoomBtn").disabled=true;
+  const { error } = await db.from("rooms").insert({ name, is_active:true });
+  $("addRoomBtn").disabled=false;
+  if(error) return failMsg(m,"Couldn't add — "+error.message);
+  $("nr_name").value=""; m.className="formmsg ok"; m.textContent="✓ Room added."; state.refLoaded=false; loadRoomsAdmin();
 }
 async function loadStaff(){
   const { data, error } = await db.from("profiles").select("id,full_name,email,role").in("role",["super_admin","admin","teacher"]).order("role");
