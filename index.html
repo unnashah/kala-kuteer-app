@@ -4027,25 +4027,44 @@ async function addRoom(){
 async function loadStaff(){
   const { data, error } = await db.from("profiles").select("id,full_name,email,role").in("role",["super_admin","admin","teacher"]).order("role");
   if(error){ $("staffList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
-  state._staff=data||[]; drawStaff();
+  state._staff=data||[]; await myUid(); drawStaff();
 }
 function drawStaff(){
-  const rows=state._staff||[];
+  const rows=state._staff||[]; const me=state._uid||null;
   $("staffList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>${rows.map(p=>{
-    const editing=state._staffEdit===p.id;
+    const editing=state._staffEdit===p.id; const isTeacher=p.role==="teacher"; const isMe=p.id===me;
     const nameCell=editing?`<input id="sn_${p.id}" value="${esc(p.full_name||"")}" style="width:150px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`:`<b>${esc(p.full_name||"—")}</b>`;
     const badge=`<span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc((p.role||"").replace("_"," "))}</span>`;
-    const actions=p.role==="teacher"?`<span class="mini" style="color:var(--muted)">Edit in Gurus</span>`:(editing?`<span class="rowbtn edit" onclick="saveStaffName('${p.id}')">Save</span><span class="rowbtn" onclick="cancelStaffEdit()">Cancel</span>`:`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span>`);
-    return `<tr><td>${nameCell}</td><td>${esc(p.email||"—")}</td><td>${badge}</td><td class="mini" style="white-space:nowrap">${actions}</td></tr>`;
-  }).join("")}</table>`;
+    const roleCell=(editing&&!isTeacher)?`<select id="sr_${p.id}" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="super_admin"${p.role==="super_admin"?" selected":""}>Super Admin — full access</option><option value="admin"${p.role==="admin"?" selected":""}>Admin — front desk</option></select>`:badge;
+    let actions;
+    if(isTeacher){ actions=`<span class="mini" style="color:var(--muted)">Edit in Gurus</span>`; }
+    else if(editing){ actions=`<span class="rowbtn edit" onclick="saveStaff('${p.id}')">Save</span><span class="rowbtn" onclick="cancelStaffEdit()">Cancel</span>`+(isMe?` <span class="mini" style="color:var(--muted)">· this is you</span>`:` <span class="rowbtn" style="color:var(--warn);border-color:var(--warn)" onclick="removeStaff('${p.id}',&quot;${esc((p.full_name||p.email||"this person").replace(/"/g,"&quot;"))}&quot;)">🗑 Remove access</span>`); }
+    else { actions=`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span>`; }
+    return `<tr><td>${nameCell}</td><td>${esc(p.email||"—")}</td><td>${roleCell}</td><td class="mini" style="white-space:nowrap">${actions}</td></tr>`;
+  }).join("")}</table>
+  <p class="footnote" style="margin-top:8px"><b>Super Admin</b> sees everything (finances, payouts, fee structure, deletes). <b>Admin</b> runs day-to-day but can't see money screens. Removing access deletes that login for good.</p>`;
 }
 function editStaffName(id){ state._staffEdit=id; drawStaff(); }
 function cancelStaffEdit(){ state._staffEdit=null; drawStaff(); }
-async function saveStaffName(id){
+async function saveStaff(id){
+  const p=(state._staff||[]).find(x=>x.id===id)||{};
   const v=(($("sn_"+id)||{}).value||"").trim(); if(!v){ alert("Name can't be empty."); return; }
+  const newRole=(($("sr_"+id)||{}).value)||p.role;
   const { error } = await db.from("profiles").update({ full_name:v }).eq("id",id);
-  if(error){ alert("Couldn't save — "+error.message); return; }
+  if(error){ alert("Couldn't save name — "+error.message); return; }
+  if(newRole && newRole!==p.role){
+    const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"set_role", user_id:id, role:newRole } });
+    if(ferr){ alert("Name saved, but couldn't change role — "+(await fnErr(ferr))); loadStaff(); return; }
+    if(!fn||!fn.ok){ alert("Name saved, but couldn't change role — "+((fn&&fn.error)||"unknown")); loadStaff(); return; }
+  }
   state._staffEdit=null; loadStaff();
+}
+async function removeStaff(id,name){
+  if(!confirm("Remove "+name+"'s login completely?\n\nThey lose all access immediately. This can't be undone.")) return;
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"delete_staff", user_id:id } });
+  if(ferr){ alert("Couldn't remove — "+(await fnErr(ferr))); return; }
+  if(fn&&fn.ok){ state._staffEdit=null; loadStaff(); }
+  else alert("Couldn't remove — "+((fn&&fn.error)||"unknown"));
 }
 async function addAdmin(){
   const m=$("adminMsg"); const name=$("a_name").value.trim(), email=$("a_email").value.trim(), pass=$("a_pass").value;
