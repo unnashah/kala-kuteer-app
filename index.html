@@ -508,7 +508,7 @@ function navigate(key, name, warn){
 async function loadRef(){
   if(state.refLoaded) return;
   const [b,c,r] = await Promise.all([
-    db.from("branches").select("id,name,monthly_fee,registration_fee,upi_id,allow_plans").order("name"),
+    db.from("branches").select("id,name,monthly_fee,registration_fee,upi_id,allow_plans,plan_3_price,plan_6_price").order("name"),
     db.from("courses").select("id,name").eq("is_active",true).order("name"),
     db.from("rooms").select("id,name").eq("is_active",true).order("name")
   ]);
@@ -1052,7 +1052,7 @@ async function renderFees(){
 async function loadFees(){
   const P=feePeriod();
   $("feeList").innerHTML=`<div class="empty">Loading…</div>`;
-  const { data:studs, error } = await db.from("students").select("id,full_name,join_date,branches(name,monthly_fee,allow_plans)").or(`status.eq.active,status_effective_date.gt.${P.start}`).order("full_name");
+  const { data:studs, error } = await db.from("students").select("id,full_name,join_date,branches(name,monthly_fee,allow_plans,plan_3_price,plan_6_price)").or(`status.eq.active,status_effective_date.gt.${P.start}`).order("full_name");
   if(error){ $("feeList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:inv } = await db.from("invoices").select("id,student_id,course_id,amount,due_date,status,student_response,period_label,period_start,period_end,months").lte("period_start",P.end).gte("period_end",P.start);
   const invByStu={}; (inv||[]).forEach(i=>{ (invByStu[i.student_id]=invByStu[i.student_id]||[]).push(i); });
@@ -1068,9 +1068,10 @@ function drawFees(){
   const today=todayIST();
   let billed=0, collected=0;
   const courseName=cid=>{ const c=(state.courses||[]).find(x=>x.id===cid); return c?c.name:""; };
+  const planTotal=(br,n)=>{ const mf=Number((br&&br.monthly_fee)||0); if(n===3 && br&&br.plan_3_price!=null && Number(br.plan_3_price)>0) return Number(br.plan_3_price); if(n===6 && br&&br.plan_6_price!=null && Number(br.plan_6_price)>0) return Number(br.plan_6_price); return mf*n; };
   const noInvRow=(s)=>{ const allow=!!(s.branches&&s.branches.allow_plans);
     const amtCell=(s.branches&&s.branches.monthly_fee)?INR(s.branches.monthly_fee):"—";
-    const opts= allow? `<option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option>` : `<option value="1">1 month</option>`;
+    const mf0=Number((s.branches&&s.branches.monthly_fee)||0); const opts= allow? `<option value="1">1 month · ${INR(mf0)}</option><option value="3">3 months · ${INR(planTotal(s.branches,3))}</option><option value="6">6 months · ${INR(planTotal(s.branches,6))}</option>` : `<option value="1">1 month · ${INR(mf0)}</option>`;
     const action=`<select id="rp_${s.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">${opts}</select> <span class="rowbtn edit" onclick="adminRaisePlan('${s.id}')">Raise</span>`;
     return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amtCell}</td><td><span class="badge b-grey">No invoice</span></td><td>${action}</td></tr>`;
   };
@@ -1119,6 +1120,9 @@ async function adminRaisePlan(sid){
   const sel=$("rp_"+sid); const months=Number(sel&&sel.value)||1;
   const s=((state._fee&&state._fee.studs)||[]).find(x=>x.id===sid); if(!s||!s.branches){ alert("No branch set for this student."); return; }
   const fee=Number(s.branches.monthly_fee)||0; if(!fee){ alert("This branch has no monthly fee set in Settings."); return; }
+  let amount=fee*months;
+  if(months===3 && s.branches.plan_3_price!=null && Number(s.branches.plan_3_price)>0) amount=Number(s.branches.plan_3_price);
+  if(months===6 && s.branches.plan_6_price!=null && Number(s.branches.plan_6_price)>0) amount=Number(s.branches.plan_6_price);
   const P=state._fee.P; const sy=P.year, sm=P.monthIdx;
   const endDate=new Date(sy, sm+months, 0);
   const endd=`${endDate.getFullYear()}-${PAD(endDate.getMonth()+1)}-${PAD(endDate.getDate())}`;
@@ -1127,7 +1131,7 @@ async function adminRaisePlan(sid){
   const due=`${sy}-${PAD(sm+1)}-${PAD(Math.min(day,dim))}`;
   const today=todayIST();
   const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Raising…";
-  const { error } = await db.from("invoices").insert({ student_id:sid, period_label:lbl, amount:fee*months, due_date:due, status: due<today?"overdue":"pending", months, period_start:P.start, period_end:endd });
+  const { error } = await db.from("invoices").insert({ student_id:sid, period_label:lbl, amount, due_date:due, status: due<today?"overdue":"pending", months, period_start:P.start, period_end:endd });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't raise — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Raised "+(months>1?months+"-month":"monthly")+" invoice for "+s.full_name+".";
   loadFees();
@@ -3884,13 +3888,14 @@ async function fnErr(ferr){ let d=ferr.message||"error"; try{ const b=await ferr
 async function renderSettings(){
   const M=$("mainArea"); state.refLoaded=false; await loadRef();
   const inp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v||0}" style="width:130px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
+  const pinp=(id,v)=>`<input id="${id}" type="number" min="0" value="${v!=null?v:""}" placeholder="full price" style="width:120px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`;
   M.innerHTML=`<div class="ph"><div><h2>Settings &amp; Roles${warn("Changing a branch’s monthly fee affects only NEW invoices, not ones already raised. The UPI ID here is where students’ money lands — get it exactly right.")}${tip("Set each branch’s monthly fee, registration, UPI and whether it offers 3/6-month plans; manage your courses; and create front-desk admin logins.")}</h2><p>Owner-only — fee structure &amp; staff access</p></div></div>
     <div class="panel" style="margin-bottom:14px"><h3>Fee structure</h3>
-      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>UPI ID (students pay here)</th><th>3 / 6-mo plans</th></tr>
-        ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td style="text-align:center"><input type="checkbox" id="pl_${b.id}"${b.allow_plans?" checked":""}></td></tr>`).join("")}</table>
+      <table><tr><th>Branch</th><th>Monthly fee (₹)</th><th>Registration (₹)</th><th>3-month total (₹)</th><th>6-month total (₹)</th><th>UPI ID (students pay here)</th><th>Offer 3 / 6-mo plans</th></tr>
+        ${state.branches.map(b=>`<tr><td><input id="bn_${b.id}" value="${esc(b.name)}" style="width:140px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td>${inp("bf_"+b.id,b.monthly_fee)}</td><td>${inp("br_"+b.id,b.registration_fee)}</td><td>${pinp("b3_"+b.id,b.plan_3_price)}</td><td>${pinp("b6_"+b.id,b.plan_6_price)}</td><td><input id="bu_${b.id}" value="${esc(b.upi_id||"")}" placeholder="name@bank" style="width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"></td><td style="text-align:center"><input type="checkbox" id="pl_${b.id}"${b.allow_plans?" checked":""}></td></tr>`).join("")}</table>
       <div class="formmsg" id="feeStructMsg"></div>
       <button class="kbtn teal" id="saveFees" style="margin-top:8px">Save fee structure</button>
-      <p class="footnote" style="margin-top:8px">No GST is added to tuition. Each branch's <b>UPI ID</b> is what its students see when paying — give Tarnaka its own, and use the same handle for Gachibowli &amp; Online if you want them together.</p>
+      <p class="footnote" style="margin-top:8px">No GST is added to tuition. <b>3 / 6-month total</b> is the discounted prepay price for that whole plan — leave blank to charge the normal monthly fee × number of months (no discount). Registration is separate and charged once at signup. Each branch's <b>UPI ID</b> is what its students see when paying.</p>
       <div style="border-top:1px dashed var(--line);margin-top:14px;padding-top:12px">
         <h3 style="font-size:13px;margin:0 0 8px">Add a branch</h3>
         <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
@@ -3947,7 +3952,9 @@ async function saveFeeStructure(){
     const mf=Number($("bf_"+b.id).value)||0, rf=Number($("br_"+b.id).value)||0;
     const upi=(($("bu_"+b.id)||{}).value||"").trim()||null;
     const nm=(($("bn_"+b.id)||{}).value||"").trim()||b.name;
-    const { error } = await db.from("branches").update({ name:nm, monthly_fee:mf, registration_fee:rf, upi_id:upi, allow_plans: !!($("pl_"+b.id)&&$("pl_"+b.id).checked) }).eq("id",b.id);
+    const p3v=(($("b3_"+b.id)||{}).value||"").trim(); const p3=p3v===""?null:Number(p3v);
+    const p6v=(($("b6_"+b.id)||{}).value||"").trim(); const p6=p6v===""?null:Number(p6v);
+    const { error } = await db.from("branches").update({ name:nm, monthly_fee:mf, registration_fee:rf, plan_3_price:p3, plan_6_price:p6, upi_id:upi, allow_plans: !!($("pl_"+b.id)&&$("pl_"+b.id).checked) }).eq("id",b.id);
     if(error){ m.className="formmsg err"; m.textContent="Couldn't save "+b.name+" — "+error.message; return; }
   }
   state.refLoaded=false; await loadRef();
