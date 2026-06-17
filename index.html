@@ -3433,8 +3433,8 @@ async function loadStudentCalendar(){
   const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
   const me=await myStudent(); const aud=["all"]; if(me){ if(me.branch_id) aud.push("branch:"+me.branch_id); if(me.course_id) aud.push("course:"+me.course_id); }
   const { data:annc } = await db.from("news_posts").select("id,title,event_date,event_end,audience").not("event_date","is",null).in("audience",aud).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
-  const { data:sess } = await db.rpc("my_class_sessions",{ p_start:start, p_end:end });
-  const { data:bz } = await db.rpc("my_online_classes");
+  const { data:sess } = await db.rpc("my_class_sessions",{ p_start:start, p_end:end, p_student:state._childId||null });
+  const { data:bz } = await db.rpc("my_online_classes",{ p_student:state._childId||null });
   state._scalBatch=bz||[];
   const { data:bd } = await db.rpc("school_birthdays",{ p_month:mo });
   state._scalBdays=(bd||[]).map(r=>({ name:r.full_name, day:r.dom }));
@@ -3497,28 +3497,37 @@ async function renderStudentJourney(){
 /* ----- Student: Fees ----- */
 async function renderStudentFees(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
-  const s=await myStudent();
-  if(!s){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
-  const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response,period_start,period_end,months,course_id").eq("student_id",s.id).order("due_date",{ascending:false});
+  if(!state._children){ await loadFamily(); }
+  const fam=(state._children||[]);
+  const multiKid = fam.length>1;
+  const sSel=await myStudent();
+  const kids = multiKid ? fam : (sSel?[sSel]:[]);
+  if(!kids.length){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
+  const kidIds=kids.map(k=>k.id);
+  const { data:invs, error } = await db.from("invoices").select("id,student_id,period_label,amount,due_date,status,student_response,period_start,period_end,months,course_id").in("student_id",kidIds).order("due_date",{ascending:false});
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const list=invs||[]; const todayS=todayIST();
-  const upiId=s.upi_id||(s.branches&&s.branches.upi_id)||SCHOOL_UPI.id;
   let cmap={}; try{ const { data:cs } = await db.from("courses").select("id,name"); (cs||[]).forEach(c=>cmap[c.id]=c.name); }catch(e){}
   const cnm=id=>id?(cmap[id]||"Course"):"";
-  const paidRanges=list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).map(i=>[i.period_start,i.period_end]);
-  const coveredFee=i=>{ const ref=i.period_start||i.due_date; return ref && paidRanges.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const kidOf=id=>kids.find(k=>k.id===id)||{};
+  const kidName=id=>(kidOf(id).full_name)||"";
+  const upiOf=id=>{ const k=kidOf(id); return k.upi_id||(k.branches&&k.branches.upi_id)||SCHOOL_UPI.id; };
+  // paid ranges are per-student (one child's payment never covers another)
+  const paidRangesBy={}; list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ (paidRangesBy[i.student_id]=paidRangesBy[i.student_id]||[]).push([i.period_start,i.period_end]); });
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; const rs=paidRangesBy[i.student_id]||[]; return ref && rs.some(r=>r[0]<=ref&&r[1]>=ref); };
   const dueInv=list.filter(i=>i.status!=="paid" && !coveredFee(i));
   const paidInv=list.filter(i=>i.status==="paid");
-  const totalDue=dueInv.reduce((a,i)=>a+Number(i.amount||0),0);
-  // group this month's unpaid invoices (one per course) into a single bill
-  const groups={}; dueInv.forEach(i=>{ const k=i.period_label||i.period_start||i.due_date||"Fees"; (groups[k]=groups[k]||[]).push(i); });
-  const billCard=(label,items)=>{
+  const grandTotal=dueInv.reduce((a,i)=>a+Number(i.amount||0),0);
+
+  // one bill card for a set of same-student, same-period invoices
+  const billCard=(label,items,sid)=>{
     const total=items.reduce((a,i)=>a+Number(i.amount||0),0);
     const ids=items.map(i=>i.id);
     const anyOverdue=items.some(i=>i.due_date && i.due_date<todayS);
     const allSaidPaid=items.every(i=>i.student_response==="paid");
     const dueDate=items.map(i=>i.due_date).filter(Boolean).sort()[0]||"";
     const onlineFee=Math.round(total*0.0236), onlineTotal=total+onlineFee;
+    const upiId=upiOf(sid);
     const upi=`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(SCHOOL_UPI.name)}&am=${total}&cu=INR&tn=${encodeURIComponent("Fees "+label)}`;
     const qr=`https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encodeURIComponent(upi)}`;
     const breakdown = items.length>1 ? `<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">${items.map(i=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>${esc(cnm(i.course_id)||"Tuition")}</span><b>${INR(i.amount)}</b></div>`).join("")}</div>` : "";
@@ -3543,25 +3552,59 @@ async function renderStudentFees(){
       </div>
       <p class="mini" style="color:var(--muted);margin:8px 0 0">“Pay online” (card, UPI or net-banking) includes a <b>${INR(onlineFee)} payment-gateway fee</b> (≈2.4%), so you pay <b>${INR(onlineTotal)}</b> for everything above — it confirms instantly and your receipts are ready right away. To avoid the fee, pay by cash or UPI/QR and tap “I've paid”.</p></div>`;
   };
-  const paidCard=i=>`<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(i.period_label||"Fees")}</b>${i.course_id?` <span class="mini">· ${esc(cnm(i.course_id))}</span>`:""} <span class="badge b-green">Paid</span><div class="mini" style="margin-top:3px">${INR(i.amount)}</div></div><span class="rowbtn edit" onclick="genReceipt('${i.id}')">📄 Download receipt</span></div></div>`;
+
+  // per-student block (header shown only when there's more than one student on the login)
+  const studentBlock=(k)=>{
+    const kInv=dueInv.filter(i=>i.student_id===k.id);
+    if(!kInv.length) return "";
+    const groups={}; kInv.forEach(i=>{ const key=i.period_label||i.period_start||i.due_date||"Fees"; (groups[key]=groups[key]||[]).push(i); });
+    const kTotal=kInv.reduce((a,i)=>a+Number(i.amount||0),0);
+    const head = multiKid ? `<div style="display:flex;justify-content:space-between;align-items:baseline;margin:14px 0 8px;border-bottom:2px solid var(--saffron);padding-bottom:4px"><h3 style="margin:0">${esc(k.full_name)}</h3><span class="mini" style="color:var(--muted)">Due ${INR(kTotal)}</span></div>` : "";
+    return head + Object.keys(groups).map(key=>billCard(key,groups[key],k.id)).join("");
+  };
+
+  const paidCard=i=>`<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(i.period_label||"Fees")}</b>${multiKid?` <span class="mini">· ${esc(kidName(i.student_id))}</span>`:""}${i.course_id?` <span class="mini">· ${esc(cnm(i.course_id))}</span>`:""} <span class="badge b-green">Paid</span><div class="mini" style="margin-top:3px">${INR(i.amount)}</div></div><span class="rowbtn edit" onclick="genReceipt('${i.id}')">📄 Download receipt</span></div></div>`;
+
+  // self-serve 3/6-month prepay — single-student logins only (a family parent uses per-child billing)
   let planHtml="";
-  const { data:br } = await db.from("branches").select("monthly_fee,allow_plans").eq("id",s.branch_id).maybeSingle();
-  const allow=!!(br&&br.allow_plans); const mfee=br?Number(br.monthly_fee)||0:0;
-  const cm=new Date(); const curStart=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-01`; const curEnd=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-${PAD(new Date(cm.getFullYear(),cm.getMonth()+1,0).getDate())}`;
-  const coveredNow=list.some(i=>i.period_start&&i.period_end&&i.period_start<=curEnd&&i.period_end>=curStart);
-  if(allow && mfee>0 && !coveredNow){
-    const pb=(mo,label)=>`<button class="kbtn ${mo===1?"teal":"ghost"}" style="margin:4px 8px 0 0" onclick="studentRaisePlan(${mo})">${label} — ${INR(mfee*mo)}</button>`;
-    planHtml=`<div class="panel" style="margin-bottom:14px"><h3>Choose your payment</h3>
-      <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — whatever suits you.</p>
-      <div style="display:flex;flex-wrap:wrap">${pb(1,"1 month")}${pb(3,"3 months")}${pb(6,"6 months")}</div></div>`;
+  if(!multiKid && sSel){
+    const { data:br } = await db.from("branches").select("monthly_fee,allow_plans,plan_3_price,plan_6_price").eq("id",sSel.branch_id).maybeSingle();
+    const allow=!!(br&&br.allow_plans); const mfee=br?Number(br.monthly_fee)||0:0;
+    const planTot=(n)=>{ if(n===3 && br&&br.plan_3_price!=null && Number(br.plan_3_price)>0) return Number(br.plan_3_price); if(n===6 && br&&br.plan_6_price!=null && Number(br.plan_6_price)>0) return Number(br.plan_6_price); return mfee*n; };
+    const cm=new Date(); const curStart=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-01`; const curEnd=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-${PAD(new Date(cm.getFullYear(),cm.getMonth()+1,0).getDate())}`;
+    const coveredNow=list.some(i=>i.period_start&&i.period_end&&i.period_start<=curEnd&&i.period_end>=curStart);
+    if(allow && mfee>0 && !coveredNow){
+      const pb=(mo,label)=>`<button class="kbtn ${mo===1?"teal":"ghost"}" style="margin:4px 8px 0 0" onclick="studentRaisePlan(${mo})">${label} — ${INR(planTot(mo))}</button>`;
+      planHtml=`<div class="panel" style="margin-bottom:14px"><h3>Choose your payment</h3>
+        <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — whatever suits you.</p>
+        <div style="display:flex;flex-wrap:wrap">${pb(1,"1 month")}${pb(3,"3 months")}${pb(6,"6 months")}</div></div>`;
+    }
   }
-  const dueKeys=Object.keys(groups);
-  M.innerHTML=`<div class="ph"><div><h2>Fees${tip("Your bill for the month — if you take more than one course, they're combined into a single total. Pay by UPI/QR (free) or online, then tap ‘I've paid’; download your receipt once the office confirms.")}</h2><p>View and pay your fees</p></div></div>
-    ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
+
+  // family Pay-All — one online payment across every student on the login
+  let payAll="";
+  if(multiKid && dueInv.length>0){
+    const allIds=dueInv.map(i=>i.id);
+    const fee=Math.round(grandTotal*0.0236), tot=grandTotal+fee;
+    const kidLine=kids.map(k=>{ const t=dueInv.filter(i=>i.student_id===k.id).reduce((a,i)=>a+Number(i.amount||0),0); return t>0?`<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>${esc(k.full_name)}</span><b>${INR(t)}</b></div>`:""; }).join("");
+    payAll=`<div class="panel" style="margin-bottom:16px;border:2px solid var(--saffron)">
+      <h3 style="margin:0 0 4px">Family total due — ${INR(grandTotal)}</h3>
+      <p class="mini" style="color:var(--muted);margin:0 0 8px">Across ${kids.filter(k=>dueInv.some(i=>i.student_id===k.id)).length} students on this login.</p>
+      <div style="border-top:1px solid var(--line);padding-top:8px">${kidLine}</div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="kbtn teal" onclick="payOnlineMulti('${allIds.join(",")}','All fees')">💳 Pay everything online — ${INR(tot)}</button>
+        <button class="kbtn ghost" onclick="studentRespondMulti('${allIds.join(",")}')">✓ I've paid all (cash / UPI)</button>
+      </div>
+      <p class="mini" style="color:var(--muted);margin:8px 0 0">Paying online covers <b>all students above in one payment</b> and includes a <b>${INR(fee)} gateway fee</b> (≈2.4%). To pay by UPI/QR instead (free), use each student's own QR below — their fees may go to different branch UPI IDs.</p></div>`;
+  }
+
+  M.innerHTML=`<div class="ph"><div><h2>Fees${tip("Your family's bill — if more than one student is on this login, each student's dues are shown below and added into one family total you can pay in a single online payment. Pay by UPI/QR (free) or online, then tap ‘I've paid’; receipts download once the office confirms.")}</h2><p>${multiKid?"View and pay fees for everyone on this login":"View and pay your fees"}</p></div></div>
+    ${grandTotal>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">${multiKid?"Family total due now":"Total due now"}</div><div class="v" style="color:var(--warn)">${INR(grandTotal)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
     ${planHtml}
+    ${payAll}
     <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full, and a <b>late fee may apply</b> once the due date is crossed — see the attendance/make-up policy.</p>
-    ${dueKeys.length?dueKeys.map(k=>billCard(k,groups[k])).join(""):""}
-    ${paidInv.length?`<h3 style="margin:16px 0 8px">Paid</h3>`+paidInv.map(paidCard).join(""):(dueKeys.length||planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
+    ${dueInv.length?kids.map(studentBlock).join(""):""}
+    ${paidInv.length?`<h3 style="margin:16px 0 8px">Paid</h3>`+paidInv.map(paidCard).join(""):(dueInv.length||planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
 }
 async function studentRaisePlan(months){
   const { error } = await db.rpc("student_raise_plan",{ p_months:months });
@@ -4174,6 +4217,7 @@ async function renderStudentDetail(id){
       </div>
     </div>
     <div id="stuCourses" style="margin-top:14px"></div>
+    <div id="stuFamily" style="margin-top:14px"></div>
     <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
       <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
@@ -4190,6 +4234,46 @@ async function renderStudentDetail(id){
     <div id="stuMilestones" style="margin-top:14px"></div>`;
   loadMilestonesInto("stuMilestones", id, "school");
   loadStudentCourses(id);
+  loadFamilyPanel(id);
+}
+async function loadFamilyPanel(id){
+  const C=$("stuFamily"); if(!C) return;
+  const { data:me } = await db.from("students").select("id,full_name,profile_id").eq("id",id).maybeSingle();
+  if(!me){ C.innerHTML=""; return; }
+  let sibs=[];
+  if(me.profile_id){ const r=await db.from("students").select("id,full_name,status,branches(name)").eq("profile_id",me.profile_id).neq("id",id).order("full_name"); sibs=r.data||[]; }
+  const { data:cand } = await db.from("students").select("id,full_name,profile_id,branches(name)").not("profile_id","is",null).neq("id",id).order("full_name");
+  const anchors=(cand||[]).filter(c=> !me.profile_id || c.profile_id!==me.profile_id);
+  const sibList = sibs.length
+    ? `<div style="margin:6px 0">${sibs.map(x=>`<div class="dl"><span class="k">${esc(x.full_name)}</span><span>${esc((x.branches&&x.branches.name)||"")}${x.status&&x.status!=="active"?` · ${esc(x.status)}`:""}</span></div>`).join("")}</div>`
+    : `<p class="mini" style="color:var(--muted)">${me.profile_id?"No other students share this login yet.":"This student has no login yet — create one above, or link them into a family below."}</p>`;
+  const linkOpts=anchors.map(a=>`<option value="${a.id}">${esc(a.full_name)}${(a.branches&&a.branches.name)?" · "+esc(a.branches.name):""}</option>`).join("");
+  C.innerHTML=`<div class="panel"><h3>Family${tip("Put siblings, or a parent and child, on ONE login so the parent sees a single combined fee total and one ‘Pay All’. Students added on the same parent mobile link automatically; use this to link or separate them by hand.")}</h3>
+    <p class="mini" style="color:var(--muted);margin:-2px 0 8px">On this login: <b>${esc(me.full_name)}</b>${sibs.length?`, ${sibs.map(x=>esc(x.full_name)).join(", ")}`:""}.</p>
+    ${sibList}
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div class="kf" style="margin:0"><label>Link this student into another student's login</label>
+        <select id="famAnchor" style="min-width:240px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">${anchors.length?`<option value="">Choose the family / login to join…</option>`+linkOpts:`<option value="">No other students have a login yet</option>`}</select></div>
+      <button class="kbtn ghost" onclick="linkFamily('${id}')">🔗 Link to family</button>
+    </div>
+    ${me.profile_id && sibs.length ? `<div style="margin-top:10px"><button class="kbtn ghost" style="color:var(--warn);border-color:var(--warn)" onclick="unlinkFamily('${id}')">✂️ Separate this student (remove from family)</button><span class="mini" style="display:block;margin-top:4px;color:var(--muted)">They lose app access until you create a fresh login for them.</span></div>`:""}
+    <p class="footnote" style="margin-top:8px">Linking moves this student onto the chosen student's login, so the parent sees one combined bill. If this student had their own separate login with nobody else on it, that empty login is removed.</p>
+  </div>`;
+}
+async function linkFamily(id){
+  const sel=$("famAnchor"); const anchor=sel?sel.value:""; if(!anchor){ alert("Choose which student's login to join first."); return; }
+  if(!confirm("Link this student onto the chosen student's login?\n\nThe parent will then see both students on one login, with a single combined bill.")) return;
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"link_family", student_id:id, anchor_student_id:anchor } });
+  if(ferr){ alert("Couldn't link — "+(await fnErr(ferr))); return; }
+  if(fn&&fn.ok){ const msg=$("manageMsg"); if(msg){ msg.className="formmsg ok"; msg.textContent="✓ Linked into the family."; } loadFamilyPanel(id); }
+  else alert("Couldn't link — "+((fn&&fn.error)||"unknown"));
+}
+async function unlinkFamily(id){
+  if(!confirm("Separate this student from the family?\n\nThey are removed from the shared login and lose app access until you create a new login for them.")) return;
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"unlink_family", student_id:id } });
+  if(ferr){ alert("Couldn't separate — "+(await fnErr(ferr))); return; }
+  if(fn&&fn.ok){ loadFamilyPanel(id); }
+  else alert("Couldn't separate — "+((fn&&fn.error)||"unknown"));
 }
 async function loadStudentCourses(id){
   const C=$("stuCourses"); if(!C) return;
