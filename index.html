@@ -326,11 +326,12 @@ async function renderStudentIntake(st){
     </div>
     <div class="panel"><h3>Consent &amp; signature</h3>
       <div class="notice"><b>IMPORTANT NOTICE</b><br>
-        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
-        <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
-        <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
-        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your guru and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
-        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
+        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical or medical condition. It is the student's/guardian's duty to inform the School of any such condition. Submitting this form is an explicit acknowledgement of this.<br>
+        <b>B.</b> Regular attendance is essential. If classes are missed, fee cycles will not be adjusted, and the student may be de-enrolled.<br>
+        <b>C.</b> Just like a regular school, your fees reserve your place. If a student misses a few classes or takes a short break, the monthly fee continues and the account stays active — short absences are not paused or adjusted, exactly as a regular school charges through the term whether or not every day is attended.<br>
+        <b>D.</b> If you wish to stop, or take a longer break, please tell us in advance so we can de-enrol you and stop further billing. Returning later — for any reason — requires a fresh re-registration. A student absent for three consecutive months without informing us will be de-enrolled automatically and must likewise re-register to rejoin.<br>
+        <b>E.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your guru and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
+        <b>F.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion and representation — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
       <div class="check"><input type="checkbox" id="si_terms"><label for="si_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="si_signer" value="${esc(st.parent_name||st.full_name||"")}"></div>
       <div class="mini" style="color:var(--muted);margin:-4px 0 10px">Date: ${esc(new Date().toLocaleDateString())}</div>
@@ -2012,6 +2013,13 @@ async function renderCalendar(){
   const courseOpts=(state._classCourses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   state._csChecked=new Set();
   M.innerHTML=`<div class="ph"><div><h2>Calendar${tip("The one schedule everyone sees. Add a one-off class up top (and enrol students right there), or set repeating classes in the ‘🔁 Weekly classes’ panel. Holidays &amp; events appear here from Announcements when you give them a date.")}${warn("Deleting or changing a class emails the enrolled students automatically. Online classes all share ONE school Zoom account, so only one online class can run at a time — stagger them.")}</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
+    <div class="searchbar" style="justify-content:space-between;margin-top:4px">
+      <div><button class="kbtn ghost" onclick="calShift(-1)">‹ Prev</button>
+        <b id="calLabel" style="margin:0 12px"></b>
+        <button class="kbtn ghost" onclick="calShift(1)">Next ›</button></div>
+      <button class="kbtn ghost" onclick="calToday()">Today</button>
+    </div>
+    <div id="calGrid" style="margin-bottom:18px"><div class="empty">Loading…</div></div>
     <details class="panel" style="margin-bottom:14px" open><summary style="cursor:pointer;font-weight:700;font-size:14px">🔁 Weekly classes &amp; auto-fill a month — set up the regular weekly schedule here</summary>
       <div style="margin-top:12px">${weeklyClassesHTML()}</div>
     </details>
@@ -2059,13 +2067,6 @@ async function renderCalendar(){
       </div>
     </details>
     <p class="footnote" style="margin:0 0 14px">📣 To put a holiday, event or competition on this calendar, post it in <b>Announcements</b> and give it a date — it appears here automatically.</p>
-    <div class="searchbar" style="justify-content:space-between">
-      <div><button class="kbtn ghost" onclick="calShift(-1)">‹ Prev</button>
-        <b id="calLabel" style="margin:0 12px"></b>
-        <button class="kbtn ghost" onclick="calShift(1)">Next ›</button></div>
-      <button class="kbtn ghost" onclick="calToday()">Today</button>
-    </div>
-    <div id="calGrid"><div class="empty">Loading…</div></div>
     <div id="calList"></div>`;
   const t=todayIST();
   if($("cs_date")) $("cs_date").value=t;
@@ -4349,11 +4350,12 @@ async function renderIntake(){
       <div class="kf"><label>Owns the instrument? *</label><select id="f_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="kf"><label>Health / safety — any conditions we should know? *</label><textarea id="f_health" rows="2" placeholder="e.g. anxiety, panic attacks, cardiac issues, etc. — or write NA"></textarea></div>
       <div class="notice"><b>IMPORTANT NOTICE</b><br>
-        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical/medical condition. It is the student's/guardian's duty to inform the School. Submitting this form is an explicit acknowledgement.<br>
-        <b>B.</b> Regular attendance is essential; if classes are missed regularly, fee cycles may not be adjusted and the student may be de-enrolled.<br>
-        <b>C.</b> A student absent 3 months without prior communication (for non-viable reasons) must re-register to rejoin.<br>
-        <b>D.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your guru and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
-        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
+        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical or medical condition. It is the student's/guardian's duty to inform the School of any such condition. Submitting this form is an explicit acknowledgement of this.<br>
+        <b>B.</b> Regular attendance is essential. If classes are missed, fee cycles will not be adjusted, and the student may be de-enrolled.<br>
+        <b>C.</b> Just like a regular school, your fees reserve your place. If a student misses a few classes or takes a short break, the monthly fee continues and the account stays active — short absences are not paused or adjusted, exactly as a regular school charges through the term whether or not every day is attended.<br>
+        <b>D.</b> If you wish to stop, or take a longer break, please tell us in advance so we can de-enrol you and stop further billing. Returning later — for any reason — requires a fresh re-registration. A student absent for three consecutive months without informing us will be de-enrolled automatically and must likewise re-register to rejoin.<br>
+        <b>E.</b> Tracking your own classes is your responsibility. If you miss a class, it is your responsibility to follow up with your guru and make up that class within the same month. Classes not made up within the month are forfeited — the monthly fee remains payable in full and unused classes do not roll over to the next month.<br>
+        <b>F.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion and representation — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
       <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer"></div>
       <div class="formmsg" id="intakeMsg"></div>
