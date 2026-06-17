@@ -2012,7 +2012,18 @@ async function renderCalendar(){
   const courseOpts=(state._classCourses||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
   state._csChecked=new Set();
   M.innerHTML=`<div class="ph"><div><h2>Calendar${tip("The one schedule everyone sees. Add a one-off class up top (and enrol students right there), or set repeating classes in the ‘🔁 Weekly classes’ panel. Holidays &amp; events appear here from Announcements when you give them a date.")}${warn("Deleting or changing a class emails the enrolled students automatically. Online classes all share ONE school Zoom account, so only one online class can run at a time — stagger them.")}</h2><p>Classes, events &amp; birthdays — the one schedule everyone sees</p></div></div>
-    <div class="panel" style="margin-bottom:14px"><h3 id="csFormTitle">Add a one-off class</h3>
+    <details class="panel" style="margin-bottom:14px" open><summary style="cursor:pointer;font-weight:700;font-size:14px">🔁 Weekly classes &amp; auto-fill a month — set up the regular weekly schedule here</summary>
+      <div style="margin-top:12px">${weeklyClassesHTML()}</div>
+    </details>
+    <details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:14px" id="csFormTitle">➕ Add a one-off class (a class that doesn't repeat)</summary>
+      <div style="margin-top:12px">
+      <div class="formmsg" id="csMsg"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <button class="kbtn teal" id="addCs" onclick="saveSession()">Add class to calendar</button>
+        <button class="kbtn ghost" id="csStuBtn" onclick="cs_openEnrol()">👥 Add students</button>
+        <button class="kbtn ghost" id="csDeleteBtn" style="display:none;color:var(--warn);border-color:var(--warn)" onclick="delSession(state._sessEdit)">🗑 Delete</button>
+        <button class="kbtn ghost" id="csCancelBtn" style="display:none" onclick="cancelSessEdit()">Cancel</button>
+      </div>
       <p class="footnote" style="margin:0 0 10px">Pick a date (or click a day below) and place a class on it. Schedules can differ week to week.</p>
       <div class="form2">
         <div class="kf"><label>Class name *</label><input id="cs_title" placeholder="e.g. Kathak — Beginners"></div>
@@ -2045,14 +2056,9 @@ async function renderCalendar(){
           <p class="mini" id="cs_stuCount" style="color:var(--muted);margin:6px 0 0"></p>
         </div>
       </details>
-      <div class="formmsg" id="csMsg"></div>
-      <button class="kbtn teal" id="addCs" onclick="saveSession()">Add class to calendar</button>
-      <button class="kbtn ghost" id="csCancelBtn" style="display:none;margin-left:6px" onclick="cancelSessEdit()">Cancel</button>
-    </div>
-    <p class="footnote" style="margin:0 0 14px">📣 To put a holiday, event or competition on this calendar, post it in <b>Announcements</b> and give it a date — it appears here automatically.</p>
-    <details class="panel" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700;font-size:13px">🔁 Weekly classes &amp; auto-fill a month (set up once)</summary>
-      <div style="margin-top:12px">${weeklyClassesHTML()}</div>
+      </div>
     </details>
+    <p class="footnote" style="margin:0 0 14px">📣 To put a holiday, event or competition on this calendar, post it in <b>Announcements</b> and give it a date — it appears here automatically.</p>
     <div class="searchbar" style="justify-content:space-between">
       <div><button class="kbtn ghost" onclick="calShift(-1)">‹ Prev</button>
         <b id="calLabel" style="margin:0 12px"></b>
@@ -2140,6 +2146,7 @@ function cs_fillStudents(){
   el.innerHTML=list.length?list.map(s=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px"><input type="checkbox" value="${s.id}" ${state._csChecked.has(s.id)?"checked":""} onchange="cs_toggleStu('${s.id}',this.checked)"> ${esc(s.full_name)}${s.branches?.name?` <span class="mini" style="color:var(--muted)">· ${esc(s.branches.name)}</span>`:""}</label>`).join(""):`<div class="mini" style="color:var(--muted)">No matching students.</div>`;
   cs_updateCount();
 }
+function cs_openEnrol(){ const b=$("cs_enrolBox"); if(b){ b.open=true; b.scrollIntoView({behavior:"smooth",block:"nearest"}); } }
 function cs_toggleStu(id,on){ state._csChecked=state._csChecked||new Set(); if(on) state._csChecked.add(id); else state._csChecked.delete(id); cs_updateCount(); }
 function cs_updateCount(){ const n=(state._csChecked||new Set()).size; if($("cs_stuCount")) $("cs_stuCount").textContent=n?`${n} student${n===1?"":"s"} selected — they'll be saved to this class.`:"No students selected yet."; }
 async function sessionRecipients(sess){
@@ -2201,8 +2208,9 @@ async function editSession(id){
   $("cs_date").value=c.session_date||""; $("cs_time").value=c.start_time?c.start_time.slice(0,5):"";
   $("cs_mode").value=c.mode||"in_person"; $("cs_cap").value=c.capacity||8; if($("cs_zoom")) $("cs_zoom").value=c.zoom_link||""; if($("cs_room")) $("cs_room").value=c.room||"";
   onSessMode();
-  $("csFormTitle").textContent="Edit class"; $("addCs").textContent="Save changes"; $("csCancelBtn").style.display="inline-block";
-  window.scrollTo({top:0,behavior:"smooth"});
+  $("csFormTitle").textContent="✏️ Edit class"; $("addCs").textContent="Save changes"; $("csCancelBtn").style.display="inline-block";
+  if($("csDeleteBtn")) $("csDeleteBtn").style.display="inline-block";
+  const _box=$("csFormTitle")&&$("csFormTitle").closest("details"); if(_box){ _box.open=true; _box.scrollIntoView({behavior:"smooth",block:"start"}); } else window.scrollTo({top:0,behavior:"smooth"});
 }
 function cancelSessEdit(){
   state._sessEdit=null;
@@ -2210,9 +2218,10 @@ function cancelSessEdit(){
   ["cs_teacher","cs_branch"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("cs_mode")) $("cs_mode").value="in_person"; if($("cs_cap")) $("cs_cap").value=8; onSessMode();
   if($("cs_date")) $("cs_date").value=todayIST();
-  if($("csFormTitle")) $("csFormTitle").textContent="Add a one-off class";
+  if($("csFormTitle")) $("csFormTitle").textContent="➕ Add a one-off class (a class that doesn't repeat)";
   if($("addCs")) $("addCs").textContent="Add class to calendar";
   if($("csCancelBtn")) $("csCancelBtn").style.display="none";
+  if($("csDeleteBtn")) $("csDeleteBtn").style.display="none";
   state._csChecked=new Set(); ["cs_fBranch","cs_fGuru","cs_fCourse"].forEach(x=>{ if($(x)) $(x).value=""; }); cs_fillStudents();
 }
 function notifyClassChange(payload){
