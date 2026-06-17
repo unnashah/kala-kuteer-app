@@ -14,6 +14,31 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Kala Kuteer">
 <script src="https://js.sentry-cdn.com/91ea405529edf583d95899f89b385539.min.js" crossorigin="anonymous"></script>
+<script>
+/* Filter out the browser's generic cross-origin "Script error." reports — they carry
+   no stack trace and no user impact (just noise from third-party CDN scripts). */
+(function(){
+  if(window.Sentry && typeof Sentry.onLoad==="function"){
+    Sentry.onLoad(function(){
+      try{
+        Sentry.init({
+          ignoreErrors:[ "Script error.", "Script error", "Non-Error promise rejection captured", /ResizeObserver loop/ ],
+          beforeSend:function(event){
+            try{
+              var ex=event.exception && event.exception.values && event.exception.values[0];
+              var msg=((ex && ex.value) || event.message || "").trim();
+              if(/^script error\.?$/i.test(msg)) return null;                 // drop "Script error."
+              var frames=ex && ex.stacktrace && ex.stacktrace.frames;
+              if((!frames || !frames.length) && /script error/i.test(msg)) return null; // no stack + generic = noise
+            }catch(e){}
+            return event;
+          }
+        });
+      }catch(e){}
+    });
+  }
+})();
+</script>
 <style>
   :root{
     --navy:#16305A; --saffron:#F0A92B; --saffron-deep:#C9772A; --maroon:#7A2233; --maroon-deep:#5A1722; --teal:#7A2233; --teal-deep:#5A1722;
@@ -177,7 +202,7 @@
     </div>
   </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <script>
 /* =====================================================================
    CONFIG  (Supabase project — already connected)
