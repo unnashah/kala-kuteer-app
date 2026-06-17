@@ -232,7 +232,7 @@ async function loadApp(session){
   if(error) warn = "Couldn't read your profile — "+error.message;
   else if(data && data.length){ role=data[0].role||"student"; name=data[0].full_name||session.user.email; pinSet=data[0].pin_set!==false; }
   state.role=role; state.name=name;
-  if((role==="student"||role==="teacher"||role==="admin") && !pinSet){ renderSetPin(name, role); show("app"); return; }
+  if((role==="student"||role==="teacher"||role==="admin"||role==="super_admin") && !pinSet){ renderSetPin(name, role); show("app"); return; }
   if(role==="student"){
     const kids = await loadFamily();
     if(!kids.length){ show("app"); renderInactiveStudent(name); return; }
@@ -248,7 +248,7 @@ async function loadApp(session){
 function renderSetPin(name, role){
   const staff = role!=="student"; state._setRole=role;
   $("whoName").textContent="Hi, "+(name||"").split(" ")[0];
-  $("whoRole").textContent= role==="teacher"?"Guru":(role==="admin"?"Admin":"Student");
+  $("whoRole").textContent= role==="teacher"?"Guru":(role==="admin"?"Admin":(role==="super_admin"?"Super Admin":"Student"));
   $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
     <h2 style="font-size:20px;margin-bottom:6px">${staff?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
@@ -3781,7 +3781,7 @@ async function addStaffAsGuru(){
 function drawTeachers(){
   const data=state._teachers||[];
   if(!data.length){ $("tList").innerHTML=`<div class="empty">No gurus yet — add one above.</div>`; return; }
-  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn edit" onclick="viewCoCCopy('${t.id}')">View copy</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
+  $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn edit" onclick="viewCoCCopy('${t.id}')">View copy</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span>${t.profile_id?` <span class="rowbtn" onclick="resetLoginPassword('${t.profile_id}',&quot;${esc((t.profiles?.full_name||"this guru").replace(/"/g,"&quot;"))}&quot;)">🔑 Reset password</span>`:""}</td></tr>`).join("")}</table>`;
 }
 async function viewConsentCopy(id){
   const { data:st } = await db.from("students").select("full_name,consent_signed_by,consent_signed_at,consent_text,consent_media").eq("id",id).maybeSingle();
@@ -4029,6 +4029,17 @@ async function loadStaff(){
   if(error){ $("staffList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   state._staff=data||[]; await myUid(); drawStaff();
 }
+async function resetLoginPassword(userId,name){
+  if(!userId){ alert("This person doesn't have a login yet."); return; }
+  const suggested="Kala"+Math.floor(1000+Math.random()*9000);
+  const pwd=prompt("Set a temporary password for "+name+".\nThey'll be asked to choose their own when they next sign in.\n\nMin 6 characters — you can keep the suggested one below.", suggested);
+  if(pwd===null) return;
+  if((pwd||"").trim().length<6){ alert("Password must be at least 6 characters."); return; }
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"reset_staff_password", user_id:userId, new_password:pwd.trim() } });
+  if(ferr){ alert("Couldn't reset — "+(await fnErr(ferr))); return; }
+  if(fn&&fn.ok){ alert("✓ Done. Give "+name+" this temporary password:\n\n     "+pwd.trim()+"\n\nThey sign in with it, then set their own password."); }
+  else alert("Couldn't reset — "+((fn&&fn.error)||"unknown"));
+}
 function drawStaff(){
   const rows=state._staff||[]; const me=state._uid||null;
   $("staffList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>${rows.map(p=>{
@@ -4039,7 +4050,7 @@ function drawStaff(){
     let actions;
     if(isTeacher){ actions=`<span class="mini" style="color:var(--muted)">Edit in Gurus</span>`; }
     else if(editing){ actions=`<span class="rowbtn edit" onclick="saveStaff('${p.id}')">Save</span><span class="rowbtn" onclick="cancelStaffEdit()">Cancel</span>`+(isMe?` <span class="mini" style="color:var(--muted)">· this is you</span>`:` <span class="rowbtn" style="color:var(--warn);border-color:var(--warn)" onclick="removeStaff('${p.id}',&quot;${esc((p.full_name||p.email||"this person").replace(/"/g,"&quot;"))}&quot;)">🗑 Remove access</span>`); }
-    else { actions=`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span>`; }
+    else { actions=`<span class="rowbtn edit" onclick="editStaffName('${p.id}')">✏️ Edit</span> <span class="rowbtn" onclick="resetLoginPassword('${p.id}',&quot;${esc((p.full_name||p.email||"this person").replace(/"/g,"&quot;"))}&quot;)">🔑 Reset password</span>`; }
     return `<tr><td>${nameCell}</td><td>${esc(p.email||"—")}</td><td>${roleCell}</td><td class="mini" style="white-space:nowrap">${actions}</td></tr>`;
   }).join("")}</table>
   <p class="footnote" style="margin-top:8px"><b>Super Admin</b> sees everything (finances, payouts, fee structure, deletes). <b>Admin</b> runs day-to-day but can't see money screens. Removing access deletes that login for good.</p>`;
