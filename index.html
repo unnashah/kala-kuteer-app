@@ -3375,8 +3375,9 @@ async function delMilestone(id){
 /* ----- Student: My Profile ----- */
 async function renderStudentProfile(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
-  const { data:{ user } } = await db.auth.getUser();
-  const { data:s } = await db.from("students").select("id,full_name,date_of_birth,is_minor,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,primary_teacher_id,needs_review,branches(name),courses(name)").eq("profile_id",user.id).maybeSingle();
+  const sel=await myStudent();   // respect the family switcher (selected child), not just the first student
+  if(!sel){ M.innerHTML=`<div class="ph"><div><h2>My Profile</h2></div></div><div class="cfgwarn">We couldn't find your profile. Please contact the school office.</div>`; return; }
+  const { data:s } = await db.from("students").select("id,full_name,date_of_birth,is_minor,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,primary_teacher_id,needs_review,branches(name),courses(name)").eq("id",sel.id).maybeSingle();
   if(!s){ M.innerHTML=`<div class="ph"><div><h2>My Profile</h2></div></div><div class="cfgwarn">We couldn't find your profile. Please contact the school office.</div>`; return; }
   try{ await loadClassRefs(); }catch(e){}
   const guru=s.primary_teacher_id?teacherName(s.primary_teacher_id):"—";
