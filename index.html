@@ -2098,7 +2098,7 @@ function drawCalendar(){
   });
   const sessByDay={}; (state._calSess||[]).forEach(c=>{ const d=Number(String(c.session_date).slice(8,10)); (sessByDay[d]=sessByDay[d]||[]).push(c); });
   const bdayByDay={}; (state._calBdays||[]).forEach(b=>{ (bdayByDay[b.day]=bdayByDay[b.day]||[]).push(b); });
-  const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd">${d}</div>`).join("");
+  const wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="calhd" style="color:#F4E7D6;font-size:12px">${d}</div>`).join("");
   let cells="";
   for(let i=0;i<first;i++) cells+=`<div class="calcell blank"></div>`;
   for(let d=1;d<=dim;d++){
@@ -2106,19 +2106,19 @@ function drawCalendar(){
     const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" onclick="event.stopPropagation();editSession('${c.id}')" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" style="background:#E1F0EA;color:#1d6b4f;border-color:#bfe0d2" onclick="event.stopPropagation();gotoNav('news')" title="${esc(e.title)} — manage in Announcements">${esc(e.title)}</div>`).join("");
     const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FBEAF0;color:#993556;border-color:#EDC9D7" title="${esc(b.name)}'s birthday">\u{1F382} ${esc(b.name)}</div>`).join("");
-    cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
+    cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer${ds===todayS?';box-shadow:0 0 0 2px var(--saffron)':''}" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
   }
-  $("calGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div>
-    <div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FBEAF0;color:#993556">\u{1F382} birthdays</span> · tip: click any day to schedule a class on it</div>`;
+  $("calGrid").innerHTML=`<div style="background:linear-gradient(160deg,var(--maroon),var(--maroon-deep));border:1.5px solid var(--maroon-deep);border-radius:14px;padding:16px;box-shadow:0 3px 14px rgba(43,32,24,.18)"><div class="calgrid">${wd}${cells}</div>
+    <div class="mini" style="margin-top:10px;color:#F4E7D6"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FBEAF0;color:#993556">\u{1F382} birthdays</span> · tip: click any day to schedule a class on it</div></div>`;
   const sess=state._calSess||[];
-  const sessList=sess.length?`<div class="panel" style="margin-top:14px"><h3>Classes in ${MONS[mo-1]} ${y}</h3>
-    <table><tr><th>Date</th><th>Class</th><th>Guru</th><th>Time</th><th></th></tr>${sess.map(c=>`<tr>
+  const sessList=sess.length?`<details class="panel" style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;font-size:14px">📋 Classes in ${MONS[mo-1]} ${y} (${sess.length}) — click to expand</summary>
+    <table style="margin-top:12px"><tr><th>Date</th><th>Class</th><th>Guru</th><th>Time</th><th></th></tr>${sess.map(c=>`<tr>
       <td>${esc(c.session_date)}</td>
       <td><b>${esc(c.title)}</b>${c.room?` <span class="mini">· ${esc(c.room)}</span>`:""}${c.mode&&c.mode!=="in_person"?` <span class="badge b-teal">${esc(c.mode)}</span>`:""}</td>
       <td>${esc(teacherName(c.teacher_id))}</td>
       <td class="mini">${c.start_time?fmtTime(c.start_time.slice(0,5)):"—"}</td>
       <td class="mini">${c.batch_id?`<span class="rowbtn" onclick="manageClass('${c.batch_id}')">👥 Students</span>`:`<span class="rowbtn" onclick="editSession('${c.id}')">👥 Students</span>`}<span class="rowbtn edit" onclick="editSession('${c.id}')">✏️ Edit</span><span class="rowbtn danger" onclick="delSession('${c.id}')">Delete</span></td>
-    </tr>`).join("")}</table></div>`:`<div class="empty">No classes scheduled in ${MONS[mo-1]} ${y} — schedule one above or click a day.</div>`;
+    </tr>`).join("")}</table></details>`:`<div class="empty">No classes scheduled in ${MONS[mo-1]} ${y} — schedule one above or click a day.</div>`;
   const list=state._events||[];
   const evList=list.length?`<div class="panel" style="margin-top:14px"><h3>Events in ${MONS[mo-1]} ${y}</h3>
     <table><tr><th>Date</th><th>Event</th><th>Type</th><th></th></tr>${list.map(e=>`<tr>
@@ -2312,6 +2312,13 @@ function weeklyClassesHTML(){
         <button class="kbtn teal" id="tplFillBtn" onclick="fillMonthFromTemplate()">Fill month →</button></div>
       <div class="formmsg" id="tplMsg"></div></div>
     <div class="panel" style="margin-bottom:14px"><h3 id="clsFormTitle">Add a weekly class</h3>
+      <div class="formmsg" id="clMsg"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <button class="kbtn teal" id="addCls" onclick="saveClass()">Add weekly class</button>
+        <button class="kbtn ghost" id="clsStuBtn" style="display:none" onclick="manageClass(state._clsEdit)">👥 Add students</button>
+        <button class="kbtn ghost" id="clsDeleteBtn" style="display:none;color:var(--warn);border-color:var(--warn)" onclick="delClass(state._clsEdit)">🗑 Delete</button>
+        <button class="kbtn ghost" id="clsCancelBtn" style="display:none" onclick="cancelClsEdit()">Cancel</button>
+      </div>
       <div class="form2">
         <div class="kf"><label>Class name *</label><input id="cl_name" placeholder="e.g. Tabla — Beginners"></div>
         <div class="kf"><label>Course</label><select id="cl_course"><option value="">—</option>${courseOpts}</select></div>
@@ -2332,9 +2339,6 @@ function weeklyClassesHTML(){
       </div>
       <div class="kf" id="cl_zoomWrap" style="display:none"><label>Zoom / meeting link</label><input id="cl_zoom" placeholder="https://…"><span class="mini" style="color:var(--warn)">⚠️ All online classes share ONE school Zoom account — only one can run at a time. Check no other guru has an online class in this slot.</span><span class="mini" style="color:var(--muted)">Leave blank to use this guru's saved Zoom link.</span></div>
       <p class="footnote">One class = one weekly slot. For a class that meets twice a week (e.g. Mon &amp; Thu), add two classes.</p>
-      <div class="formmsg" id="clMsg"></div>
-      <button class="kbtn teal" id="addCls" onclick="saveClass()">Add weekly class</button>
-      <button class="kbtn ghost" id="clsCancelBtn" style="display:none;margin-left:6px" onclick="cancelClsEdit()">Cancel</button>
     </div>
     <div class="searchbar"><input id="clsSearch" placeholder="🔍 Search class or guru…" style="flex:1">
       <select id="clsBranchF" style="max-width:170px;flex:none"><option value="">All branches</option>${branchOpts}</select></div>
@@ -2469,7 +2473,9 @@ function editClass(id){
   $("cl_branch").value=b.branch_id||""; $("cl_dow").value=(b.day_of_week!=null)?b.day_of_week:""; $("cl_time").value=b.start_time?b.start_time.slice(0,5):"";
   $("cl_mode").value=b.mode||"in_person"; $("cl_cap").value=b.capacity||8; if($("cl_zoom")) $("cl_zoom").value=b.zoom_link||""; if($("cl_room")) $("cl_room").value=b.room||"";
   onClassMode();
-  $("clsFormTitle").textContent="Edit class"; $("addCls").textContent="Save changes"; $("clsCancelBtn").style.display="inline-block";
+  $("clsFormTitle").textContent="✏️ Edit weekly class"; $("addCls").textContent="Save changes"; $("clsCancelBtn").style.display="inline-block";
+  if($("clsStuBtn")) $("clsStuBtn").style.display="inline-block";
+  if($("clsDeleteBtn")) $("clsDeleteBtn").style.display="inline-block";
   window.scrollTo({top:0,behavior:"smooth"});
 }
 function cancelClsEdit(){
@@ -2477,9 +2483,11 @@ function cancelClsEdit(){
   ["cl_name","cl_time","cl_zoom","cl_room"].forEach(x=>{ if($(x)) $(x).value=""; });
   ["cl_course","cl_teacher","cl_branch","cl_dow"].forEach(x=>{ if($(x)) $(x).value=""; });
   if($("cl_mode")) $("cl_mode").value="in_person"; if($("cl_cap")) $("cl_cap").value=8; onClassMode();
-  if($("clsFormTitle")) $("clsFormTitle").textContent="Add a class";
-  if($("addCls")) $("addCls").textContent="Add class";
+  if($("clsFormTitle")) $("clsFormTitle").textContent="Add a weekly class";
+  if($("addCls")) $("addCls").textContent="Add weekly class";
   if($("clsCancelBtn")) $("clsCancelBtn").style.display="none";
+  if($("clsStuBtn")) $("clsStuBtn").style.display="none";
+  if($("clsDeleteBtn")) $("clsDeleteBtn").style.display="none";
 }
 async function delClass(id){
   if(!confirm("Delete this class? Enrolments and its attendance will also be removed. This can't be undone.")) return;
