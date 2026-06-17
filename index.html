@@ -191,12 +191,12 @@ const SCHOOL_UPI = { id: "kalakuteer@upi", name: "Kala Kuteer" };
 const ROLE_LABELS = { super_admin:"Super Admin", admin:"Admin", teacher:"Guru", student:"Student" };
 // nav: [icon, label, key, superOnly?]
 const NAV = {
-  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Gurus","teachers"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
+  super_admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📊","Finance & P&L","finance"],["🤝","Guru Payouts","payouts"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["📋","Guru Samvaad","reviews"],["🎓","Gurus","teachers"],["📄","Signed forms","signedforms"],["🪕","Inventory","inventory"],["💡","Suggestions","suggestions"],["🧾","Activity log","activity"],["⚙️","Settings & Roles","settings"]],
   admin:[["▦","Dashboard","dashboard"],["🗓","Calendar","calendar"],["📝","Intake Form","intake"],["👥","Students","students"],["✓","Attendance","attendance"],["₹","Fees & Invoices","fees"],["📣","Announcements","news"],["📨","Enquiries","enquiries"],["🪕","Inventory","inventory"]],
   teacher:[["▦","Dashboard","dashboard"],["📣","Announcements","notices"],["👥","My Students","mystudents"],["📋","Guru Samvaad","reviews"],["🎵","My Classes","myclasses"],["✓","Attendance","myattendance"],["₹","My Earnings","earnings"],["💡","Suggestion Box","feedback"]],
   student:[["🏠","Dashboard","dashboard"],["👤","My Profile","myprofile"],["📣","Announcements","mynews"],["🗓","My Calendar","stucal"],["✓","My Attendance","journey"],["₹","Fees","myfees"],["💡","Suggestion Box","feedback"]]
 };
-const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1, classes:1 }; // built modules
+const LIVE = { dashboard:1, students:1, intake:1, attendance:1, fees:1, teachers:1, settings:1, finance:1, enquiries:1, inventory:1, news:1, suggestions:1, calendar:1, payouts:1, activity:1, classes:1, signedforms:1 }; // built modules
 
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -468,6 +468,7 @@ function navigate(key, name, warn){
   if(key==="payouts")   return renderPayouts();
   if(key==="teachers")  return renderTeachers();
   if(key==="settings")  return renderSettings();
+  if(key==="signedforms") return renderSignedForms();
   if(key==="classes")   return renderClasses();
   if(key==="activity")  return renderActivityLog();
   if(key==="intake")    return (state._intakeMode==="full"?renderIntake():renderQuickRegister());
@@ -516,6 +517,7 @@ async function loadRef(){
 /* ---------------- DASHBOARD (every role) ---------------- */
 const MODDESC={
   students:"Add & manage students, profiles & status",
+  signedforms:"Signed consent & Code-of-Conduct records — view/print any signed form",
   attendance:"Mark & review attendance — by day or student",
   reviews:"Guru Samvaad — quarterly 1:1 feedback sessions",
   enquiries:"Track leads & enquiries through your funnel",
@@ -3717,6 +3719,44 @@ async function renderTeachers(){
     <div id="tList"><div class="empty">Loading gurus…</div></div>`;
   $("addTeacher").onclick=addTeacher;
   loadTeachers();
+}
+async function renderSignedForms(){
+  const M=$("mainArea");
+  M.innerHTML=`<div class="ph"><div><h2>Signed forms${tip("Every signed enrolment consent (students &amp; families) and Guru Code of Conduct, in one place. Click <b>View / print</b> to open the exact terms that person agreed to — with their name and the date &amp; time — then Print or Save as PDF. Keep this for any dispute, discrepancy or action.")}</h2><p>Legal record — the exact terms each student &amp; guru signed, ready to print</p></div></div>
+    <div class="panel" style="margin-bottom:16px"><input id="sfSearch" class="inp" placeholder="🔍 Search by name…" oninput="drawSignedForms()" style="max-width:360px"></div>
+    <div id="sfBody"><div class="empty">Loading signed records…</div></div>`;
+  const [stu, tea] = await Promise.all([
+    db.from("students").select("id,full_name,status,intake_completed,consent_signed_by,consent_signed_at,consent_text").order("full_name"),
+    db.from("teachers").select("id,profile_id,coc_agreed,coc_signed_at,coc_signed_by,coc_text,profiles(full_name,email)").order("created_at",{ascending:false})
+  ]);
+  state._sfStudents = stu.data||[]; state._teachers = tea.data||[];
+  drawSignedForms();
+}
+function drawSignedForms(){
+  const box=$("sfBody"); if(!box) return;
+  const q=(($("sfSearch")||{}).value||"").trim().toLowerCase();
+  const allStu=state._sfStudents||[], allTea=state._teachers||[];
+  const stus=allStu.filter(s=>!q||(s.full_name||"").toLowerCase().includes(q));
+  const teas=allTea.filter(t=>!q||((t.profiles&&t.profiles.full_name)||"").toLowerCase().includes(q));
+  const stuSigned=allStu.filter(s=>s.consent_signed_at||s.consent_text).length;
+  const teaSigned=allTea.filter(t=>t.coc_agreed).length;
+  const sBadge=s=>{
+    if(s.consent_signed_at||s.consent_text){ const d=s.consent_signed_at?String(s.consent_signed_at).slice(0,10):""; const partial=s.consent_text?"":' <span class="mini" style="color:#a07b00">· date only</span>'; return `<span class="badge b-green">✓ signed${d?" · "+d:""}</span>${partial}`; }
+    return `<span class="badge b-amber">not signed</span>`;
+  };
+  const stuRows=stus.length?stus.map(s=>`<tr><td><b>${esc(s.full_name||"—")}</b></td><td class="mini">${esc(s.consent_signed_by||"—")}</td><td>${sBadge(s)}</td><td class="mini">${esc((s.status||"").replace("_"," ")||"—")}</td><td class="mini">${(s.consent_signed_at||s.consent_text)?`<span class="rowbtn edit" onclick="viewConsentCopy('${s.id}')">📄 View / print</span>`:'<span class="mini" style="color:var(--muted)">nothing on file</span>'}</td></tr>`).join(""):`<tr><td colspan="5" class="mini" style="color:var(--muted)">No matching students.</td></tr>`;
+  const teaRows=teas.length?teas.map(t=>{ const when=t.coc_signed_at?String(t.coc_signed_at).slice(0,10):""; const badge=t.coc_agreed?`<span class="badge b-green">✓ signed${when?" · "+when:""}</span>`:`<span class="badge b-amber">not signed</span>`; return `<tr><td><b>${esc((t.profiles&&t.profiles.full_name)||"—")}</b></td><td class="mini">${esc(t.coc_signed_by||"—")}</td><td>${badge}</td><td class="mini">${esc((t.profiles&&t.profiles.email)||"—")}</td><td class="mini">${t.coc_agreed?`<span class="rowbtn edit" onclick="printCoCCopy('${t.id}')">📄 View / print</span>`:'<span class="mini" style="color:var(--muted)">nothing on file</span>'}</td></tr>`; }).join(""):`<tr><td colspan="5" class="mini" style="color:var(--muted)">No matching gurus.</td></tr>`;
+  box.innerHTML=`
+    <div class="panel" style="margin-bottom:18px">
+      <h3 style="margin:0 0 4px">👥 Students &amp; families — enrolment consent <span class="mini" style="color:var(--muted);font-weight:600">(${stuSigned}/${allStu.length} signed)</span></h3>
+      <p class="mini" style="color:var(--muted);margin:0 0 12px">The IMPORTANT NOTICE each family agreed to when enrolling.</p>
+      <table><tr><th>Student</th><th>Signed by</th><th>Status</th><th>Enrolment</th><th>Signed form</th></tr>${stuRows}</table>
+    </div>
+    <div class="panel">
+      <h3 style="margin:0 0 4px">🎓 Gurus — Code of Conduct <span class="mini" style="color:var(--muted);font-weight:600">(${teaSigned}/${allTea.length} signed)</span></h3>
+      <p class="mini" style="color:var(--muted);margin:0 0 12px">The Code of Conduct each guru accepted on first login.</p>
+      <table><tr><th>Guru</th><th>Signed by</th><th>Status</th><th>Email</th><th>Signed form</th></tr>${teaRows}</table>
+    </div>`;
 }
 async function loadTeachers(){
   const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,zoom_link,coc_agreed,coc_signed_at,coc_signed_by,coc_text,profiles(full_name,email)").order("created_at",{ascending:false});
