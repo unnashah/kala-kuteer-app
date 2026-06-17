@@ -1234,10 +1234,8 @@ async function recordPayment(invId, amount){
   try{
   const m=$("feeMsg"); const sel=$("pm_"+invId); const method=sel?sel.value:"cash";
   m.className="formmsg ok"; m.textContent="Recording…";
-  const { error:pe } = await db.from("payments").insert({ invoice_id:invId, amount, method });
-  if(pe){ m.className="formmsg err"; m.textContent="Couldn't record — "+pe.message; return; }
-  const { error:ie } = await db.from("invoices").update({ status:"paid" }).eq("id",invId);
-  if(ie){ m.className="formmsg err"; m.textContent="Payment saved but status didn't update — "+ie.message; return; }
+  const { error } = await db.rpc("kk_record_payment",{ p_invoice:invId, p_amount:amount, p_method:method });
+  if(error){ m.className="formmsg err"; m.textContent="Couldn't record — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Payment recorded ("+method+").";
   loadFees();
   } finally { state._busyMoney=false; }
@@ -3695,8 +3693,9 @@ async function payOnlineMulti(idsStr, label){
   }catch(e){ alert("Couldn't start the payment — "+(e.message||e)); }
 }
 async function studentRespondMulti(idsStr){
-  const ids=String(idsStr||"").split(",").filter(Boolean);
-  for(const id of ids){ try{ await db.rpc("student_respond_invoice",{ p_invoice:id, p_response:"paid" }); }catch(e){} }
+  const ids=String(idsStr||"").split(",").filter(Boolean); let failed=0;
+  for(const id of ids){ try{ const { error }=await db.rpc("student_respond_invoice",{ p_invoice:id, p_response:"paid" }); if(error) failed++; }catch(e){ failed++; } }
+  if(failed) alert("Marked as paid — but "+failed+" item(s) couldn't be saved. Please let the school office know so they can confirm your payment.");
   renderStudentFees();
 }
 async function studentRespond(id, resp){
@@ -4185,8 +4184,15 @@ async function createStudentLogin(id){
   if(!st){ if(m){ m.className="formmsg err"; m.textContent="Couldn't load this student."; } return; }
   const phone=st.phone||st.parent_phone;
   if(!phone || !st.date_of_birth){ if(m){ m.className="formmsg err"; m.textContent="Add a mobile number and date of birth first, then create the login."; } return; }
-  const { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, dob:st.date_of_birth, name:st.full_name } });
+  let { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, dob:st.date_of_birth, name:st.full_name } });
   if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't create login — "+(await fnErr(ferr)); } return; }
+  if(fn && fn.needs_confirmation){
+    const ok=confirm("This mobile number already has a login for "+(fn.existing_name||"another student")+".\n\nAttach THIS student to that same family login? They'll share one login and see a combined bill.\n\nIf that is NOT the same family, click Cancel and use a different mobile number.");
+    if(!ok){ if(m){ m.className="formmsg err"; m.textContent="Cancelled — use a different mobile number for this student, or link them later from the Family panel."; } return; }
+    const res = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, dob:st.date_of_birth, name:st.full_name, confirm:true } });
+    fn=res.data; ferr=res.error;
+    if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't link — "+(await fnErr(ferr)); } return; }
+  }
   if(fn && (fn.ok || fn.attached)){
     const [yy,mm,dd]=String(st.date_of_birth).split("-"); const pin=`${dd}${mm}${yy}`;
     if(m){ m.className="formmsg ok"; m.textContent=fn.attached?"✓ Linked to the family's existing login (same mobile).":("✓ Login created. They sign in with their mobile + PIN "+pin+" (date of birth, DDMMYYYY)."); }
