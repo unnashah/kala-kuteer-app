@@ -325,12 +325,7 @@ async function renderStudentIntake(st){
       <div class="kf"><label>Owns the instrument? *</label><select id="si_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
     </div>
     <div class="panel"><h3>Consent &amp; signature</h3>
-      <div class="notice"><b>IMPORTANT NOTICE</b><br>
-        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical or medical condition. It is the student's/guardian's duty to inform the School of any such condition. Submitting this form is an explicit acknowledgement of this.<br>
-        <b>B.</b> Enrolment at Kala Kuteer is a monthly commitment, just like a regular school — not a pay-per-class arrangement. The full month's fee is payable regardless of how many classes a student attends. If a student takes a short break or misses classes in a month — for any reason — the fee for that month is not reduced, paused, prorated or refunded.<br>
-        <b>C.</b> Tracking your classes is your responsibility. If you miss a class, follow up with your guru and make it up within the same month. Missed classes cannot be carried forward to a later month, swapped for extra classes, or refunded — unused classes are forfeited and the monthly fee remains payable in full.<br>
-        <b>D.</b> A long break does not preserve your place. An extended absence — up to three months, or longer — is treated as a long break, and the enrolment will be terminated. Having been a student previously does not entitle anyone to simply resume; to return at any time, the student must re-register and complete the enrolment process again. If you are planning a break, please tell us in advance so we can close billing cleanly.<br>
-        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion and representation — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
+      ${consentNoticeHTML()}
       <div class="check"><input type="checkbox" id="si_terms"><label for="si_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="si_signer" value="${esc(st.parent_name||st.full_name||"")}"></div>
       <div class="mini" style="color:var(--muted);margin:-4px 0 10px">Date: ${esc(new Date().toLocaleDateString())}</div>
@@ -367,7 +362,7 @@ async function submitStudentIntake(){
   const p={ parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
     email: minor? null : D("si_email"), parent_email: minor? D("si_email") : null,
     emergency_contact: ec+en, goal:D("si_goal"), owns_instrument:D("si_owns")==="yes",
-    health_notes:D("si_health"), heard_via:D("si_heard"), consent_signed_by:D("si_signer") };
+    health_notes:D("si_health"), heard_via:D("si_heard"), consent_signed_by:D("si_signer"), consent_text:consentNoticeHTML() };
   $("si_submit").disabled=true; m.className="formmsg ok"; m.textContent="Submitting…";
   const { error } = await db.rpc("submit_intake",{ p });
   if(error){ $("si_submit").disabled=false; m.className="formmsg err"; m.textContent="Couldn't submit — "+error.message; return; }
@@ -381,6 +376,12 @@ async function flagIntakeIssue(){
   const { error } = await db.rpc("flag_my_intake",{ p_note:note });
   if(fm){ if(error){ fm.style.color="var(--warn)"; fm.textContent="Couldn't send — "+error.message; } else { fm.style.color="var(--good)"; fm.textContent="✓ Sent — the office will fix it. You can still finish below."; } }
 }
+function consentNoticeHTML(){ return `<div class="notice"><b>IMPORTANT NOTICE</b><br>
+        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical or medical condition. It is the student's/guardian's duty to inform the School of any such condition. Submitting this form is an explicit acknowledgement of this.<br>
+        <b>B.</b> Enrolment at Kala Kuteer is a monthly commitment, just like a regular school — not a pay-per-class arrangement. The full month's fee is payable regardless of how many classes a student attends. If a student takes a short break or misses classes in a month — for any reason — the fee for that month is not reduced, paused, prorated or refunded.<br>
+        <b>C.</b> Tracking your classes is your responsibility. If you miss a class, follow up with your guru and make it up within the same month. Missed classes cannot be carried forward to a later month, swapped for extra classes, or refunded — unused classes are forfeited and the monthly fee remains payable in full.<br>
+        <b>D.</b> A long break does not preserve your place. An extended absence — up to three months, or longer — is treated as a long break, and the enrolment will be terminated. Having been a student previously does not entitle anyone to simply resume; to return at any time, the student must re-register and complete the enrolment process again. If you are planning a break, please tell us in advance so we can close billing cleanly.<br>
+        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion and representation — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>`; }
 function guruCoCNoticeHTML(){
   return `<div class="notice"><b>KALA KUTEER — GURU CODE OF CONDUCT</b><br>
     As a guru at Kala Kuteer, I have read, understood and agree to the following:<br><br>
@@ -422,7 +423,7 @@ async function agreeGuruCoC(){
   const signer=($("coc_name").value||"").trim();
   if(!signer){ m.className="formmsg err"; m.textContent="Please type your full name."; $("coc_name").focus(); return; }
   m.className="formmsg ok"; m.textContent="Saving…"; $("coc_btn").disabled=true;
-  const { error } = await db.rpc("kk_guru_agree_coc",{ p_signed_by:signer });
+  const { error } = await db.rpc("kk_guru_agree_coc",{ p_signed_by:signer, p_text:guruCoCNoticeHTML() });
   $("coc_btn").disabled=false;
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
   state._myTeacherId=null;
@@ -3718,7 +3719,7 @@ async function renderTeachers(){
   loadTeachers();
 }
 async function loadTeachers(){
-  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,zoom_link,coc_agreed,coc_signed_at,coc_signed_by,profiles(full_name,email)").order("created_at",{ascending:false});
+  const { data, error } = await db.from("teachers").select("id,profile_id,disciplines,payout_pct,zoom_link,coc_agreed,coc_signed_at,coc_signed_by,coc_text,profiles(full_name,email)").order("created_at",{ascending:false});
   if(error){ $("tList").innerHTML=`<div class="cfgwarn">${esc(error.message)}</div>`; return; }
   state._teachers=data||[]; drawTeachers();
   const have=new Set((data||[]).map(t=>t.profile_id));
@@ -3741,6 +3742,22 @@ function drawTeachers(){
   if(!data.length){ $("tList").innerHTML=`<div class="empty">No gurus yet — add one above.</div>`; return; }
   $("tList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Payout</th><th>Code of conduct</th><th></th></tr>${data.map(t=>`<tr><td><b>${esc(t.profiles?.full_name||"—")}</b></td><td>${esc(t.profiles?.email||"—")}</td><td>${esc((t.disciplines||[]).join(", ")||"—")}</td><td>${t.payout_pct||40}%</td><td class="mini">${t.coc_agreed?`<span class="badge b-green">✓ signed${t.coc_signed_at?" · "+String(t.coc_signed_at).slice(0,10):""}</span> <span class="rowbtn edit" onclick="viewCoCCopy('${t.id}')">View copy</span> <span class="rowbtn" onclick="reAskCoC('${t.id}')">Re-ask</span>`:`<span class="badge b-amber">pending</span>`}</td><td class="mini"><span class="rowbtn edit" onclick="editTeacher('${t.id}')">✏️ Edit</span></td></tr>`).join("")}</table>`;
 }
+async function viewConsentCopy(id){
+  const { data:st } = await db.from("students").select("full_name,consent_signed_by,consent_signed_at,consent_text,consent_media").eq("id",id).maybeSingle();
+  if(!st){ alert("Couldn't load this record."); return; }
+  if(!st.consent_text && !st.consent_signed_at){ alert("This student hasn't signed the consent yet."); return; }
+  const when=st.consent_signed_at?new Date(st.consent_signed_at).toLocaleString():"—";
+  const w=window.open("","_blank","width=720,height=900"); if(!w){ alert("Please allow pop-ups to print the form."); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Signed enrolment consent — ${esc(st.full_name||"")}</title>
+    <style>body{font-family:system-ui,Arial,sans-serif;color:#2b2b2b;max-width:640px;margin:24px auto;padding:0 18px;line-height:1.55;font-size:13px} .box{border:1px solid #C9A227;border-radius:10px;padding:18px} b{color:#7A1F2B} .notice{font-size:13px} .sig{margin-top:18px;border-top:1px solid #ddd;padding-top:12px} .sig div{margin:5px 0}</style></head>
+    <body><h2 style="color:#7A1F2B;margin:0 0 12px">Kala Kuteer — Signed enrolment consent</h2>
+    <div class="box">${st.consent_text||"(The exact text wasn't captured for this signature — it was signed before signed-copy recording was added. The current IMPORTANT NOTICE terms apply.)"}</div>
+    <div class="sig"><div><b>Signed by:</b> ${esc(st.consent_signed_by||st.full_name||"—")}</div>
+      <div><b>Student:</b> ${esc(st.full_name||"—")}</div>
+      <div><b>Date &amp; time:</b> ${esc(when)}</div>
+      <div><b>Media consent:</b> ${st.consent_media?"Yes":"—"}</div></div></body></html>`);
+  w.document.close(); setTimeout(()=>{ try{ w.print(); }catch(e){} },350);
+}
 function viewCoCCopy(id){
   const t=(state._teachers||[]).find(x=>x.id===id); if(!t) return;
   const when=t.coc_signed_at?new Date(t.coc_signed_at).toLocaleString():"—";
@@ -3748,7 +3765,7 @@ function viewCoCCopy(id){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span class="rowbtn" onclick="loadTeachers()">← Back to Gurus</span>
       <button class="kbtn ghost" onclick="printCoCCopy('${id}')">🖨 Print / save PDF</button></div>
-    <div class="panel">${guruCoCNoticeHTML()}
+    <div class="panel">${t.coc_text||guruCoCNoticeHTML()}
       <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
         <div class="dl"><span class="k">Signed by</span><span><b>${esc(t.coc_signed_by||t.profiles?.full_name||"—")}</b></span></div>
         <div class="dl"><span class="k">Guru on record</span><span>${esc(t.profiles?.full_name||"—")}</span></div>
@@ -3765,7 +3782,7 @@ function printCoCCopy(id){
       .box{border:1px solid #C9A227;border-radius:10px;padding:18px} b{color:#7A1F2B}
       .sig{margin-top:18px;border-top:1px solid #ddd;padding-top:12px} .sig div{margin:5px 0}</style></head>
     <body><h2 style="color:#7A1F2B;margin:0 0 12px">Kala Kuteer — Guru Code of Conduct (signed copy)</h2>
-    <div class="box">${guruCoCNoticeHTML()}</div>
+    <div class="box">${t.coc_text||guruCoCNoticeHTML()}</div>
     <div class="sig"><div><b>Signed by:</b> ${esc(t.coc_signed_by||t.profiles?.full_name||"—")}</div>
       <div><b>Guru on record:</b> ${esc(t.profiles?.full_name||"—")}</div>
       <div><b>Date &amp; time:</b> ${esc(when)}</div>
@@ -4040,7 +4057,7 @@ async function renderStudentDetail(id){
     <div class="panel" style="margin-top:14px"><h3>Manage student</h3>
       <div style="margin-bottom:8px"><span class="mini" style="margin-right:6px">Effective from:</span><input id="mng_date" type="date" value="${todayS}" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"> <span class="mini">— today, or a future date for advance notice (e.g. deferring next month)</span></div>
       <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Status:</span>${["active","on_break","completed","alumni","suspended"].map(st=>`<span class="rowbtn" onclick="setStudentStatus('${s.id}','${st}')" style="margin:0 4px 4px 0;display:inline-block${s.status===st?";background:var(--teal);color:#fff;border-color:var(--teal)":""}">${st.replace("_"," ")}</span>`).join("")}</div>
-      <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Intake form:</span>${s.intake_completed?`<span class="badge b-green">✓ completed${s.consent_signed_at?" · signed "+String(s.consent_signed_at).slice(0,10):""}</span>`:`<span class="badge b-amber">⏳ pending</span>`} <span class="rowbtn edit" onclick="askIntake('${s.id}')">📝 Ask to complete / refresh</span></div>
+      <div style="margin-bottom:12px"><span class="mini" style="margin-right:6px">Intake form:</span>${s.intake_completed?`<span class="badge b-green">✓ completed${s.consent_signed_at?" · signed "+String(s.consent_signed_at).slice(0,10):""}</span>`:`<span class="badge b-amber">⏳ pending</span>`} <span class="rowbtn edit" onclick="askIntake('${s.id}')">📝 Ask to complete / refresh</span>${s.intake_completed?` <span class="rowbtn" onclick="viewConsentCopy('${s.id}')">📄 View signed form</span>`:""}</div>
       ${s.status==="archived"
         ? `<button class="kbtn teal" onclick="restoreStudent('${s.id}')">♻️ Restore student</button>`
         : `<button class="kbtn" style="background:var(--warn);color:#fff" onclick="archiveStudent('${s.id}')">🗃 Archive student</button>`}
@@ -4388,12 +4405,7 @@ async function renderIntake(){
         <select id="f_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
       <div class="kf"><label>Owns the instrument? *</label><select id="f_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="kf"><label>Health / safety — any conditions we should know? *</label><textarea id="f_health" rows="2" placeholder="e.g. anxiety, panic attacks, cardiac issues, etc. — or write NA"></textarea></div>
-      <div class="notice"><b>IMPORTANT NOTICE</b><br>
-        <b>A.</b> Kala Kuteer is not accountable or liable for any injury suffered as a result of any physical or medical condition. It is the student's/guardian's duty to inform the School of any such condition. Submitting this form is an explicit acknowledgement of this.<br>
-        <b>B.</b> Enrolment at Kala Kuteer is a monthly commitment, just like a regular school — not a pay-per-class arrangement. The full month's fee is payable regardless of how many classes a student attends. If a student takes a short break or misses classes in a month — for any reason — the fee for that month is not reduced, paused, prorated or refunded.<br>
-        <b>C.</b> Tracking your classes is your responsibility. If you miss a class, follow up with your guru and make it up within the same month. Missed classes cannot be carried forward to a later month, swapped for extra classes, or refunded — unused classes are forfeited and the monthly fee remains payable in full.<br>
-        <b>D.</b> A long break does not preserve your place. An extended absence — up to three months, or longer — is treated as a long break, and the enrolment will be terminated. Having been a student previously does not entitle anyone to simply resume; to return at any time, the student must re-register and complete the enrolment process again. If you are planning a break, please tell us in advance so we can close billing cleanly.<br>
-        <b>E.</b> Photos and videos taken during classes, events and performances may be used by Kala Kuteer for promotion and representation — including on social media, our website and printed material. By submitting and signing this form, you acknowledge and consent to this use; in group settings, individual exclusion may not be possible.</div>
+      ${consentNoticeHTML()}
       <div class="check"><input type="checkbox" id="f_terms"><label for="f_terms" style="margin:0"><b>I have read &amp; acknowledge the above *</b></label></div>
       <div class="kf"><label>Name of person consenting (parent if minor) *</label><input id="f_signer"></div>
       <div class="formmsg" id="intakeMsg"></div>
@@ -4472,7 +4484,7 @@ async function submitIntake(){
     owns_instrument: D("f_owns")==="yes",
     health_notes: D("f_health"), heard_via: D("f_heard"),
     consent_media: true,
-    consent_terms:true, consent_signed_by:D("f_signer"), consent_signed_at:new Date().toISOString(),
+    consent_terms:true, consent_signed_by:D("f_signer"), consent_signed_at:new Date().toISOString(), consent_text:consentNoticeHTML(),
     status:"active", intake_completed:true
   };
   $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
