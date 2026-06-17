@@ -767,6 +767,9 @@ async function renderAttendance(){
   const today=todayIST();
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  const { data:_tt } = await db.from("teachers").select("id,profiles(full_name)").eq("is_active",true);
+  state._classTeachers=(_tt||[]).map(x=>({ id:x.id, name:x.profiles?.full_name||"(unnamed)" }));
+  const teachOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   M.innerHTML = `<div class="ph"><div><h2>Attendance${tip("Pick a day and a class, then mark who attended. Use the Center &amp; Course filters to narrow the student list. Gurus also mark their own classes from the guru app.")}</h2><p>Mark who attended each class</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn teal" disabled>📋 Mark a class</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceReport()">📈 Reports</button></div>
     <div class="searchbar">
@@ -777,12 +780,13 @@ async function renderAttendance(){
     <div class="searchbar" style="margin-top:-8px">
       <span class="mini">Filter list:</span>
       <span class="mini">Center</span><select id="attBranchF" style="max-width:150px;flex:none"><option value="">All centers</option>${branchOpts}</select>
+      <span class="mini">Guru</span><select id="attGuruF" style="max-width:150px;flex:none"><option value="">All gurus</option>${teachOpts}</select>
       <span class="mini">Course</span><select id="attCourseF" style="max-width:150px;flex:none"><option value="">All courses</option>${courseOpts}</select>
     </div>
     <div class="formmsg" id="attMsg"></div>
     <div id="attList"><div class="empty">Pick a date and class above.</div></div>`;
   $("attDate").onchange=loadAttSessions; $("attSession").onchange=loadAttendance; $("attSave").onclick=saveAttendance;
-  if($("attBranchF")) $("attBranchF").onchange=applyAttFilters; if($("attCourseF")) $("attCourseF").onchange=applyAttFilters;
+  if($("attBranchF")) $("attBranchF").onchange=applyAttFilters; if($("attGuruF")) $("attGuruF").onchange=applyAttFilters; if($("attCourseF")) $("attCourseF").onchange=applyAttFilters;
   loadAttSessions();
 }
 async function loadAttSessions(){
@@ -803,12 +807,12 @@ async function loadAttendance(){
   const sessId=$("attSession")?$("attSession").value:""; if(!sessId){ $("attList").innerHTML=`<div class="empty">Pick a class.</div>`; return; }
   const sess=(state._attSessions||[]).find(x=>x.id===sessId); state._attSession=sessId; state._attSessRow=sess||{};
   const date=state._attDate; if($("attMsg")) $("attMsg").textContent=""; $("attList").innerHTML=`<div class="empty">Loading students…</div>`;
-  const { data:studs, error } = await db.from("students").select("id,full_name,branch_id,course_id,branches(name),courses(name)").eq("status","active").lte("join_date",date).order("full_name");
+  const { data:studs, error } = await db.from("students").select("id,full_name,branch_id,course_id,primary_teacher_id,branches(name),courses(name)").eq("status","active").lte("join_date",date).order("full_name");
   if(error){ $("attList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._attStudsAll=studs||[];
   const ids=state._attStudsAll.map(s=>s.id); let map={}, mc={};
   state._attStuCourses={};
-  if(ids.length){ try{ const { data:scs } = await db.from("student_courses").select("student_id,course_id,status").in("student_id",ids); (scs||[]).forEach(r=>{ (state._attStuCourses[r.student_id]=state._attStuCourses[r.student_id]||[]).push(r); }); }catch(e){} }
+  if(ids.length){ try{ const { data:scs } = await db.from("student_courses").select("student_id,course_id,teacher_id,status").in("student_id",ids); (scs||[]).forEach(r=>{ (state._attStuCourses[r.student_id]=state._attStuCourses[r.student_id]||[]).push(r); }); }catch(e){} }
   if(ids.length){
     const { data:marks } = await db.from("attendance").select("student_id,status").eq("session_id",sessId).in("student_id",ids);
     (marks||[]).forEach(m=>map[m.student_id]=m.status);
@@ -822,9 +826,11 @@ async function loadAttendance(){
 }
 function applyAttFilters(){
   const bf=($("attBranchF")&&$("attBranchF").value)||"";
+  const gf=($("attGuruF")&&$("attGuruF").value)||"";
   const cf=($("attCourseF")&&$("attCourseF").value)||"";
   let list=(state._attStudsAll||[]);
   if(bf) list=list.filter(s=>s.branch_id===bf);
+  if(gf) list=list.filter(s=>{ const scs=(state._attStuCourses&&state._attStuCourses[s.id])||[]; if(scs.length) return scs.some(c=>(c.status||"active")==="active" && c.teacher_id===gf); return s.primary_teacher_id===gf; });
   if(cf) list=list.filter(s=>{ const scs=(state._attStuCourses&&state._attStuCourses[s.id])||[]; if(scs.length) return scs.some(c=>(c.status||"active")==="active" && c.course_id===cf); return s.course_id===cf; });
   state._attStuds=list;
   drawAttendance(list, state._att||{});
@@ -836,7 +842,7 @@ function drawAttendance(studs, map){
   const btn=(id,v,label,cls)=>`<span class="rowbtn" onclick="markAtt('${id}','${v}')" style="margin-right:4px${map[id]===v?(';'+cls):''}">${label}</span>`;
   $("attList").innerHTML=`<div class="mini" style="margin-bottom:8px">${n} student${n===1?"":"s"} · marked present: ${p}</div>
     <table><tr><th>Student</th><th>This month</th><th>Mark</th></tr>${studs.map(s=>{ const cnt=mc[s.id]||0; const col=cnt>=tgt?"b-green":(cnt>=Math.ceil(tgt/2)?"b-amber":"b-grey"); return `<tr>
-      <td><b>${esc(s.full_name)}</b><br><span class="mini">${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")}</span></td>
+      <td><b>${esc(s.full_name)}</b><br><span class="mini">${esc(s.courses?.name||"—")} · ${esc(teacherName(s.primary_teacher_id))} · ${esc(s.branches?.name||"—")}</span></td>
       <td><span class="badge ${col}">${cnt}/${tgt}</span></td>
       <td>${btn(s.id,"present","Present","background:var(--good);color:#fff;border-color:var(--good)")}${btn(s.id,"absent","Absent","background:var(--warn);color:#fff;border-color:var(--warn)")}${btn(s.id,"excused","Excused","background:var(--saffron);color:#3a2c00;border-color:var(--saffron)")}</td>
     </tr>`;}).join("")}</table>
@@ -2119,7 +2125,13 @@ function onSessMode(){ const m=$("cs_mode")?$("cs_mode").value:"in_person"; if($
 function cs_fillStudents(){
   const bf=($("cs_fBranch")&&$("cs_fBranch").value)||"", gf=($("cs_fGuru")&&$("cs_fGuru").value)||"", cf=($("cs_fCourse")&&$("cs_fCourse").value)||"";
   state._csChecked=state._csChecked||new Set();
-  const list=(state._calStuds||[]).filter(s=>(!bf||s.branch_id===bf)&&(!gf||s.primary_teacher_id===gf)&&(!cf||s.course_id===cf));
+  const list=(state._calStuds||[]).filter(s=>{
+    if(bf && s.branch_id!==bf) return false;
+    const scs=(s._courses||[]).filter(c=>(c.status||"active")==="active");
+    if(gf){ const ok = scs.length ? scs.some(c=>c.teacher_id===gf) : s.primary_teacher_id===gf; if(!ok) return false; }
+    if(cf){ const ok = scs.length ? scs.some(c=>c.course_id===cf) : s.course_id===cf; if(!ok) return false; }
+    return true;
+  });
   const el=$("cs_stuList"); if(!el) return;
   el.innerHTML=list.length?list.map(s=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px"><input type="checkbox" value="${s.id}" ${state._csChecked.has(s.id)?"checked":""} onchange="cs_toggleStu('${s.id}',this.checked)"> ${esc(s.full_name)}${s.branches?.name?` <span class="mini" style="color:var(--muted)">· ${esc(s.branches.name)}</span>`:""}</label>`).join(""):`<div class="mini" style="color:var(--muted)">No matching students.</div>`;
   cs_updateCount();
@@ -2268,7 +2280,11 @@ async function loadClassRefs(){
   const { data:cc } = await db.from("courses").select("id,name").eq("is_active",true).order("name");
   state._classCourses=cc||[];
   const { data:ss } = await db.from("students").select("id,full_name,branch_id,course_id,primary_teacher_id,branches(name)").eq("status","active").order("full_name");
-  state._calStuds=ss||[];
+  // attach each student's full course list (guru + course per row) so the enrol filters
+  // find a student under ANY of their gurus/courses, not just their primary one.
+  const _ids=(ss||[]).map(s=>s.id); let _scmap={};
+  if(_ids.length){ try{ const { data:scs } = await db.from("student_courses").select("student_id,course_id,teacher_id,status").in("student_id",_ids); (scs||[]).forEach(r=>{ (_scmap[r.student_id]=_scmap[r.student_id]||[]).push(r); }); }catch(e){} }
+  state._calStuds=(ss||[]).map(s=>({...s,_courses:_scmap[s.id]||[]}));
 }
 function teacherName(id){ const t=(state._classTeachers||[]).find(x=>x.id===id); return t?t.name:"—"; }
 async function renderClasses(){ return renderCalendar(); }
