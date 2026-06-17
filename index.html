@@ -228,7 +228,20 @@ let db = cfgOk ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const state = { role:"student", name:"", branches:[], courses:[], refLoaded:false };
 
 const $ = id => document.getElementById(id);
-const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const esc = s => (s==null?"":String(s)).replace(/[&<>"\']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\'":"&#39;"}[c]));
+// Sanitiser for STORED rich-text we display as HTML (the signed consent / Code-of-Conduct
+// snapshots). The app writes its own canonical notice, but the snapshot is saved via an RPC a
+// signed-in user could call directly with a malicious payload — so strip scripts, embedded
+// objects, event-handler attributes and dangerous URL schemes before it ever hits innerHTML.
+function sanHTML(h){
+  if(h==null) return "";
+  let x=String(h);
+  x=x.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form)[\s\S]*?<\s*\/\s*\1\s*>/gi,"");
+  x=x.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form)\b[^>]*>/gi,"");
+  x=x.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,"");           // drop onclick= etc.
+  x=x.replace(/(href|src|xlink:href)\s*=\s*(["']?)\s*(javascript|data|vbscript):/gi,"$1=$2#");
+  return x;
+}
 const safeUrl = u => /^https?:\/\//i.test(u||"") ? u : "#";          // only allow real web links in href (blocks javascript: etc.)
 const todayIST = () => new Date(Date.now()+19800000).toISOString().slice(0,10); // today's date in IST (UTC+5:30)
 // Fetch ALL rows in 1000-row pages so client-side sums/percentages never silently truncate at Supabase's default cap.
@@ -640,10 +653,10 @@ async function loadDashOnline(){
 async function loadDashFees(){
   const C=$("dashFees"); if(!C) return;
   const s=await myStudent(); if(!s) return;
-  const { data:invs } = await db.from("invoices").select("id,amount,due_date,status,student_response,period_start,period_end").eq("student_id",s.id);
+  const { data:invs } = await db.from("invoices").select("id,amount,due_date,status,student_response,period_start,period_end,course_id").eq("student_id",s.id);
   const all=invs||[];
-  const paidRanges=all.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).map(i=>[i.period_start,i.period_end]);
-  const coveredFee=i=>{ const ref=i.period_start||i.due_date; return ref && paidRanges.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const _pbc={}; all.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ const c=i.course_id||""; (_pbc[c]=_pbc[c]||[]).push([i.period_start,i.period_end]); });
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; const rs=_pbc[i.course_id||""]||[]; return ref && rs.some(r=>r[0]<=ref&&r[1]>=ref); };
   const due=all.filter(i=>i.status!=="paid" && !coveredFee(i));
   if(!due.length) return;
   const total=due.reduce((a,i)=>a+Number(i.amount||0),0);
@@ -3539,8 +3552,9 @@ async function renderStudentFees(){
   const kidName=id=>(kidOf(id).full_name)||"";
   const upiOf=id=>{ const k=kidOf(id); return k.upi_id||(k.branches&&k.branches.upi_id)||SCHOOL_UPI.id; };
   // paid ranges are per-student (one child's payment never covers another)
-  const paidRangesBy={}; list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ (paidRangesBy[i.student_id]=paidRangesBy[i.student_id]||[]).push([i.period_start,i.period_end]); });
-  const coveredFee=i=>{ const ref=i.period_start||i.due_date; const rs=paidRangesBy[i.student_id]||[]; return ref && rs.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const _ckey=i=>i.student_id+"|"+(i.course_id||"");
+  const paidRangesBy={}; list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ const k=_ckey(i); (paidRangesBy[k]=paidRangesBy[k]||[]).push([i.period_start,i.period_end]); });
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; const rs=paidRangesBy[_ckey(i)]||[]; return ref && rs.some(r=>r[0]<=ref&&r[1]>=ref); };
   const dueInv=list.filter(i=>i.status!=="paid" && !coveredFee(i));
   const paidInv=list.filter(i=>i.status==="paid");
   const grandTotal=dueInv.reduce((a,i)=>a+Number(i.amount||0),0);
@@ -3865,7 +3879,7 @@ async function viewConsentCopy(id){
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Signed enrolment consent — ${esc(st.full_name||"")}</title>
     <style>body{font-family:system-ui,Arial,sans-serif;color:#2b2b2b;max-width:640px;margin:24px auto;padding:0 18px;line-height:1.55;font-size:13px} .box{border:1px solid #C9A227;border-radius:10px;padding:18px} b{color:#7A1F2B} .notice{font-size:13px} .sig{margin-top:18px;border-top:1px solid #ddd;padding-top:12px} .sig div{margin:5px 0}</style></head>
     <body><h2 style="color:#7A1F2B;margin:0 0 12px">Kala Kuteer — Signed enrolment consent</h2>
-    <div class="box">${st.consent_text||"(The exact text wasn't captured for this signature — it was signed before signed-copy recording was added. The current IMPORTANT NOTICE terms apply.)"}</div>
+    <div class="box">${st.consent_text?sanHTML(st.consent_text):"(The exact text wasn't captured for this signature — it was signed before signed-copy recording was added. The current IMPORTANT NOTICE terms apply.)"}</div>
     <div class="sig"><div><b>Signed by:</b> ${esc(st.consent_signed_by||st.full_name||"—")}</div>
       <div><b>Student:</b> ${esc(st.full_name||"—")}</div>
       <div><b>Date &amp; time:</b> ${esc(when)}</div>
@@ -3879,7 +3893,7 @@ function viewCoCCopy(id){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span class="rowbtn" onclick="loadTeachers()">← Back to Gurus</span>
       <button class="kbtn ghost" onclick="printCoCCopy('${id}')">🖨 Print / save PDF</button></div>
-    <div class="panel">${t.coc_text||guruCoCNoticeHTML()}
+    <div class="panel">${t.coc_text?sanHTML(t.coc_text):guruCoCNoticeHTML()}
       <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
         <div class="dl"><span class="k">Signed by</span><span><b>${esc(t.coc_signed_by||t.profiles?.full_name||"—")}</b></span></div>
         <div class="dl"><span class="k">Guru on record</span><span>${esc(t.profiles?.full_name||"—")}</span></div>
@@ -3896,7 +3910,7 @@ function printCoCCopy(id){
       .box{border:1px solid #C9A227;border-radius:10px;padding:18px} b{color:#7A1F2B}
       .sig{margin-top:18px;border-top:1px solid #ddd;padding-top:12px} .sig div{margin:5px 0}</style></head>
     <body><h2 style="color:#7A1F2B;margin:0 0 12px">Kala Kuteer — Guru Code of Conduct (signed copy)</h2>
-    <div class="box">${t.coc_text||guruCoCNoticeHTML()}</div>
+    <div class="box">${t.coc_text?sanHTML(t.coc_text):guruCoCNoticeHTML()}</div>
     <div class="sig"><div><b>Signed by:</b> ${esc(t.coc_signed_by||t.profiles?.full_name||"—")}</div>
       <div><b>Guru on record:</b> ${esc(t.profiles?.full_name||"—")}</div>
       <div><b>Date &amp; time:</b> ${esc(when)}</div>
