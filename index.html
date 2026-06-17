@@ -3491,40 +3491,51 @@ async function renderStudentFees(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const s=await myStudent();
   if(!s){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">We couldn't find your student profile. Please contact the school office.</div>`; return; }
-  const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response,period_start,period_end,months").eq("student_id",s.id).order("due_date",{ascending:false});
+  const { data:invs, error } = await db.from("invoices").select("id,period_label,amount,due_date,status,student_response,period_start,period_end,months,course_id").eq("student_id",s.id).order("due_date",{ascending:false});
   if(error){ M.innerHTML=`<div class="ph"><div><h2>Fees</h2></div></div><div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const list=invs||[]; const todayS=todayIST();
   const upiId=s.upi_id||(s.branches&&s.branches.upi_id)||SCHOOL_UPI.id;
+  let cmap={}; try{ const { data:cs } = await db.from("courses").select("id,name"); (cs||[]).forEach(c=>cmap[c.id]=c.name); }catch(e){}
+  const cnm=id=>id?(cmap[id]||"Course"):"";
   const paidRanges=list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).map(i=>[i.period_start,i.period_end]);
   const coveredFee=i=>{ const ref=i.period_start||i.due_date; return ref && paidRanges.some(r=>r[0]<=ref&&r[1]>=ref); };
-  const visible=list.filter(i=>i.status==="paid" || !coveredFee(i));
-  const due=visible.filter(i=>i.status!=="paid"); const totalDue=due.reduce((a,i)=>a+Number(i.amount||0),0);
-  const card=i=>{
-    const paid=i.status==="paid"; const overdue=!paid && i.due_date && i.due_date<todayS;
-    if(paid) return `<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(i.period_label||"Fees")}</b> <span class="badge b-green">Paid</span><div class="mini" style="margin-top:3px">${INR(i.amount)}</div></div><span class="rowbtn edit" onclick="genReceipt('${i.id}')">📄 Download receipt</span></div></div>`;
-    const upi=`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(SCHOOL_UPI.name)}&am=${Number(i.amount||0)}&cu=INR&tn=${encodeURIComponent("Fees "+(i.period_label||""))}`;
+  const dueInv=list.filter(i=>i.status!=="paid" && !coveredFee(i));
+  const paidInv=list.filter(i=>i.status==="paid");
+  const totalDue=dueInv.reduce((a,i)=>a+Number(i.amount||0),0);
+  // group this month's unpaid invoices (one per course) into a single bill
+  const groups={}; dueInv.forEach(i=>{ const k=i.period_label||i.period_start||i.due_date||"Fees"; (groups[k]=groups[k]||[]).push(i); });
+  const billCard=(label,items)=>{
+    const total=items.reduce((a,i)=>a+Number(i.amount||0),0);
+    const ids=items.map(i=>i.id);
+    const anyOverdue=items.some(i=>i.due_date && i.due_date<todayS);
+    const allSaidPaid=items.every(i=>i.student_response==="paid");
+    const dueDate=items.map(i=>i.due_date).filter(Boolean).sort()[0]||"";
+    const onlineFee=Math.round(total*0.0236), onlineTotal=total+onlineFee;
+    const upi=`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(SCHOOL_UPI.name)}&am=${total}&cu=INR&tn=${encodeURIComponent("Fees "+label)}`;
     const qr=`https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encodeURIComponent(upi)}`;
-    const respBadge = i.student_response==="paid"?`<span class="badge b-amber">You marked paid — awaiting confirmation</span>`:(i.student_response==="will_pay_later"?`<span class="badge b-grey">You'll pay later</span>`:"");
-    const onlineFee=Math.round(Number(i.amount||0)*0.0236); const onlineTotal=Number(i.amount||0)+onlineFee;
+    const breakdown = items.length>1 ? `<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">${items.map(i=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>${esc(cnm(i.course_id)||"Tuition")}</span><b>${INR(i.amount)}</b></div>`).join("")}</div>` : "";
+    const respBadge = allSaidPaid?`<span class="badge b-amber">You marked paid — awaiting confirmation</span>`:"";
     return `<div class="panel" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-        <div><b style="font-size:15px">${esc(i.period_label||"Fees")}</b> ${overdue?`<span class="badge b-red">Overdue</span>`:`<span class="badge b-amber">Due</span>`}
-          <div class="mini" style="margin-top:3px">Amount: <b>${INR(i.amount)}</b>${i.due_date?` · due ${esc(i.due_date)}`:""}</div>
-          ${overdue?`<div class="mini" style="color:#9B2226;margin-top:2px">⚠️ Past the due date — a late fee may apply.</div>`:""}
+        <div><b style="font-size:15px">${esc(label)}</b> ${anyOverdue?`<span class="badge b-red">Overdue</span>`:`<span class="badge b-amber">Due</span>`}
+          <div class="mini" style="margin-top:3px">Total: <b>${INR(total)}</b>${items.length>1?` · ${items.length} courses`:""}${dueDate?` · due ${esc(dueDate)}`:""}</div>
+          ${anyOverdue?`<div class="mini" style="color:#9B2226;margin-top:2px">⚠️ Past the due date — a late fee may apply.</div>`:""}
+          ${breakdown}
           <div style="margin-top:6px">${respBadge}</div></div>
         <img src="${qr}" alt="Pay QR" style="width:120px;height:120px;border:1px solid var(--line);border-radius:8px;background:#fff">
       </div>
       <div style="margin-top:10px;background:#FBF1DA;border:1px solid var(--saffron);border-radius:10px;padding:12px 14px">
         <div class="mini">Pay to UPI</div><div style="font-size:15px;font-weight:700">${esc(upiId)}</div>
-        <a class="kbtn teal" href="${upi}" style="text-decoration:none;display:inline-block;margin-top:8px">Pay ${INR(i.amount)} via UPI app</a>
+        <a class="kbtn teal" href="${upi}" style="text-decoration:none;display:inline-block;margin-top:8px">Pay ${INR(total)} via UPI app</a>
         <span class="mini" style="display:block;margin-top:6px;color:var(--muted)">Or scan the QR with any UPI app (Google Pay, PhonePe, Paytm…)</span>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="kbtn teal" onclick="payOnline('${i.id}','${esc((i.period_label||'').replace(/'/g,''))}')">💳 Pay ${INR(onlineTotal)} online</button>
-        <button class="kbtn ghost" onclick="studentRespond('${i.id}','paid')">✓ I've paid (cash / UPI)</button>
+        <button class="kbtn teal" onclick="payOnlineMulti('${ids.join(",")}','${esc(label.replace(/'/g,''))}')">💳 Pay ${INR(onlineTotal)} online</button>
+        <button class="kbtn ghost" onclick="studentRespondMulti('${ids.join(",")}')">✓ I've paid (cash / UPI)</button>
       </div>
-      <p class="mini" style="color:var(--muted);margin:8px 0 0">“Pay online” (card, UPI or net-banking) includes a <b>${INR(onlineFee)} payment-gateway fee</b> (≈2.4%), so you pay <b>${INR(onlineTotal)}</b> — it confirms instantly and your receipt is ready right away. To avoid the fee, pay by cash or UPI/QR and tap “I've paid”.</p></div>`;
+      <p class="mini" style="color:var(--muted);margin:8px 0 0">“Pay online” (card, UPI or net-banking) includes a <b>${INR(onlineFee)} payment-gateway fee</b> (≈2.4%), so you pay <b>${INR(onlineTotal)}</b> for everything above — it confirms instantly and your receipts are ready right away. To avoid the fee, pay by cash or UPI/QR and tap “I've paid”.</p></div>`;
   };
+  const paidCard=i=>`<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(i.period_label||"Fees")}</b>${i.course_id?` <span class="mini">· ${esc(cnm(i.course_id))}</span>`:""} <span class="badge b-green">Paid</span><div class="mini" style="margin-top:3px">${INR(i.amount)}</div></div><span class="rowbtn edit" onclick="genReceipt('${i.id}')">📄 Download receipt</span></div></div>`;
   let planHtml="";
   const { data:br } = await db.from("branches").select("monthly_fee,allow_plans").eq("id",s.branch_id).maybeSingle();
   const allow=!!(br&&br.allow_plans); const mfee=br?Number(br.monthly_fee)||0:0;
@@ -3536,11 +3547,13 @@ async function renderStudentFees(){
       <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — whatever suits you.</p>
       <div style="display:flex;flex-wrap:wrap">${pb(1,"1 month")}${pb(3,"3 months")}${pb(6,"6 months")}</div></div>`;
   }
-  M.innerHTML=`<div class="ph"><div><h2>Fees${tip("See and pay your invoices via UPI/QR, then tap ‘I’ve paid’. Pick a 1/3/6-month plan if your branch offers it, and download your receipt once the office confirms.")}</h2><p>View and pay your fees</p></div></div>
+  const dueKeys=Object.keys(groups);
+  M.innerHTML=`<div class="ph"><div><h2>Fees${tip("Your bill for the month — if you take more than one course, they're combined into a single total. Pay by UPI/QR (free) or online, then tap ‘I've paid’; download your receipt once the office confirms.")}</h2><p>View and pay your fees</p></div></div>
     ${totalDue>0?`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><div class="l">Total due now</div><div class="v" style="color:var(--warn)">${INR(totalDue)}</div></div></div>`:`<span class="ok-pill">✓ No fees due right now</span>`}
     ${planHtml}
     <p class="footnote">After you pay, tap <b>“I've paid”</b>. The office confirms it, and your <b>receipt</b> then becomes available to download here. Fees are payable in full, and a <b>late fee may apply</b> once the due date is crossed — see the attendance/make-up policy.</p>
-    ${visible.length?visible.map(card).join(""):(planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
+    ${dueKeys.length?dueKeys.map(k=>billCard(k,groups[k])).join(""):""}
+    ${paidInv.length?`<h3 style="margin:16px 0 8px">Paid</h3>`+paidInv.map(paidCard).join(""):(dueKeys.length||planHtml?"":`<div class="empty">No invoices yet.</div>`)}`;
 }
 async function studentRaisePlan(months){
   const { error } = await db.rpc("student_raise_plan",{ p_months:months });
@@ -3567,6 +3580,33 @@ async function payOnline(invoiceId, label){
     rzp.on("payment.failed", function(r){ alert("Payment failed — "+((r.error&&r.error.description)||"please try again.")); });
     rzp.open();
   }catch(e){ alert("Couldn't start the payment — "+(e.message||e)); }
+}
+async function payOnlineMulti(idsStr, label){
+  const ids=String(idsStr||"").split(",").filter(Boolean);
+  if(!ids.length) return;
+  try{
+    const { data:o, error } = await db.functions.invoke("razorpay-order",{ body:{ invoice_ids:ids } });
+    if(error || !o || !o.ok){ alert("Couldn't start the payment — "+((o&&o.error)||(error&&error.message)||"please try again.")); return; }
+    await loadRazorpay();
+    const me=await myStudent();
+    const rzp=new window.Razorpay({
+      key:o.key_id, order_id:o.order_id, amount:o.amount, currency:o.currency||"INR",
+      name:o.name||"Kala Kuteer", description:o.description||label||"Fees",
+      prefill:{ name:(me&&me.full_name)||"" }, theme:{ color:"#7A2233" },
+      handler:async function(resp){
+        const { data:v, error:ve } = await db.functions.invoke("razorpay-verify",{ body:{ invoice_ids:ids, razorpay_order_id:resp.razorpay_order_id, razorpay_payment_id:resp.razorpay_payment_id, razorpay_signature:resp.razorpay_signature } });
+        if(ve || !v || !v.ok){ alert("Payment received, but we couldn't confirm it automatically. Please contact the office with this reference: "+resp.razorpay_payment_id); return; }
+        alert("✓ Payment successful! Your receipt is now available to download."); renderStudentFees();
+      }
+    });
+    rzp.on("payment.failed", function(r){ alert("Payment failed — "+((r.error&&r.error.description)||"please try again.")); });
+    rzp.open();
+  }catch(e){ alert("Couldn't start the payment — "+(e.message||e)); }
+}
+async function studentRespondMulti(idsStr){
+  const ids=String(idsStr||"").split(",").filter(Boolean);
+  for(const id of ids){ try{ await db.rpc("student_respond_invoice",{ p_invoice:id, p_response:"paid" }); }catch(e){} }
+  renderStudentFees();
 }
 async function studentRespond(id, resp){
   const { error } = await db.rpc("student_respond_invoice",{ p_invoice:id, p_response:resp });
