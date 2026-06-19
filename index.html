@@ -1352,22 +1352,27 @@ async function loadFinance(){
   const { data:exps, error } = await db.from("expenses").select("id,category,subcategory,amount,branch_id,spent_on,note,frequency,recur_until").lte("spent_on",P.end).order("spent_on",{ascending:false});
   if(error){ $("finBody").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:gpays } = await db.from("guru_payouts").select("amount,paid_on").gte("paid_on",P.start).lte("paid_on",P.end);
-  state._fin={ pays:pays||[], exps:exps||[], gpays:gpays||[], P }; drawFinance();
+  const { data:trials } = await db.from("enquiries").select("trial_fee,trial_paid_at,branch_id,name").eq("trial_paid",true).gte("trial_paid_at",P.start).lt("trial_paid_at",P.next);
+  state._fin={ pays:pays||[], exps:exps||[], gpays:gpays||[], trials:trials||[], P }; drawFinance();
 }
 function drawFinance(){
-  const { pays, exps, gpays, P } = state._fin;
+  const { pays, exps, gpays, trials, P } = state._fin;
   const bname=id=>{ const b=state.branches.find(x=>x.id===id); return b?b.name:"—"; };
-  let income=0, regIncome=0, regCount=0, advancePaid=0; const incByBranch={};
-  pays.forEach(p=>{ const a=Number(p.amount||0); income+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; const reg=Number(p.invoices?.registration||0); if(reg>0){ regIncome+=Math.min(reg,a); regCount++; } if(Number(p.invoices?.months||0)>1) advancePaid+=a; });
-  const tuitionIncome=income-regIncome;
+  let payIncome=0, regIncome=0, regCount=0, advancePaid=0; const incByBranch={};
+  pays.forEach(p=>{ const a=Number(p.amount||0); payIncome+=a; const bid=p.invoices?.students?.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; const reg=Number(p.invoices?.registration||0); if(reg>0){ regIncome+=Math.min(reg,a); regCount++; } if(Number(p.invoices?.months||0)>1) advancePaid+=a; });
+  let trialIncome=0, trialCount=0;
+  (trials||[]).forEach(t=>{ const a=Number(t.trial_fee||0); if(a<=0) return; trialIncome+=a; trialCount++; const bid=t.branch_id||"none"; incByBranch[bid]=(incByBranch[bid]||0)+a; });
+  const income=payIncome+trialIncome;
+  const tuitionIncome=payIncome-regIncome;
   let expense=0; const expByBranch={}, expByCat={};
   const erows=[]; // {e, amt} contributing to this month
   exps.forEach(e=>{ const a=expenseMonthAmount(e,P); if(a<=0) return; erows.push({e,amt:a}); expense+=a; const bid=e.branch_id||"none"; expByBranch[bid]=(expByBranch[bid]||0)+a; let c=e.category||"Other"; if(/instrument/i.test(c) && e.subcategory) c=c+" · "+e.subcategory; expByCat[c]=(expByCat[c]||0)+a; });
   const gpTot=(gpays||[]).reduce((a,g)=>a+Number(g.amount||0),0);
   if(gpTot>0){ expense+=gpTot; expByBranch["none"]=(expByBranch["none"]||0)+gpTot; expByCat["Guru payouts"]=(expByCat["Guru payouts"]||0)+gpTot; }
   const net=income-expense;
-  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Registration ${INR(regIncome)}${advancePaid>0?` · incl. ${INR(advancePaid)} paid ahead`:""}</div></div>
+  $("finKpis").innerHTML=`<div class="kpi"><div class="l">Income (${esc(P.label)})</div><div class="v" style="color:var(--good)">${INR(income)}</div><div class="mini" style="color:var(--muted)">Tuition ${INR(tuitionIncome)} · Reg ${INR(regIncome)}${trialIncome>0?` · Trials ${INR(trialIncome)}`:""}${advancePaid>0?` · incl. ${INR(advancePaid)} ahead`:""}</div></div>
     <div class="kpi"><div class="l">Registration fees</div><div class="v">${INR(regIncome)}</div><div class="mini">${regCount} new student${regCount===1?'':'s'} this month</div></div>
+    <div class="kpi"><div class="l">Trial classes</div><div class="v">${INR(trialIncome)}</div><div class="mini">${trialCount} paid trial${trialCount===1?'':'s'} this month</div></div>
     <div class="kpi"><div class="l">Expenses</div><div class="v" style="color:var(--warn)">${INR(expense)}</div></div>
     <div class="kpi"><div class="l">Net (P/L)</div><div class="v" style="color:${net<0?"var(--warn)":"var(--ink)"}">${INR(net)}</div></div>`;
   const branchRows=state.branches.map(b=>{ const inc=incByBranch[b.id]||0, ex=expByBranch[b.id]||0; return `<tr><td><b>${esc(b.name)}</b></td><td>${INR(inc)}</td><td>${INR(ex)}</td><td>${INR(inc-ex)}</td></tr>`; }).join("");
@@ -1614,6 +1619,10 @@ async function renderEnquiries(){
         <div class="kf"><label>How did they hear about us?</label><select id="e_source">${srcOpts}</select></div>
         <div class="kf"><label>Mode</label><select id="e_mode"><option value="in_person">In-person</option><option value="online">Online</option><option value="hybrid">Hybrid</option></select></div>
       </div>
+      <div class="form2">
+        <div class="kf"><label>Country</label><select id="e_country"><option value="India">India</option><option value="Other">Other</option></select></div>
+        <div class="kf"><label>&nbsp;</label><div class="mini" style="color:var(--muted);padding-top:9px">The paid ₹500 trial class is offered for <b>India</b> only.</div></div>
+      </div>
       <div class="kf"><label>Notes (optional)</label><input id="e_msg" placeholder="What did they ask about?"></div>
       <div class="formmsg" id="eMsg"></div>
       <button class="kbtn teal" id="addEnq">Add enquiry</button>
@@ -1621,15 +1630,30 @@ async function renderEnquiries(){
     </div>
     <div class="searchbar"><input id="enqSearch" placeholder="🔍 Search by name or phone…" style="flex:1">
       <select id="enqFilter" style="max-width:180px;flex:none"><option value="open">Open (not converted/lost)</option><option value="">All stages</option>${ENQ_STAGES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}</select></div>
+    <div id="enqTrialPanel" class="panel" style="display:none;margin-bottom:14px;border:1.5px solid var(--saffron)">
+      <h3 style="margin:0 0 8px">🎟 Book a paid trial class <span id="trialFor" class="mini" style="color:var(--muted)"></span></h3>
+      <div class="form2">
+        <div class="kf"><label>Trial date</label><input id="t_date" type="date"></div>
+        <div class="kf"><label>Amount (₹)</label><input id="t_amt" type="number" min="0" value="500"></div>
+      </div>
+      <div class="form2">
+        <div class="kf"><label>Paid by</label><select id="t_method"><option value="cash">Cash</option><option value="upi">UPI</option><option value="online">Online</option></select></div>
+        <div class="kf"><label>&nbsp;</label><div class="mini" style="color:var(--muted);padding-top:9px">Kept as separate income — full registration still applies if they enrol.</div></div>
+      </div>
+      <div class="formmsg" id="tMsg"></div>
+      <button class="kbtn teal" id="saveTrialBtn">Record trial payment</button>
+      <button class="kbtn ghost" onclick="cancelTrial()" style="margin-left:6px">Cancel</button>
+    </div>
     <div id="enqList"><div class="empty">Loading…</div></div>`;
   $("addEnq").onclick=addEnquiry;
+  $("saveTrialBtn").onclick=saveTrial;
   $("enqSearch").oninput=drawEnquiries;
   $("enqFilter").onchange=drawEnquiries;
   loadEnquiries();
 }
 async function loadEnquiries(){
   const { data, error } = await db.from("enquiries")
-    .select("id,name,phone,whatsapp,source,stage,mode,message,follow_up_log,created_at,course_id,branch_id,courses(name),branches(name)")
+    .select("id,name,phone,whatsapp,source,stage,mode,message,follow_up_log,created_at,course_id,branch_id,country,trial_paid,trial_fee,trial_date,trial_paid_at,trial_method,courses(name),branches(name)")
     .order("created_at",{ascending:false});
   if(error){ $("enqList").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   state._enq=data||[]; drawEnquiries();
@@ -1655,18 +1679,58 @@ function drawEnquiries(){
   const stageSel=e=>`<select class="enqStage" onchange="setEnqStage('${e.id}',this.value)">${ENQ_STAGES.map(s=>`<option value="${s[0]}"${e.stage===s[0]?" selected":""}>${s[1]}</option>`).join("")}</select>`;
   $("enqList").innerHTML=`<table><tr><th>Name</th><th>Interest</th><th>Source</th><th>Stage</th><th>Added</th><th></th></tr>
     ${list.map(e=>`<tr>
-      <td><b>${esc(e.name)}</b>${e.phone?`<br><span class="mini">${esc(e.phone)}</span>`:""}</td>
+      <td><b>${esc(e.name)}</b>${e.phone?`<br><span class="mini">${esc(e.phone)}</span>`:""}${e.trial_paid?`<br><span class="badge b-green">🎟 Trial ${INR(e.trial_fee||500)} · ${esc(e.trial_date||String(e.trial_paid_at||"").slice(0,10))}</span>`:""}</td>
       <td>${esc(e.courses?.name||"—")}${e.branches?.name?`<br><span class="mini">${esc(e.branches.name)}</span>`:""}</td>
       <td>${esc(ENQ_SRC_LABEL[e.source]||e.source||"—")}</td>
       <td>${stageSel(e)}</td>
       <td class="mini">${String(e.created_at).slice(0,10)}</td>
-      <td class="mini"><span class="rowbtn edit" onclick="editEnquiry('${e.id}')">✏️ Edit</span><span class="rowbtn" onclick="logEnqNote('${e.id}')">Note</span><span class="rowbtn" onclick="convertEnq('${e.id}')">Convert</span><span class="rowbtn danger" onclick="delEnquiry('${e.id}')">Delete</span></td>
+      <td class="mini"><span class="rowbtn edit" onclick="editEnquiry('${e.id}')">✏️ Edit</span><span class="rowbtn" onclick="logEnqNote('${e.id}')">Note</span>${e.trial_paid?`<span class="rowbtn" onclick="printTrialReceipt('${e.id}')">🧾 Trial receipt</span>`:((e.country||"India")==="India"?`<span class="rowbtn edit" onclick="bookTrial('${e.id}')">🎟 Book trial</span>`:"")}<span class="rowbtn" onclick="convertEnq('${e.id}')">Convert</span><span class="rowbtn danger" onclick="delEnquiry('${e.id}')">Delete</span></td>
     </tr>${e.follow_up_log?`<tr class="enqlog"><td colspan="6" class="mini" style="white-space:pre-wrap;color:#666;padding-top:0">${esc(e.follow_up_log)}</td></tr>`:""}`).join("")}</table>`;
+}
+function bookTrial(id){
+  const e=(state._enq||[]).find(x=>x.id===id); if(!e) return;
+  state._trialId=id;
+  if($("trialFor")) $("trialFor").textContent="— "+(e.name||"");
+  if($("t_date")) $("t_date").value=todayIST();
+  if($("t_amt")) $("t_amt").value=500;
+  if($("t_method")) $("t_method").value="cash";
+  if($("tMsg")){ $("tMsg").textContent=""; }
+  const pnl=$("enqTrialPanel"); if(pnl){ pnl.style.display=""; pnl.scrollIntoView({behavior:"smooth",block:"center"}); }
+}
+function cancelTrial(){ state._trialId=null; const pnl=$("enqTrialPanel"); if(pnl) pnl.style.display="none"; }
+async function saveTrial(){
+  const id=state._trialId; if(!id) return; const m=$("tMsg");
+  const date=($("t_date")&&$("t_date").value)||todayIST();
+  const amt=Number(($("t_amt")&&$("t_amt").value)||0);
+  const method=($("t_method")&&$("t_method").value)||"cash";
+  if(!(amt>0)){ if(m){ m.className="formmsg err"; m.textContent="Enter the amount paid."; } return; }
+  if(m){ m.className="formmsg ok"; m.textContent="Recording…"; }
+  const { error } = await db.from("enquiries").update({ trial_paid:true, trial_fee:amt, trial_date:date, trial_paid_at:date+"T12:00:00+05:30", trial_method:method, stage:"trial_booked" }).eq("id",id);
+  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't record — "+error.message; } return; }
+  cancelTrial(); loadEnquiries();
+}
+function printTrialReceipt(id){
+  const e=(state._enq||[]).find(x=>x.id===id); if(!e||!e.trial_paid){ alert("No trial payment recorded for this lead."); return; }
+  const ref="TRIAL-"+String(e.trial_date||"").replace(/-/g,"")+"-"+String(e.id).slice(0,6).toUpperCase();
+  const w=window.open("","_blank","width=620,height=760"); if(!w){ alert("Please allow pop-ups to print the receipt."); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Trial class receipt — ${esc(e.name||"")}</title>
+    <style>body{font-family:system-ui,Arial,sans-serif;color:#2b2b2b;max-width:560px;margin:24px auto;padding:0 18px;line-height:1.6;font-size:14px} .box{border:1px solid #C9A227;border-radius:10px;padding:20px} b{color:#7A1F2B} .dl{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:7px 0} h2{color:#7A1F2B;margin:0 0 4px}</style></head>
+    <body><h2>Kala Kuteer</h2><div style="color:#b08a3e;font-size:12px;letter-spacing:1px;margin-bottom:14px">PERFORMING &amp; FINE ARTS SCHOOL</div>
+    <div class="box"><h3 style="margin:0 0 12px">Trial class fee — receipt</h3>
+      <div class="dl"><span>Receipt no.</span><b>${esc(ref)}</b></div>
+      <div class="dl"><span>Name</span><b>${esc(e.name||"—")}</b></div>
+      <div class="dl"><span>Trial date</span><span>${esc(e.trial_date||"—")}</span></div>
+      <div class="dl"><span>Amount paid</span><b>${INR(e.trial_fee||0)}</b></div>
+      <div class="dl"><span>Paid by</span><span>${esc((e.trial_method||"—"))}</span></div>
+      <div class="dl" style="border-bottom:none"><span>Status</span><span>Paid · non-refundable trial fee</span></div>
+      <p style="font-size:12px;color:#777;margin-top:14px">This is a one-time trial-class fee and is separate from registration and monthly tuition.</p>
+    </div></body></html>`);
+  w.document.close(); setTimeout(()=>{ try{ w.print(); }catch(e){} },350);
 }
 async function addEnquiry(){
   const m=$("eMsg"); const name=$("e_name").value.trim(), phone=$("e_phone").value.trim();
   if(!name) return failMsg(m,"Enter a name.");
-  const rec={ name, phone:phone||null, whatsapp:phone||null, course_id:$("e_course").value||null, branch_id:$("e_branch").value||null, source:$("e_source").value, mode:$("e_mode").value, message:$("e_msg").value.trim()||null };
+  const rec={ name, phone:phone||null, whatsapp:phone||null, course_id:$("e_course").value||null, branch_id:$("e_branch").value||null, source:$("e_source").value, mode:$("e_mode").value, country:($("e_country")&&$("e_country").value)||"India", message:$("e_msg").value.trim()||null };
   m.className="formmsg ok"; m.textContent="Saving…"; $("addEnq").disabled=true;
   let error;
   if(state._enqEdit){ ({ error } = await db.from("enquiries").update(rec).eq("id",state._enqEdit)); }
@@ -1683,6 +1747,7 @@ function editEnquiry(id){
   $("e_name").value=e.name||""; $("e_phone").value=e.phone||e.whatsapp||"";
   $("e_course").value=e.course_id||""; $("e_branch").value=e.branch_id||"";
   $("e_source").value=e.source||"website"; $("e_mode").value=e.mode||"in_person";
+  if($("e_country")) $("e_country").value=e.country||"India";
   $("e_msg").value=e.message||"";
   $("enqFormTitle").textContent="Edit enquiry — "+(e.name||"");
   $("addEnq").textContent="Save changes"; $("enqCancelBtn").style.display="inline-block";
@@ -1691,7 +1756,7 @@ function editEnquiry(id){
 function cancelEnqEdit(){
   state._enqEdit=null;
   ["e_name","e_phone","e_msg"].forEach(i=>{ if($(i)) $(i).value=""; });
-  if($("e_course")) $("e_course").value=""; if($("e_branch")) $("e_branch").value="";
+  if($("e_course")) $("e_course").value=""; if($("e_branch")) $("e_branch").value=""; if($("e_country")) $("e_country").value="India";
   if($("enqFormTitle")) $("enqFormTitle").textContent="Log a new enquiry";
   if($("addEnq")) $("addEnq").textContent="Add enquiry";
   if($("enqCancelBtn")) $("enqCancelBtn").style.display="none";
