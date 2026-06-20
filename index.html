@@ -278,13 +278,23 @@ const esc = s => (s==null?"":String(s)).replace(/[&<>"\']/g, c=>({"&":"&amp;","<
 // signed-in user could call directly with a malicious payload — so strip scripts, embedded
 // objects, event-handler attributes and dangerous URL schemes before it ever hits innerHTML.
 function sanHTML(h){
+  // Sanitiser for STORED rich-text we display as HTML (signed consent / CoC snapshots).
+  // Uses the browser's own parser so it can't be fooled by slash-separated handlers
+  // (<svg/onload=…>) or entity-encoded schemes — regex stripping is not safe here.
   if(h==null) return "";
-  let x=String(h);
-  x=x.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form)[\s\S]*?<\s*\/\s*\1\s*>/gi,"");
-  x=x.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form)\b[^>]*>/gi,"");
-  x=x.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,"");           // drop onclick= etc.
-  x=x.replace(/(href|src|xlink:href)\s*=\s*(["']?)\s*(javascript|data|vbscript):/gi,"$1=$2#");
-  return x;
+  try{
+    var docp=new DOMParser().parseFromString(String(h),"text/html");
+    var BAD={SCRIPT:1,STYLE:1,IFRAME:1,OBJECT:1,EMBED:1,LINK:1,META:1,BASE:1,FORM:1,SVG:1,MATH:1,IMG:1,VIDEO:1,AUDIO:1,SOURCE:1,TEMPLATE:1,NOSCRIPT:1};
+    Array.prototype.slice.call(docp.querySelectorAll("*")).forEach(function(el){
+      if(BAD[(el.tagName||"").toUpperCase()]){ el.remove(); return; }
+      Array.prototype.slice.call(el.attributes).forEach(function(a){
+        var n=(a.name||"").toLowerCase(), v=(a.value||"");
+        if(n.indexOf("on")===0 || n==="style" || n==="srcset") el.removeAttribute(a.name);
+        else if((n==="href"||n==="src"||n==="xlink:href"||n==="formaction"||n==="action") && /^\s*(javascript|data|vbscript):/i.test(v)) el.removeAttribute(a.name);
+      });
+    });
+    return docp.body ? docp.body.innerHTML : "";
+  }catch(e){ return esc(String(h)); }
 }
 const safeUrl = u => /^https?:\/\//i.test(u||"") ? u : "#";          // only allow real web links in href (blocks javascript: etc.)
 const todayIST = () => new Date(Date.now()+19800000).toISOString().slice(0,10); // today's date in IST (UTC+5:30)
