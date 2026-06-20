@@ -2,8 +2,13 @@
   "name": "kala-kuteer-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Kala Kuteer ERP (single-file app). The tests in /tests guard the fee, due-date and guru-payout money logic so a future edit can't silently break it.",
+  "description": "Kala Kuteer ERP (single-file app). Tests in /tests guard the money logic (fees, due-dates, payouts) AND, in /tests/ui, click through every screen in a headless browser-like DOM with the backend stubbed, so a future edit can't silently break a screen or the XSS sanitiser. No live data is ever touched.",
   "scripts": {
-    "test": "node tests/run.js"
+    "test": "node tests/run.js && node tests/ui/run-ui.js",
+    "test:money": "node tests/run.js",
+    "test:ui": "node tests/ui/run-ui.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
   }
 }
