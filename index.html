@@ -756,11 +756,12 @@ async function loadOwnerStats(){
   const mEnd=`${Y}-${PAD(Mo)}-${PAD(new Date(Y,Mo,0).getDate())}`;
   const mNext=`${Mo===12?Y+1:Y}-${PAD(Mo===12?1:Mo+1)}-01`;
   const weekEnd=new Date(Date.now()+19800000+7*86400000).toISOString().slice(0,10);
-  const [invMonth, unpaid, pays, regInv, newCnt, breakCnt, activeCnt, gurusCnt, branchesCnt] = await Promise.all([
+  const [invMonth, unpaid, pays, regInv, trials, newCnt, breakCnt, activeCnt, gurusCnt, branchesCnt] = await Promise.all([
     fetchAll(()=> db.from("invoices").select("amount,status,period_start,period_end").lte("period_start",mEnd).gte("period_end",mStart)),
     fetchAll(()=> db.from("invoices").select("amount,due_date,status").neq("status","paid")),
     fetchAll(()=> db.from("payments").select("amount,invoices(students(branch_id))").gte("paid_at",mStart).lt("paid_at",mNext)),
     fetchAll(()=> db.from("invoices").select("registration,status").gt("registration",0).gte("due_date",mStart).lte("due_date",mEnd)),
+    fetchAll(()=> db.from("enquiries").select("trial_fee,trial_paid_at").eq("trial_paid",true).gte("trial_paid_at",mStart).lt("trial_paid_at",mNext)),
     db.from("students").select("id",{count:"exact",head:true}).gte("join_date",mStart).lte("join_date",mEnd),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","on_break"),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
@@ -770,6 +771,7 @@ async function loadOwnerStats(){
   let billed=0, collected=0, regCollected=0;
   (invMonth||[]).forEach(i=>{ const starts=i.period_start?(i.period_start>=mStart):true; if(!starts) return; billed+=Number(i.amount||0); if(i.status==="paid") collected+=Number(i.amount||0); });
   (regInv||[]).forEach(r=>{ const a=Number(r.registration||0); billed+=a; if(r.status==="paid"){ collected+=a; regCollected+=a; } });
+  let trialCollected=0; (trials||[]).forEach(t=>{ const a=Number(t.trial_fee||0); if(a>0){ billed+=a; collected+=a; trialCollected+=a; } });
   const pending=billed-collected;
   const rate=billed>0?Math.round(collected/billed*100):null;
   let overdueAmt=0, overdueN=0, weekAmt=0, weekN=0;
@@ -785,7 +787,7 @@ async function loadOwnerStats(){
   C.innerHTML=`<div class="panel" style="margin-top:16px;background:linear-gradient(160deg,var(--maroon),var(--maroon-deep));border:1.5px solid var(--maroon-deep);color:#F4E7D6">
     <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;color:#fff">📊 This month — ${MONS[Mo-1]} ${Y}</h3><span class="rowbtn edit" onclick="gotoNav('fees')" style="color:#F2CE86;border-color:#F2CE86">Open Fees →</span></div>
     <div class="kpis" style="margin-top:12px">
-      <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div>${rate!=null?`<div class="mini" style="color:${rateColor}">${rate}% of ${INR(billed)} billed${regCollected>0?` · incl. ${INR(regCollected)} reg.`:""}</div>`:""}</div>
+      <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div>${rate!=null?`<div class="mini" style="color:${rateColor}">${rate}% of ${INR(billed)} billed${regCollected>0?` · incl. ${INR(regCollected)} reg.`:""}${trialCollected>0?` · ${INR(trialCollected)} trials`:""}</div>`:""}</div>
       <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>
       <div class="kpi"><div class="l">Overdue now</div><div class="v" style="color:${overdueN?'var(--warn)':'var(--good)'}">${INR(overdueAmt)}</div><div class="mini">${overdueN} invoice${overdueN===1?'':'s'}</div></div>
       <div class="kpi"><div class="l">New students</div><div class="v">${newCnt.count??0}</div><div class="mini">joined this month</div></div>
@@ -3651,6 +3653,8 @@ async function renderStudentJourney(){
 }
 
 /* ----- Student: Fees ----- */
+// Online convenience fee borne by the student (≈2.4%). Keep in sync with RAZORPAY_FEE_PCT on the server.
+const GATEWAY_PCT=0.0236;
 async function renderStudentFees(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   if(!state._children){ await loadFamily(); }
@@ -3683,7 +3687,7 @@ async function renderStudentFees(){
     const anyOverdue=items.some(i=>i.due_date && i.due_date<todayS);
     const allSaidPaid=items.every(i=>i.student_response==="paid");
     const dueDate=items.map(i=>i.due_date).filter(Boolean).sort()[0]||"";
-    const onlineFee=Math.round(total*0.0236), onlineTotal=total+onlineFee;
+    const onlineFee=Math.round(total*GATEWAY_PCT), onlineTotal=total+onlineFee;
     const upiId=upiOf(sid);
     const upi=`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(SCHOOL_UPI.name)}&am=${total}&cu=INR&tn=${encodeURIComponent("Fees "+label)}`;
     const qr=`https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encodeURIComponent(upi)}`;
@@ -3742,7 +3746,7 @@ async function renderStudentFees(){
   let payAll="";
   if(multiKid && dueInv.length>0){
     const allIds=dueInv.map(i=>i.id);
-    const fee=Math.round(grandTotal*0.0236), tot=grandTotal+fee;
+    const fee=Math.round(grandTotal*GATEWAY_PCT), tot=grandTotal+fee;
     const kidLine=kids.map(k=>{ const t=dueInv.filter(i=>i.student_id===k.id).reduce((a,i)=>a+Number(i.amount||0),0); return t>0?`<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>${esc(k.full_name)}</span><b>${INR(t)}</b></div>`:""; }).join("");
     payAll=`<div class="panel" style="margin-bottom:16px;border:2px solid var(--saffron)">
       <h3 style="margin:0 0 4px">Family total due — ${INR(grandTotal)}</h3>
