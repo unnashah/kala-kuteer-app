@@ -1,9 +1,9 @@
-name: Money logic safety checks
+name: Safety checks (money logic + UI screens)
 
-# Runs automatically on every change to the app (including edits made in the
-# GitHub website), and on pull requests. A green check = the fee, due-date and
-# payout logic still behaves correctly. A red X = something changed that needs
-# a look before going live.
+# Runs on every change to the app (including edits made on the GitHub website)
+# and on pull requests. Green = the fee/date/payout logic still behaves AND every
+# screen still renders without error in a headless DOM (backend stubbed — no live
+# data touched). Red = something needs a look before going live.
 
 on:
   push:
@@ -18,5 +18,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Run fee / date / payout safety checks
-        run: node tests/run.js
+      - name: Install test dependencies
+        run: npm install --no-audit --no-fund
+      - name: Money logic + UI screen safety checks
+        run: npm test
