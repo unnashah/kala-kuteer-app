@@ -20,6 +20,11 @@ module.exports = function (t) {
   const need = (re, app, msg) => { if (!re.test(app)) throw new Error(msg); };
 
   // --- index.html (the live app) ---
+  t("index.html: no IST-unsafe month-end bound (new Date(y,mo,0).toISOString) — last-day-of-month bug must stay fixed", () => {
+    if (/new Date\([a-z]+,[a-z]+,0\)\.toISOString\(\)\.slice\(0,10\)/.test(app))
+      throw new Error("Found new Date(...,0).toISOString().slice(0,10) — in IST this drops the last day of the month (calendar/finance). Use `${y}-${PAD(mo)}-${PAD(new Date(y,mo,0).getDate())}` instead.");
+  });
+
   t("index.html: due date still caps the enrolment day to the month length", () =>
     need(/PAD\(Math\.min\(day,dim\)\)/, app,
       "Couldn't find PAD(Math.min(day,dim)) in index.html — the due-date capping may have changed. Re-check generateInvoices / adminRaisePlan, then update tests/kk-logic.js and this check on purpose."));
