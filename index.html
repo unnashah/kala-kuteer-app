@@ -1298,7 +1298,7 @@ async function recordPayment(invId, amount){
 }
 
 /* ---------------- FINANCE & P&L ---------------- */
-function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||todayIST().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=new Date(y,m,0).toISOString().slice(0,10); const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
+function finPeriod(){ const v=($("finMonth")&&$("finMonth").value)||todayIST().slice(0,7); const [y,m]=v.split("-").map(Number); const start=`${y}-${PAD(m)}-01`; const end=`${y}-${PAD(m)}-${PAD(new Date(y,m,0).getDate())}`; const next=`${m===12?y+1:y}-${PAD(m===12?1:m+1)}-01`; return { v, label:MONS[m-1]+" "+y, start, end, next }; }
 const FREQ_LABEL={ weekly:"↻ Weekly", monthly:"↻ Monthly", yearly:"↻ Yearly" };
 function parseD(s){ const [y,m,d]=String(s).split("-").map(Number); return new Date(y,m-1,d); }
 // amount an expense contributes to the month described by P (cash basis: yearly counts fully in its anniversary month)
@@ -2240,7 +2240,7 @@ async function renderCalendar(){
 }
 async function loadCalendar(){
   const [y,mo]=state._calMonth.split("-").map(Number);
-  const start=`${y}-${PAD(mo)}-01`; const end=new Date(y,mo,0).toISOString().slice(0,10);
+  const start=`${y}-${PAD(mo)}-01`; const end=`${y}-${PAD(mo)}-${PAD(new Date(y,mo,0).getDate())}`;
   const { data:annc, error } = await db.from("news_posts").select("id,title,event_type,event_date,event_end,body").not("event_date","is",null).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   if(error){ $("calGrid").innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,branch_id,session_date,start_time,end_time,mode,capacity,zoom_link,room,batch_id").gte("session_date",start).lte("session_date",end).order("session_date");
@@ -2585,7 +2585,7 @@ async function fillMonthFromTemplate(){
     const cls=(state._classes||[]).filter(b=>b.is_active!==false && b.day_of_week!=null && b.published_at);
     if(!cls.length){ m.className="formmsg err"; m.textContent="No weekly classes ready yet — add one below (any a guru added need a quick ✅ ‘Mark reviewed’ first)."; return; }
     m.className="formmsg ok"; m.textContent="Filling…"; $("tplFillBtn").disabled=true;
-    const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
+    const start=`${y}-${PAD(mo)}-01`, end=`${y}-${PAD(mo)}-${PAD(new Date(y,mo,0).getDate())}`;
     const { data:existing } = await db.from("class_sessions").select("title,session_date,start_time").gte("session_date",start).lte("session_date",end);
     const seen=new Set((existing||[]).map(x=>`${x.title}|${x.session_date}|${(x.start_time||"").slice(0,5)}`));
     const dim=new Date(y,mo,0).getDate(); const rows=[];
@@ -3142,7 +3142,7 @@ async function renderMyCalendar(){
 }
 async function loadMyCalendar(){
   const [y,mo]=state._mcalMonth.split("-").map(Number);
-  const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
+  const start=`${y}-${PAD(mo)}-01`, end=`${y}-${PAD(mo)}-${PAD(new Date(y,mo,0).getDate())}`;
   const { data:annc } = await db.from("news_posts").select("id,title,event_type,event_date,event_end").not("event_date","is",null).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   const { data:sess } = await db.from("class_sessions").select("id,title,teacher_id,session_date,start_time,mode,capacity,zoom_link,branch_id").gte("session_date",start).lte("session_date",end).order("session_date");
   state._mcalEvents=(annc||[]).map(e=>({ id:e.id, title:e.title, event_date:e.event_date, end_date:e.event_end, event_type:e.event_type })); state._mcalSess=sess||[]; drawMyCalendar();
@@ -3588,7 +3588,7 @@ async function renderStudentCalendar(){
 }
 async function loadStudentCalendar(){
   const [y,mo]=state._scalMonth.split("-").map(Number);
-  const start=`${y}-${PAD(mo)}-01`, end=new Date(y,mo,0).toISOString().slice(0,10);
+  const start=`${y}-${PAD(mo)}-01`, end=`${y}-${PAD(mo)}-${PAD(new Date(y,mo,0).getDate())}`;
   const me=await myStudent(); const aud=["all"]; if(me){ if(me.branch_id) aud.push("branch:"+me.branch_id); if(me.course_id) aud.push("course:"+me.course_id); }
   const { data:annc } = await db.from("news_posts").select("id,title,event_date,event_end,audience").not("event_date","is",null).in("audience",aud).lte("event_date",end).or(`event_end.gte.${start},and(event_end.is.null,event_date.gte.${start})`).order("event_date");
   const { data:sess } = await db.rpc("my_class_sessions",{ p_start:start, p_end:end, p_student:state._childId||null });
