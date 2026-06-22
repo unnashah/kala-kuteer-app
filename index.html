@@ -1232,7 +1232,9 @@ async function adminRaisePlan(sid){
   } finally { state._busyMoney=false; }
 }
 async function generateInvoices(){
-  if(state._busyMoney) return; state._busyMoney=true;
+  if(state._busyMoney) return;
+  if(!confirm("Raise this month's fee invoice for EVERY active student?\n\nThis creates one invoice per student (per course) for "+feePeriod().label+". Anyone who already has one is skipped.")) return;
+  state._busyMoney=true;
   try{
   const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
   const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`);
@@ -1286,9 +1288,12 @@ async function voidPayment(invId){
   } finally { state._busyMoney=false; }
 }
 async function recordPayment(invId, amount){
-  if(state._busyMoney) return; state._busyMoney=true;
+  if(state._busyMoney) return;
+  const sel=$("pm_"+invId); const method=sel?sel.value:"cash";
+  if(!confirm("Mark this fee as PAID?\n\nAmount: "+INR(amount)+"  \u00b7  Method: "+method+"\n\nUse \u201cUndo payment\u201d if you record it by mistake \u2014 this is not a refund.")) return;
+  state._busyMoney=true;
   try{
-  const m=$("feeMsg"); const sel=$("pm_"+invId); const method=sel?sel.value:"cash";
+  const m=$("feeMsg");
   m.className="formmsg ok"; m.textContent="Recording…";
   const { error } = await db.rpc("kk_record_payment",{ p_invoice:invId, p_amount:amount, p_method:method });
   if(error){ m.className="formmsg err"; m.textContent="Couldn't record — "+error.message; return; }
