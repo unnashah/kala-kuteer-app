@@ -17,7 +17,7 @@
 //    • A fee is the branch's monthly fee times the number of months paid
 //      (1, 3 or 6). No discounts, no partial amounts.
 //    • A guru is paid a % of the TUITION their students paid — never of the
-//      one-time ₹1,000 registration (that stays with the school).
+//      a one-time registration fee per branch (e.g. ₹2,000 at Gachibowli) that stays with the school.
 // ============================================================================
 "use strict";
 
