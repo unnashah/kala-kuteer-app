@@ -55,7 +55,7 @@
   .logincard{background:var(--card);border:1px solid var(--line);border-radius:20px;
     box-shadow:0 16px 40px rgba(21,48,90,.14);padding:30px 28px;width:100%;max-width:380px;text-align:center}
   .logincard img{height:110px;width:auto;margin:0 auto 8px;display:block}
-  .logincard h1{font-size:18px;color:var(--navy);margin-bottom:2px}
+  .logincard h1{font-size:18px;color:var(--maroon);margin-bottom:2px}
   .logincard p.sub{font-size:12.5px;color:var(--muted);margin-bottom:20px}
   .field{text-align:left;margin-bottom:12px}
   .field label{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
@@ -372,7 +372,7 @@ function renderInactiveStudent(name){
   if($("sideNav")) $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:520px;margin:34px auto;text-align:center;padding:0 18px">
     <div style="font-size:42px;margin-bottom:6px">🔒</div>
-    <h2 style="font-size:21px;margin:0 0 10px;color:var(--navy)">Your account isn't active</h2>
+    <h2 style="font-size:21px;margin:0 0 10px;color:var(--maroon)">Your account isn't active</h2>
     <p style="font-size:14px;color:var(--muted);line-height:1.7">The Kala Kuteer portal is for currently <b>active</b> students only. Your account isn't active right now, so it can't be opened.<br><br>If you think this is a mistake, please contact the school office.</p>
     <button class="kbtn teal" style="margin-top:18px" onclick="db.auth.signOut().then(()=>location.reload())">Log out</button>
   </div>`;
@@ -3088,8 +3088,8 @@ function genPayoutInvoice(monthKey){
   const amt="₹"+Number(r.paid||0).toLocaleString("en-IN");
   const today=todayIST();
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Payout ${num}</title>
-   <style>body{font-family:Georgia,'Times New Roman',serif;color:#16305A;max-width:600px;margin:30px auto;padding:0 22px}
-   .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #16305A;padding-bottom:14px}
+   <style>body{font-family:Georgia,'Times New Roman',serif;color:#7A2233;max-width:600px;margin:30px auto;padding:0 22px}
+   .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #7A2233;padding-bottom:14px}
    .hd img{height:64px}.hd h1{font-size:22px;margin:0}.hd p{margin:2px 0 0;font-size:12px;color:#666;font-style:italic}
    h2{font-size:15px;letter-spacing:1.5px;color:#7A2233;margin:24px 0 12px}
    table{width:100%;border-collapse:collapse;font-size:14px}td{padding:9px 4px;border-bottom:1px solid #eee}.k{color:#888;width:160px}
@@ -3873,8 +3873,8 @@ async function genReceipt(invId){
   const amt="₹"+(fee+reg).toLocaleString("en-IN");
   const forText = reg>0 ? (fee>0 ? `Tuition fee — ${esc(i.period_label||"")} + ₹${reg.toLocaleString("en-IN")} registration` : "Registration fee (one-time)") : `Tuition fee — ${esc(i.period_label||"")}`;
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${num}</title>
-   <style>body{font-family:Georgia,'Times New Roman',serif;color:#16305A;max-width:600px;margin:30px auto;padding:0 22px}
-   .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #16305A;padding-bottom:14px}
+   <style>body{font-family:Georgia,'Times New Roman',serif;color:#7A2233;max-width:600px;margin:30px auto;padding:0 22px}
+   .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #7A2233;padding-bottom:14px}
    .hd img{height:64px}.hd h1{font-size:22px;margin:0}.hd p{margin:2px 0 0;font-size:12px;color:#666;font-style:italic}
    h2{font-size:15px;letter-spacing:1.5px;color:#7A2233;margin:24px 0 12px}
    table{width:100%;border-collapse:collapse;font-size:14px}td{padding:9px 4px;border-bottom:1px solid #eee}
@@ -4401,7 +4401,7 @@ async function renderStudentDetail(id){
         : `<button class="kbtn" style="background:var(--warn);color:#fff" onclick="archiveStudent('${s.id}')">🗃 Archive student</button>`}
       ${s.profile_id
         ? `<button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>`
-        : `<button class="kbtn" style="margin-left:6px;background:var(--navy);color:#fff" onclick="createStudentLogin('${s.id}')">🔑 Create login</button>`}
+        : `<button class="kbtn" style="margin-left:6px;background:var(--maroon);color:#fff" onclick="createStudentLogin('${s.id}')">🔑 Create login</button>`}
       <div class="formmsg" id="manageMsg"></div>
       <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Archive</b> hides a student from the active list and stops billing, but keeps their full record — you can <b>Restore</b> them anytime. Nothing is ever deleted.</p>
     </div>
@@ -4569,13 +4569,7 @@ async function restoreStudent(id){
   if(error){ alert("Couldn't restore — "+error.message); return; }
   renderStudentDetail(id);
 }
-async function deleteStudent(id){
-  if(!confirm("Permanently delete this student and all their records (attendance, fees, etc.)? This cannot be undone.")) return;
-  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Deleting…"; }
-  const { error } = await db.from("students").delete().eq("id", id);
-  if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't delete — "+error.message; } return; }
-  gotoNav("students");
-}
+/* deleteStudent() removed — hard delete retired in favour of reversible Archive (status='archived') */
 async function editStudent(id){
   const M=$("mainArea"); await loadRef(); await loadClassRefs();
   const { data:s, error } = await db.from("students").select("*").eq("id",id).single();
