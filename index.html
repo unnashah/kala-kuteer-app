@@ -397,7 +397,7 @@ async function renderStudentIntake(st){
         ${rv("Name",st.full_name)}
         ${rv("Mobile",mobile)}${rv("Branch",st.branches&&st.branches.name)}
         ${rv("Course",st.courses&&st.courses.name)}${rv("Primary guru",guru)}
-        ${rv("Class level",st.level)}${rv("Joining date",st.join_date)}
+        ${rv("Class level",st.level)}${rv("Fee start date",st.join_date)}
       </div>
       <div style="margin-top:12px"><span class="rowbtn" onclick="document.getElementById('siFlag').style.display=''">⚠️ Something's wrong</span></div>
       <div id="siFlag" style="display:none;margin-top:10px;background:#FBF1DA;border:1px solid var(--saffron);border-radius:9px;padding:12px">
@@ -408,6 +408,7 @@ async function renderStudentIntake(st){
     </div>
     <div class="panel"><h3>Your details</h3>
       <div class="kf"><label>Date of birth *</label><input id="si_dob" type="date" value="${esc(st.date_of_birth||"")}"></div>
+      <div class="kf"><label>Joining date (your first class) *</label><input id="si_join" type="date" value="${esc(st.actual_join_date||"")}"></div>
       ${minor?`<div class="kf"><label>Parent / guardian name *</label><input id="si_parent" value="${esc(st.parent_name||"")}"></div>`:""}
       <div class="kf"><label>WhatsApp number *</label><div style="display:flex;gap:6px">${cc('si_wa')}${numIn('si_wa')}</div></div>
       <div class="kf"><label>${minor?"Parent's email *":"Email *"}</label><input id="si_email" type="email" value="${esc((minor?st.parent_email:st.email)||"")}"></div>
@@ -439,6 +440,7 @@ async function submitStudentIntake(){
   const digits=id=>D(id).replace(/\D/g,"");
   const fail=(id,t)=>{ m.className="formmsg err"; m.textContent=t; const el=$(id); if(el){ el.focus(); el.scrollIntoView({block:"center",behavior:"smooth"}); } return false; };
   if(!D("si_dob")) return fail("si_dob","Please enter the date of birth.");
+  if(!D("si_join")) return fail("si_join","Please enter your joining date (your first class).");
   if(minor && !D("si_parent")) return fail("si_parent","Please enter the parent/guardian name.");
   const wc=$("si_wa_cc").value, wn=digits("si_wa");
   if(!wn) return fail("si_wa","Please enter a WhatsApp number.");
@@ -453,7 +455,7 @@ async function submitStudentIntake(){
   if(!D("si_owns")) return fail("si_owns","Please choose whether you own the instrument.");
   if(!$("si_terms").checked){ m.className="formmsg err"; m.textContent="Please tick to acknowledge the IMPORTANT NOTICE."; $("si_terms").focus(); return; }
   if(!D("si_signer")) return fail("si_signer","Please enter the name of the person consenting.");
-  const p={ date_of_birth:D("si_dob"), parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
+  const p={ date_of_birth:D("si_dob"), actual_join_date:D("si_join"), parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
     email: minor? null : D("si_email"), parent_email: minor? D("si_email") : null,
     emergency_contact: ec+en, goal:D("si_goal"), owns_instrument:D("si_owns")==="yes",
     health_notes:D("si_health"), heard_via:D("si_heard"), consent_signed_by:D("si_signer"), consent_text:consentNoticeHTML() };
@@ -2914,7 +2916,7 @@ async function viewMyStudent(id){
   const { data:rv } = await db.from("progress_reviews").select("quarter_label,scheduled_at,status,notes").eq("student_id",id).eq("status","completed").order("scheduled_at",{ascending:false});
   const journey=(rv&&rv.length)?rv.map(r=>`<div style="margin-bottom:10px"><div class="mini"><b>${r.scheduled_at?fmtDateTime(r.scheduled_at):fmtNiceDate(r.quarter_label)}</b></div><div style="white-space:pre-wrap;font-size:13px;margin-top:2px;line-height:1.5">${esc(r.notes||"—")}</div></div>`).join(""):`<div class="mini" style="color:var(--muted)">No Guru Samvaad notes yet.</div>`;
   M.innerHTML=`<div class="ph"><div><h2>${esc(s.full_name)}</h2>
-      <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.join_date||"—")} · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></p></div>
+      <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.actual_join_date||s.join_date||"—")} · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span></p></div>
       <button class="kbtn ghost" onclick="gotoNav('mystudents')">← Back</button></div>
     <div class="form2">
       <div class="panel"><h3>About</h3>
@@ -3541,7 +3543,7 @@ async function renderStudentProfile(){
   const M=$("mainArea"); M.innerHTML=`<div class="empty">Loading…</div>`;
   const sel=await myStudent();   // respect the family switcher (selected child), not just the first student
   if(!sel){ M.innerHTML=`<div class="ph"><div><h2>My Profile</h2></div></div><div class="cfgwarn">We couldn't find your profile. Please contact the school office.</div>`; return; }
-  const { data:s } = await db.from("students").select("id,full_name,date_of_birth,is_minor,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,primary_teacher_id,needs_review,branches(name),courses(name)").eq("id",sel.id).maybeSingle();
+  const { data:s } = await db.from("students").select("id,full_name,date_of_birth,is_minor,whatsapp,email,parent_name,parent_email,emergency_contact,level,join_date,actual_join_date,primary_teacher_id,needs_review,branches(name),courses(name)").eq("id",sel.id).maybeSingle();
   if(!s){ M.innerHTML=`<div class="ph"><div><h2>My Profile</h2></div></div><div class="cfgwarn">We couldn't find your profile. Please contact the school office.</div>`; return; }
   try{ await loadClassRefs(); }catch(e){}
   const guru=s.primary_teacher_id?teacherName(s.primary_teacher_id):"—";
@@ -4365,7 +4367,7 @@ async function renderStudentDetail(id){
        <div class="dl"><span class="k">Student's WhatsApp</span><span>${esc(s.whatsapp||"—")}</span></div>
        <div class="dl"><span class="k">Student's email</span><span>${esc(s.email||"—")}</span></div>`;
   M.innerHTML=`<div class="ph"><div><h2>${esc(s.full_name)}</h2>
-      <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.join_date||"—")}
+      <p>${esc(s.courses?.name||"—")} · ${esc(s.branches?.name||"—")} · joined ${esc(s.actual_join_date||s.join_date||"—")}
       · <span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>${s.status!=="active"&&s.status_effective_date?` <span class="mini">${s.status_effective_date>todayS?"from":"since"} ${esc(s.status_effective_date)}</span>`:""}</p></div>
       <button class="kbtn" onclick="editStudent('${s.id}')">✏️ Edit details</button>
       <button class="kbtn ghost" style="margin-left:6px" onclick="gotoNav('students')">← Back to list</button></div>
@@ -4379,6 +4381,8 @@ async function renderStudentDetail(id){
       </div>
       <div class="panel"><h3>School record</h3>
         <div class="dl"><span class="k">Branch</span><span><b>${esc(s.branches?.name||"—")}</b></span></div>
+        <div class="dl"><span class="k">Fee billed from</span><span>${esc(s.join_date||"—")}</span></div>
+        <div class="dl"><span class="k">Joined (per family)</span><span>${esc(s.actual_join_date||"—")}</span></div>
         <div class="dl"><span class="k">Primary course · level</span><span>${esc(s.courses?.name||"—")} · ${esc(s.level||"—")} <span class="mini" style="color:var(--muted)">(full list in Courses below)</span></span></div>
         <div class="dl"><span class="k">Primary guru</span><span>${esc(teacherName(s.primary_teacher_id))}</span></div>
         ${s.upi_id?`<div class="dl"><span class="k">Payment UPI (override)</span><span>${esc(s.upi_id)}</span></div>`:""}
@@ -4602,7 +4606,8 @@ async function editStudent(id){
         <div class="kf"><label>Course</label><select id="ed_course"><option value="">Select…</option>${courseOpts}</select></div>
         <div class="kf"><label>Primary guru</label><select id="ed_guru"><option value="">— unassigned —</option>${guruOpts}</select></div>
         <div class="kf"><label>Class level</label><select id="ed_level"><option value="">Select…</option>${opt(s.level,["Beginner","Some experience","Advanced"])}</select></div>
-        <div class="kf"><label>Date of joining</label><input id="ed_join" type="date" value="${esc(s.join_date||"")}"></div>
+        <div class="kf"><label>Fee payment date (billing start)</label><input id="ed_join" type="date" value="${esc(s.join_date||"")}"></div>
+        <div class="kf"><label>Joining date (per family)</label><input id="ed_actualjoin" type="date" value="${esc(s.actual_join_date||"")}"></div>
         <div class="kf"><label>Goal</label><select id="ed_goal"><option value="">Select…</option>${opt(s.goal,["Hobby","Certification","Stage performance","Professional"])}</select></div>
         <div class="kf"><label>Owns the instrument?</label>${yn("ed_owns",s.owns_instrument)}</div>
         <div class="kf"><label>Health / safety notes</label><textarea id="ed_health" rows="2">${esc(s.health_notes||"")}</textarea></div>
@@ -4624,7 +4629,7 @@ async function saveStudentEdits(id){
     parent_name:V("ed_parent")||null, parent_phone:V("ed_pphone")||null, parent_email:V("ed_pemail")||null,
     phone:V("ed_phone")||null, whatsapp:V("ed_wa")||null, email:V("ed_email")||null,
     emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null, primary_teacher_id:V("ed_guru")||null, upi_id:V("ed_upi")||null,
-    level:V("ed_level")||null, join_date:V("ed_join")||null, goal:V("ed_goal")||null,
+    level:V("ed_level")||null, join_date:V("ed_join")||null, actual_join_date:V("ed_actualjoin")||null, goal:V("ed_goal")||null,
     owns_instrument: owns===""?null:(owns==="yes"), health_notes:V("ed_health")||null,
     heard_via:V("ed_heard")||null, consent_media: media===""?null:(media==="yes")
   };
@@ -4667,7 +4672,7 @@ async function renderQuickRegister(){
         <div class="kf"><label>Primary guru *</label><select id="q_guru"><option value="">Select…</option>${guruOpts}</select></div>
         <div class="kf"><label>Class level *</label><select id="q_level"><option value="">Select…</option><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
       </div>
-      <div class="kf"><label>Joining date *</label><input id="q_join" type="date"></div>
+      <div class="kf"><label>Fee payment date *</label><input id="q_join" type="date"><div style="font-size:11.5px;color:var(--muted);margin-top:3px">Monthly fee is billed from this date. The family enters their actual joining date when they log in.</div></div>
       <div style="border-top:1px solid var(--line);margin:14px 0 4px;padding-top:12px"><b>Registration fee</b></div>
       <div class="check" style="margin:0 0 8px"><input type="checkbox" id="q_reghas" checked><label for="q_reghas" style="margin:0;font-size:13px">One-time registration fee has been collected</label></div>
       <div class="form2" id="q_regfields">
@@ -4692,6 +4697,7 @@ async function renderQuickRegister(){
     const qm=$("qMsg"); if(qm){ qm.className="formmsg ok"; qm.textContent="Pre-filled from the enquiry — complete the rest and create the account."; }
   }
   if($("q_regdate")) $("q_regdate").value=todayIST();
+  if($("q_join")) $("q_join").value=todayIST();
   if($("q_reghas")) $("q_reghas").onchange=()=>{ const on=$("q_reghas").checked; ["q_regamt","q_regmethod","q_regdate"].forEach(i=>{ if($(i)) $(i).disabled=!on; }); if($("q_regfields")) $("q_regfields").style.opacity=on?"1":"0.45"; };
 }
 async function saveQuickStudent(){
@@ -4706,7 +4712,7 @@ async function saveQuickStudent(){
   if(!D("q_course")) return fail("q_course","Choose a course.");
   if(!D("q_guru")) return fail("q_guru","Choose the primary guru.");
   if(!D("q_level")) return fail("q_level","Choose the class level.");
-  if(!D("q_join")) return fail("q_join","Set the joining date.");
+  if(!D("q_join")) return fail("q_join","Set the fee payment date.");
   const e164=pc+pn;
   m.className="formmsg ok"; m.textContent="Creating…"; $("qSave").disabled=true;
   const rec={ full_name:D("q_name"), is_minor:minor,
