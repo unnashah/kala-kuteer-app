@@ -3749,11 +3749,11 @@ async function renderStudentFees(){
     const allow=!!(br&&br.allow_plans); const mfee=br?Number(br.monthly_fee)||0:0;
     const planTot=(n)=>{ if(n===3 && br&&br.plan_3_price!=null && Number(br.plan_3_price)>0) return Number(br.plan_3_price); if(n===6 && br&&br.plan_6_price!=null && Number(br.plan_6_price)>0) return Number(br.plan_6_price); return mfee*n; };
     const cm=new Date(); const curStart=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-01`; const curEnd=`${cm.getFullYear()}-${PAD(cm.getMonth()+1)}-${PAD(new Date(cm.getFullYear(),cm.getMonth()+1,0).getDate())}`;
-    const coveredNow=list.some(i=>i.period_start&&i.period_end&&i.period_start<=curEnd&&i.period_end>=curStart);
+    const coveredNow=list.some(i=>i.status==="paid"&&i.period_start&&i.period_end&&i.period_start<=curEnd&&i.period_end>=curStart);
     if(allow && mfee>0 && !coveredNow){
       const pb=(mo,label)=>`<button class="kbtn ${mo===1?"teal":"ghost"}" style="margin:4px 8px 0 0" onclick="studentRaisePlan(${mo})">${label} — ${INR(planTot(mo))}</button>`;
-      planHtml=`<div class="panel" style="margin-bottom:14px"><h3>Choose your payment</h3>
-        <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — whatever suits you.</p>
+      planHtml=`<div class="panel" style="margin-bottom:14px"><h3>Choose your plan</h3>
+        <p class="mini" style="color:var(--muted);margin:-2px 0 10px">Pay monthly, or pay ahead for 3 or 6 months — your choice each month. Until you pay, picking an option replaces the current one.</p>
         <div style="display:flex;flex-wrap:wrap">${pb(1,"1 month")}${pb(3,"3 months")}${pb(6,"6 months")}</div></div>`;
     }
   }
