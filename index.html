@@ -740,11 +740,11 @@ async function loadAtRisk(){
   const C=$("atRisk"); if(!C) return;
   const cutoff=new Date(Date.now()+19800000-21*86400000).toISOString().slice(0,10); // 21 days ago (IST)
   const [studs, att] = await Promise.all([
-    db.from("students").select("id,full_name,join_date,branches(name)").eq("status","active"),
+    db.from("students").select("id,full_name,join_date,actual_join_date,branches(name)").eq("status","active"),
     fetchAll(()=> db.from("attendance").select("student_id,class_date").eq("status","present"))
   ]);
   const lastSeen={}; (att||[]).forEach(a=>{ const d=String(a.class_date).slice(0,10); if(!lastSeen[a.student_id]||d>lastSeen[a.student_id]) lastSeen[a.student_id]=d; });
-  const risk=((studs&&studs.data)||[]).map(s=>({ name:s.full_name, branch:s.branches&&s.branches.name, last:lastSeen[s.id]||null, join:s.join_date?String(s.join_date).slice(0,10):null }))
+  const risk=((studs&&studs.data)||[]).map(s=>({ name:s.full_name, branch:s.branches&&s.branches.name, last:lastSeen[s.id]||null, join:(s.actual_join_date||s.join_date)?String(s.actual_join_date||s.join_date).slice(0,10):null }))
     .filter(s=>{ if(s.last) return s.last<cutoff; return s.join ? s.join<cutoff : true; })
     .sort((a,b)=>String(a.last||"").localeCompare(String(b.last||"")));
   if(!risk.length){ C.innerHTML=""; return; }
@@ -766,7 +766,7 @@ async function loadOwnerStats(){
     fetchAll(()=> db.from("payments").select("amount,invoices(students(branch_id))").gte("paid_at",mStart).lt("paid_at",mNext)),
     fetchAll(()=> db.from("invoices").select("registration,status").gt("registration",0).gte("due_date",mStart).lte("due_date",mEnd)),
     fetchAll(()=> db.from("enquiries").select("trial_fee,trial_paid_at").eq("trial_paid",true).gte("trial_paid_at",mStart).lt("trial_paid_at",mNext)),
-    db.from("students").select("id",{count:"exact",head:true}).gte("join_date",mStart).lte("join_date",mEnd),
+    fetchAll(()=> db.from("students").select("id,join_date,actual_join_date").or(`and(join_date.gte.${mStart},join_date.lte.${mEnd}),and(actual_join_date.gte.${mStart},actual_join_date.lte.${mEnd})`)),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","on_break"),
     db.from("students").select("id",{count:"exact",head:true}).eq("status","active"),
     db.from("teachers").select("id",{count:"exact",head:true}).eq("is_active",true),
@@ -794,7 +794,7 @@ async function loadOwnerStats(){
       <div class="kpi"><div class="l">Collected</div><div class="v" style="color:var(--good)">${INR(collected)}</div>${rate!=null?`<div class="mini" style="color:${rateColor}">${rate}% of ${INR(billed)} billed${regCollected>0?` · incl. ${INR(regCollected)} reg.`:""}${trialCollected>0?` · ${INR(trialCollected)} trials`:""}</div>`:""}</div>
       <div class="kpi"><div class="l">Pending</div><div class="v" style="color:var(--warn)">${INR(pending)}</div></div>
       <div class="kpi"><div class="l">Overdue now</div><div class="v" style="color:${overdueN?'var(--warn)':'var(--good)'}">${INR(overdueAmt)}</div><div class="mini">${overdueN} invoice${overdueN===1?'':'s'}</div></div>
-      <div class="kpi"><div class="l">New students</div><div class="v">${newCnt.count??0}</div><div class="mini">joined this month</div></div>
+      <div class="kpi"><div class="l">New students</div><div class="v">${(()=>{const ej=s=>s.actual_join_date||s.join_date;return (Array.isArray(newCnt)?newCnt:[]).filter(s=>{const d=ej(s);return d&&d>=mStart&&d<=mEnd;}).length;})()}</div><div class="mini">joined this month</div></div>
     </div>
     ${overdueN?`<div style="margin-top:10px;background:#fdecea;border:1px solid #f3c0b8;border-radius:9px;padding:9px 12px;font-size:13px;color:#9B2226">⚠️ <b>${overdueN}</b> overdue invoice${overdueN===1?'':'s'} (${INR(overdueAmt)}) — reminders go out automatically; <span class="rowbtn edit" onclick="gotoNav('fees')" style="margin-left:4px">review</span></div>`:""}
     <div style="margin-top:14px"><div class="mini" style="color:#E9CDA4;margin-bottom:2px">Collected by branch</div>${branchRows}</div>
@@ -826,7 +826,7 @@ async function renderStudents(){
     <div id="stuList"><div class="empty">Loading students…</div></div>`;
   $("newStu").onclick = ()=> gotoNav("intake");
   const { data, error } = await db.from("students")
-    .select("id,full_name,level,status,join_date,date_of_birth,intake_completed,needs_review,branches(name),courses(name)")
+    .select("id,full_name,level,status,join_date,actual_join_date,date_of_birth,intake_completed,needs_review,branches(name),courses(name)")
     .order("created_at",{ascending:false});
   if(error){ $("stuList").innerHTML=`<div class="cfgwarn">Couldn't load students — ${esc(error.message)}</div>`; return; }
   state._students = data||[];
@@ -856,7 +856,7 @@ function drawStudents(list){
       <td>${esc(s.courses?.name||"—")}</td>
       <td>${esc(s.branches?.name||"—")}</td>
       <td>${esc(s.level||"—")}</td>
-      <td>${s.join_date?esc(s.join_date):"—"}</td>
+      <td>${(s.actual_join_date||s.join_date)?esc(s.actual_join_date||s.join_date):"—"}</td>
       <td><span class="badge ${STATUS_BADGE[s.status]||"b-grey"}">${esc((s.status||"").replace("_"," "))}</span>${s.needs_review?` <span class="badge b-red">needs review</span>`:(s.intake_completed===false?` <span class="badge b-amber">intake pending</span>`:"")}</td>
       <td><span class="rowbtn" onclick="renderStudentDetail('${s.id}')">View →</span></td>
     </tr>`).join("")}</table>`;
@@ -1133,7 +1133,7 @@ const PAD=n=>String(n).padStart(2,"0");
 const MONS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN");
 function downloadCSV(filename, rows){ const q=v=>{ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }; const csv=rows.map(r=>r.map(q).join(",")).join("\r\n"); const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); }
-function exportStudentsCSV(){ const list=state._studentsView||state._students||[]; if(!list.length){ alert("No students to export."); return; } const rows=[["Name","Branch","Course","Level","Status","Joined","Date of birth"]]; list.forEach(s=>rows.push([s.full_name, s.branches&&s.branches.name, s.courses&&s.courses.name, s.level, s.status, s.join_date, s.date_of_birth])); downloadCSV("kala-kuteer-students-"+todayIST()+".csv", rows); }
+function exportStudentsCSV(){ const list=state._studentsView||state._students||[]; if(!list.length){ alert("No students to export."); return; } const rows=[["Name","Branch","Course","Level","Status","Joined","Date of birth"]]; list.forEach(s=>rows.push([s.full_name, s.branches&&s.branches.name, s.courses&&s.courses.name, s.level, s.status, s.actual_join_date||s.join_date, s.date_of_birth])); downloadCSV("kala-kuteer-students-"+todayIST()+".csv", rows); }
 function feePeriod(){ const v=($("feeMonth")&&$("feeMonth").value)||todayIST().slice(0,7); const [y,mm]=v.split("-").map(Number); return { v, year:y, monthIdx:mm-1, label:MONS[mm-1]+" "+y, start:`${y}-${PAD(mm)}-01`, end:`${y}-${PAD(mm)}-${PAD(new Date(y,mm,0).getDate())}` }; }
 async function renderFees(){
   const M=$("mainArea"); await loadRef();
@@ -3368,10 +3368,10 @@ async function renderReviews(){
   if(role==="teacher"){
     tid=await myTeacherId();
     if(!tid){ M.innerHTML=`<div class="ph"><div><h2>Guru Samvaad</h2></div></div><div class="cfgwarn">Your guru profile isn't fully set up yet. Ask the admin to check your account.</div>`; return; }
-    const { data } = await db.from("students").select("id,full_name,join_date,branches(name)").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
+    const { data } = await db.from("students").select("id,full_name,join_date,actual_join_date,branches(name)").eq("primary_teacher_id",tid).eq("status","active").order("full_name");
     students=data||[];
   } else {
-    const { data } = await db.from("students").select("id,full_name,join_date,branches(name)").eq("status","active").order("full_name");
+    const { data } = await db.from("students").select("id,full_name,join_date,actual_join_date,branches(name)").eq("status","active").order("full_name");
     students=data||[];
   }
   state._ptmTid=tid; state._ptmStudents=students;
@@ -3382,11 +3382,12 @@ async function renderReviews(){
 function drawReviews(){
   const students=state._ptmStudents||[]; const reviews=state._ptmReviews||[];
   const M=$("mainArea"); const today=new Date(); today.setHours(0,0,0,0);
-  const rows=students.filter(s=>s.join_date).map(s=>({ s, info:ptmStatus(s.join_date,today,reviews.filter(r=>r.student_id===s.id)) }));
+  const ej=s=>s.actual_join_date||s.join_date;
+  const rows=students.filter(s=>ej(s)).map(s=>({ s, info:ptmStatus(ej(s),today,reviews.filter(r=>r.student_id===s.id)) }));
   const order={overdue:0,due:1,scheduled:2,upcoming:3,done:4};
   rows.sort((a,b)=>(order[a.info.state]-order[b.info.state]) || (a.info.cycle<b.info.cycle?-1:1));
   const dueCount=rows.filter(r=>r.info.state==="overdue"||r.info.state==="due").length;
-  const noJoin=students.filter(s=>!s.join_date).length;
+  const noJoin=students.filter(s=>!ej(s)).length;
   const card=({s,info})=>{
     const sid=s.id; let line="", act="";
     if(info.state==="scheduled"){ const r=info.review;
@@ -3555,7 +3556,7 @@ async function renderStudentProfile(){
         ${rv("Name",s.full_name)}${rv("Date of birth",s.date_of_birth)}
         ${rv("Branch",s.branches&&s.branches.name)}${rv("Course",s.courses&&s.courses.name)}
         ${rv("Primary guru",guru)}${rv("Level",s.level)}
-        ${rv("Joined",s.join_date)}${rv("WhatsApp",s.whatsapp)}
+        ${rv("Joined",s.actual_join_date||s.join_date)}${rv("WhatsApp",s.whatsapp)}
         ${rv(s.is_minor?"Parent / guardian":"Email", s.is_minor?s.parent_name:s.email)}
         ${rv("Emergency contact",s.emergency_contact)}
       </div>
