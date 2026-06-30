@@ -4411,6 +4411,7 @@ async function renderStudentDetail(id){
       ${s.status==="archived"
         ? `<button class="kbtn teal" onclick="restoreStudent('${s.id}')">♻️ Restore student</button>`
         : `<button class="kbtn" style="background:var(--warn);color:#fff" onclick="archiveStudent('${s.id}')">🗃 Archive student</button>`}
+      ${state.role==="super_admin"?`<button class="kbtn" style="background:#7A2233;color:#fff;margin-left:6px" onclick="deleteStudentPermanently('${s.id}')">🗑 Delete permanently</button>`:""}
       ${s.profile_id
         ? `<button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}')">🔑 Reset PIN</button>`
         : `<button class="kbtn" style="margin-left:6px;background:var(--maroon);color:#fff" onclick="createStudentLogin('${s.id}')">🔑 Create login</button>`}
@@ -4568,6 +4569,18 @@ async function askIntake(id){
   const { error } = await db.from("students").update({ intake_completed:false }).eq("id",id);
   if(error){ if(m){ m.className="formmsg err"; m.textContent="Couldn't update — "+error.message; } return; }
   renderStudentDetail(id);
+}
+async function deleteStudentPermanently(id){
+  const { data:st } = await db.from("students").select("full_name").eq("id",id).maybeSingle();
+  const nm=(st&&st.full_name)||"this student";
+  const typed=prompt("\u26a0\ufe0f PERMANENT DELETE \u2014 this cannot be undone.\n\nThis removes "+nm+"'s login and ALL their records (intake, fees, attendance, enrolment) and frees their mobile number to be reused.\n\nIf the student is simply leaving, click Cancel and use Archive instead.\n\nType the student's full name exactly to confirm:");
+  if(typed===null) return;
+  if(typed.trim().toLowerCase()!==String(nm).trim().toLowerCase()){ alert("The name didn't match \u2014 nothing was deleted."); return; }
+  const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Deleting\u2026"; }
+  const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"delete_student", student_id:id } });
+  if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't delete \u2014 "+(await fnErr(ferr)); } return; }
+  if(fn&&fn.ok){ alert("\u2713 "+nm+" was permanently deleted."+(fn.login_removed?" Their mobile number is now free to reuse.":" (Their login is shared with a family member, so the login was kept.)")); gotoNav("students"); }
+  else { if(m){ m.className="formmsg err"; m.textContent="Couldn't delete \u2014 "+((fn&&fn.error)||"unknown"); } }
 }
 async function archiveStudent(id){
   if(!confirm("Archive this student?\n\nThey'll be hidden from the active list and won't be billed, but their FULL record is kept and can be restored anytime. Nothing is deleted.")) return;
