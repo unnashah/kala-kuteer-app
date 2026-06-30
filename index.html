@@ -4586,6 +4586,7 @@ async function editStudent(id){
   const M=$("mainArea"); await loadRef(); await loadClassRefs();
   const { data:s, error } = await db.from("students").select("*").eq("id",id).single();
   if(error){ M.innerHTML=`<div class="cfgwarn">Couldn't load — ${esc(error.message)}</div>`; return; }
+  const sp=splitPhoneCC(s.phone), pp=splitPhoneCC(s.parent_phone), sw=splitPhoneCC(s.whatsapp), se=splitPhoneCC(s.emergency_contact);
   const branchOpts=state.branches.map(b=>`<option value="${b.id}"${s.branch_id===b.id?" selected":""}>${esc(b.name)}</option>`).join("");
   const courseOpts=state.courses.map(c=>`<option value="${c.id}"${s.course_id===c.id?" selected":""}>${esc(c.name)}</option>`).join("");
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}"${s.primary_teacher_id===t.id?" selected":""}>${esc(t.name)}</option>`).join("");
@@ -4600,13 +4601,13 @@ async function editStudent(id){
         <div class="kf"><label>Date of birth</label><input id="ed_dob" type="date" value="${esc(s.date_of_birth||"")}"></div>
         <div class="check"><input type="checkbox" id="ed_minor"${s.is_minor?" checked":""}><label for="ed_minor" style="margin:0">Minor (under 18)</label></div>
         <div class="kf"><label>Parent / guardian name</label><input id="ed_parent" value="${esc(s.parent_name||"")}"></div>
-        <div class="kf"><label>Parent's phone</label><input id="ed_pphone" value="${esc(s.parent_phone||"")}"></div>
+        <div class="kf"><label>Parent's phone</label><div style="display:flex;gap:6px">${ccSelectHTML("ed_pphone_cc",pp.cc)}<input id="ed_pphone" inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,'')" value="${esc(pp.num)}"></div></div>
         <div class="kf"><label>Parent's email</label><input id="ed_pemail" value="${esc(s.parent_email||"")}"></div>
-        <div class="kf"><label>Student's phone</label><input id="ed_phone" value="${esc(s.phone||"")}"></div>
-        <div class="kf"><label>Student's WhatsApp</label><input id="ed_wa" value="${esc(s.whatsapp||"")}"></div>
+        <div class="kf"><label>Student's phone <span class="mini" style="color:var(--muted)">(login number)</span></label><div style="display:flex;gap:6px">${ccSelectHTML("ed_phone_cc",sp.cc)}<input id="ed_phone" inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,'')" value="${esc(sp.num)}"></div></div>
+        <div class="kf"><label>Student's WhatsApp</label><div style="display:flex;gap:6px">${ccSelectHTML("ed_wa_cc",sw.cc)}<input id="ed_wa" inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,'')" value="${esc(sw.num)}"></div></div>
         <div class="kf"><label>Student's email</label><input id="ed_email" value="${esc(s.email||"")}"></div>
-        <div class="kf"><label>Emergency contact</label><input id="ed_emer" value="${esc(s.emergency_contact||"")}"></div>
-        <p class="footnote">Phone numbers are stored with their country code (e.g. +91…). Keep that format when correcting.</p>
+        <div class="kf"><label>Emergency contact</label><div style="display:flex;gap:6px">${ccSelectHTML("ed_emer_cc",se.cc)}<input id="ed_emer" inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,'')" value="${esc(se.num)}"></div></div>
+        <p class="footnote">Pick the country code from the dropdown and enter just the number. <b>Note:</b> changing the student's phone here updates their record, not their existing login sign-in number.</p>
       </div>
       <div class="panel"><h3>School record</h3>
         <div class="kf"><label>Branch</label><select id="ed_branch"><option value="">Select…</option>${branchOpts}</select></div>
@@ -4629,13 +4630,14 @@ async function editStudent(id){
 }
 async function saveStudentEdits(id){
   const m=$("edMsg"); const V=i=>((($(i)||{}).value)||"").trim();
+  const comb=(c,n)=>{ const num=V(n).replace(/\D/g,""); return num?(V(c)+num):null; };
   if(!V("ed_name")){ m.className="formmsg err"; m.textContent="Name can't be empty."; return; }
   const owns=V("ed_owns"), media=V("ed_media");
   const upd={
     full_name:V("ed_name"), date_of_birth:V("ed_dob")||null, is_minor:$("ed_minor").checked,
-    parent_name:V("ed_parent")||null, parent_phone:V("ed_pphone")||null, parent_email:V("ed_pemail")||null,
-    phone:V("ed_phone")||null, whatsapp:V("ed_wa")||null, email:V("ed_email")||null,
-    emergency_contact:V("ed_emer")||null, branch_id:V("ed_branch")||null, course_id:V("ed_course")||null, primary_teacher_id:V("ed_guru")||null, upi_id:V("ed_upi")||null,
+    parent_name:V("ed_parent")||null, parent_phone:comb("ed_pphone_cc","ed_pphone"), parent_email:V("ed_pemail")||null,
+    phone:comb("ed_phone_cc","ed_phone"), whatsapp:comb("ed_wa_cc","ed_wa"), email:V("ed_email")||null,
+    emergency_contact:comb("ed_emer_cc","ed_emer"), branch_id:V("ed_branch")||null, course_id:V("ed_course")||null, primary_teacher_id:V("ed_guru")||null, upi_id:V("ed_upi")||null,
     level:V("ed_level")||null, join_date:V("ed_join")||null, actual_join_date:V("ed_actualjoin")||null, goal:V("ed_goal")||null,
     owns_instrument: owns===""?null:(owns==="yes"), health_notes:V("ed_health")||null,
     heard_via:V("ed_heard")||null, consent_media: media===""?null:(media==="yes")
@@ -4650,6 +4652,8 @@ async function saveStudentEdits(id){
 // per-country digit length [min,max]; default 7–15
 const PHONE_RULES = { "+91":[10,10], "+1":[10,10], "+44":[10,11], "+7":[10,10], "+56":[8,9], "+65":[8,8], "+66":[9,9], "+971":[9,9] };
 const CC_OPTS = [["+91","🇮🇳 India +91"],["+1","🇺🇸 USA/Canada +1"],["+44","🇬🇧 UK +44"],["+7","🇷🇺 Russia +7"],["+56","🇨🇱 Chile +56"],["+65","🇸🇬 Singapore +65"],["+66","🇹🇭 Thailand +66"],["+971","🇦🇪 UAE +971"]];
+function splitPhoneCC(v){ v=String(v||"").trim(); if(!v) return {cc:"+91",num:""}; const codes=CC_OPTS.map(o=>o[0]).sort((a,b)=>b.length-a.length); for(const c of codes){ if(v.startsWith(c)) return {cc:c, num:v.slice(c.length).replace(/\D/g,"")}; } return {cc:"+91", num:v.replace(/\D/g,"")}; }
+function ccSelectHTML(id,cc){ return `<select id="${id}" style="max-width:150px">`+CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]===cc?" selected":""}>${o[1]}</option>`).join("")+`</select>`; }
 function phoneOK(code,d){ const r=PHONE_RULES[code]||[7,15]; return d.length>=r[0]&&d.length<=r[1]; }
 function phoneHint(code){ const r=PHONE_RULES[code]; return r?(r[0]===r[1]?r[0]+" digits":r[0]+"–"+r[1]+" digits"):"7–15 digits"; }
 const DRAFT_KEY="kk_intake_draft_v2";
