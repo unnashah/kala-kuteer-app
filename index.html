@@ -420,7 +420,7 @@ async function renderStudentIntake(st){
       <div class="kf"><label>${minor?"Parent's email *":"Email *"}</label><input id="si_email" type="email" value="${esc((minor?st.parent_email:st.email)||"")}"></div>
       <div class="kf"><label>Emergency contact *</label><div style="display:flex;gap:6px">${cc('si_emer')}${numIn('si_emer')}</div></div>
       <div class="kf"><label>Health / safety — anything we should know? *</label><textarea id="si_health" rows="2" placeholder="e.g. asthma — or write NA">${esc(st.health_notes||"")}</textarea></div>
-      <div class="kf"><label>Goal *</label><select id="si_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
+      <div class="kf"><label>Goal *</label><select id="si_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option><option>All of the above</option></select></div>
       <div class="kf"><label>How did you hear about us? *</label><select id="si_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
       <div class="kf"><label>Owns the instrument? *</label><select id="si_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
     </div>
@@ -4629,7 +4629,7 @@ async function editStudent(id){
         <div class="kf"><label>Class level</label><select id="ed_level"><option value="">Select…</option>${opt(s.level,["Beginner","Some experience","Advanced"])}</select></div>
         <div class="kf"><label>Fee payment date (billing start)</label><input id="ed_join" type="date" value="${esc(s.join_date||"")}"></div>
         <div class="kf"><label>Joining date (per family)</label><input id="ed_actualjoin" type="date" value="${esc(s.actual_join_date||"")}"></div>
-        <div class="kf"><label>Goal</label><select id="ed_goal"><option value="">Select…</option>${opt(s.goal,["Hobby","Certification","Stage performance","Professional"])}</select></div>
+        <div class="kf"><label>Goal</label><select id="ed_goal"><option value="">Select…</option>${opt(s.goal,["Hobby","Certification","Stage performance","Professional","All of the above"])}</select></div>
         <div class="kf"><label>Owns the instrument?</label>${yn("ed_owns",s.owns_instrument)}</div>
         <div class="kf"><label>Health / safety notes</label><textarea id="ed_health" rows="2">${esc(s.health_notes||"")}</textarea></div>
         <div class="kf"><label>How did they find us?</label><select id="ed_heard"><option value="">Select…</option>${heardOpts.map(o=>`<option value="${o[0]}"${s.heard_via===o[0]?" selected":""}>${o[1]}</option>`).join("")}</select></div>
@@ -4804,7 +4804,7 @@ async function renderIntake(){
       <div class="kf"><label>Class level *</label><select id="f_level"><option value="">Select…</option><option>Beginner</option><option>Some experience</option><option>Advanced</option></select></div>
       <div class="kf"><label>Date of joining (= Session 1) *</label><input id="f_join" type="date"></div>
       <div style="font-size:11.5px;color:var(--teal-deep);margin:-4px 0 8px">↳ Monthly fee is calculated from this date.</div>
-      <div class="kf"><label>Goal *</label><select id="f_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option></select></div>
+      <div class="kf"><label>Goal *</label><select id="f_goal"><option value="">Select…</option><option>Hobby</option><option>Certification</option><option>Stage performance</option><option>Professional</option><option>All of the above</option></select></div>
       <div class="kf"><label>How did you find out about us? *</label>
         <select id="f_heard"><option value="">Select…</option><option value="signboard">Signboard</option><option value="website">Website</option><option value="google">Google</option><option value="justdial">Justdial</option><option value="recommended">Recommended by someone</option><option value="other">Others</option></select></div>
       <div class="kf"><label>Owns the instrument? *</label><select id="f_owns"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option></select></div>
