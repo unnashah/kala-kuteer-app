@@ -4678,7 +4678,7 @@ async function renderQuickRegister(){
       <p class="footnote" style="margin:2px 0 8px">Records a paid registration the family can download as a receipt. Untick only if you're waiving it (e.g. sibling / offer).</p>
       <div class="formmsg" id="qMsg"></div>
       <button class="kbtn teal" id="qSave" style="width:100%">Create account &amp; enable login</button>
-      <p class="footnote" style="margin-top:10px">🔑 Starting PIN is their date of birth — they set their own private PIN on first login, then complete the intake &amp; sign it.</p>
+      <p class="footnote" style="margin-top:10px">🔑 A unique starting PIN is created for them — it appears here after you click, for you to share. They set their own private PIN on first login, then complete the intake &amp; sign it.</p>
     </div>`;
   $("qSave").onclick=saveQuickStudent;
   function _setRegFromBranch(){ const _b=(state.branches||[]).find(x=>x.id===((($("q_branch")||{}).value)||"")); if($("q_regamt")) $("q_regamt").value=(_b&&_b.registration_fee!=null)?String(Number(_b.registration_fee)):""; }
@@ -4716,9 +4716,12 @@ async function saveQuickStudent(){
   const { data:ins, error } = await db.from("students").insert(rec).select("id").single();
   if(error){ $("qSave").disabled=false; m.className="formmsg err"; m.textContent="Couldn't create — "+error.message; return; }
   try{
-    const { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:ins.id, phone:e164, dob:D("q_dob"), name:D("q_name") } });
-    if(ferr||!(fn&&fn.ok)) m.textContent="✓ Student created. (Login will be set up shortly.)";
-    else m.textContent="✓ Account created — they log in with "+e164+" + date of birth, then complete the intake & sign.";
+    const { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:ins.id, phone:e164, name:D("q_name") } });
+    if(ferr) m.textContent="✓ Student created. (Login will be set up shortly — open their profile to create the login.)";
+    else if(fn && fn.needs_confirmation) m.textContent="✓ Student created. This mobile already has a family login — open their profile and click Create login to link them.";
+    else if(fn && fn.attached) m.textContent="✓ Account created! Linked to the family's existing login ("+e164+") — they use their existing PIN.";
+    else if(fn && fn.ok) m.textContent="✓ Account created! They log in with "+e164+" and PIN "+fn.pin+" — share this PIN with the family. They set their own private PIN on first login.";
+    else m.textContent="✓ Student created. (Login will be set up shortly — open their profile and use Reset PIN to get their starting PIN.)";
   }catch(e){ m.textContent="✓ Student created."; }
   m.className="formmsg ok";
   if(state._convertEnq && state._convertEnq.id){ try{ await db.from("enquiries").update({ converted_student_id: ins.id }).eq("id", state._convertEnq.id); }catch(e){} state._convertEnq=null; }
@@ -4738,7 +4741,7 @@ async function saveQuickStudent(){
       if(!rie && rinv) await db.from("payments").insert({ invoice_id:rinv.id, amount:regAmt, method:(($("q_regmethod")||{}).value)||"upi", paid_at:regDate+"T12:00:00+05:30" });
     }
   }catch(e){}
-  ["q_name","q_dob","q_phone","q_branch","q_course","q_guru","q_level","q_join"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("q_minor")) $("q_minor").checked=false;
+  ["q_name","q_phone","q_branch","q_course","q_guru","q_level","q_join"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("q_minor")) $("q_minor").checked=false;
   if($("q_regamt")) $("q_regamt").value=""; if(typeof _setRegFromBranch==="function") _setRegFromBranch(); if($("q_regdate")) $("q_regdate").value=todayIST(); if($("q_reghas")) $("q_reghas").checked=true;
   $("qSave").disabled=false;
 }
@@ -4861,12 +4864,13 @@ async function submitIntake(){
   $("saveStu").disabled=true; m.className="formmsg ok"; m.textContent="Saving…";
   const { data:ins, error } = await db.from("students").insert(rec).select("id").single();
   if(error){ $("saveStu").disabled=false; m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; state._dupeOK=false; return; }
-  // auto-create the student's login (mobile + DOB PIN)
+  // auto-create the student's login (mobile + random starting PIN)
   let cred=" Opening the students list…";
   try{
-    const { data:fn, error:ferr } = await db.functions.invoke("create-student-login", { body:{ student_id:ins.id, phone:primaryE164, dob:D("f_dob"), name:D("f_name") } });
+    const { data:fn, error:ferr } = await db.functions.invoke("create-student-login", { body:{ student_id:ins.id, phone:primaryE164, name:D("f_name") } });
     if(ferr) cred=" (login will be set up shortly)";
-    else if(fn && fn.ok) cred=" Login → mobile "+primaryE164+", PIN = date of birth ("+fn.pin+"). Share with them.";
+    else if(fn && fn.attached) cred=" Linked to the family's existing login ("+primaryE164+").";
+    else if(fn && fn.ok) cred=" Login → mobile "+primaryE164+", PIN "+fn.pin+". Share this PIN with them.";
     else if(fn && fn.error) cred=" (login note: "+fn.error+")";
   }catch(e){ cred=" (login pending)"; }
   $("saveStu").disabled=false;
