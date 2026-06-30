@@ -306,9 +306,15 @@ function ageFromDOB(d){ if(!d) return null; const b=new Date(d), n=new Date(); l
 
 async function init(){
   if(!cfgOk){ $("cfgwarn").classList.remove("hide"); show("login"); return; }
+  let _loadedUid=null;
   const { data:{ session } } = await db.auth.getSession();
-  if(session) loadApp(session); else show("login");
-  db.auth.onAuthStateChange((_e,s)=>{ if(s) loadApp(s); else show("login"); });
+  if(session){ _loadedUid=session.user.id; loadApp(session); } else show("login");
+  db.auth.onAuthStateChange((e,s)=>{
+    if(e==="SIGNED_OUT"||!s){ _loadedUid=null; show("login"); return; }
+    if(e==="TOKEN_REFRESHED"||e==="USER_UPDATED") return;   // routine refresh — do NOT rebuild the page (was bouncing to home)
+    const uid=s.user&&s.user.id;
+    if(uid && uid!==_loadedUid){ _loadedUid=uid; loadApp(s); }   // only on a genuinely new sign-in
+  });
 }
 async function signIn(){
   const email=$("email").value.trim(), password=$("password").value;
