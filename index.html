@@ -221,7 +221,7 @@
       <div class="logintabs"><button type="button" id="tabPhone" class="ltab active">Student / Parent</button><button type="button" id="tabEmail" class="ltab">Staff</button></div>
       <div id="phoneForm">
         <div class="field"><label>Mobile number</label><div style="display:flex;gap:6px"><select id="lphone_cc" style="max-width:84px"><option value="+91" selected>+91</option><option value="+1">+1</option><option value="+44">+44</option><option value="+7">+7</option><option value="+56">+56</option><option value="+65">+65</option><option value="+66">+66</option><option value="+971">+971</option></select><input id="lphone" inputmode="numeric" placeholder="mobile number" oninput="this.value=this.value.replace(/\D/g,'')"></div></div>
-        <div class="field"><label>PIN</label><input id="lpin" type="password" inputmode="numeric" placeholder="PIN (date of birth, DDMMYYYY)"></div>
+        <div class="field"><label>PIN</label><input id="lpin" type="password" inputmode="numeric" placeholder="PIN (given by the school)"></div>
         <button class="signin" id="signinPhoneBtn">Sign in</button>
       </div>
       <div id="emailForm" style="display:none">
@@ -344,7 +344,7 @@ function renderSetPin(name, role){
   $("sideNav").innerHTML="";
   $("mainArea").innerHTML=`<div style="max-width:380px;margin:6px auto">
     <h2 style="font-size:20px;margin-bottom:6px">${staff?"Set your own password 🔒":"Set your private PIN 🔒"}</h2>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${staff?"password":"PIN"} now. You'll use this to sign in from here on${staff?"":" — your date of birth won't work after this"}.${staff?"":" <b>Pick any 6 numbers</b> you'll remember (please avoid your birthday)."}</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">For your security, please choose your own ${staff?"password":"PIN"} now. You'll use this to sign in from here on${staff?"":" — your starting PIN won't work after this"}.${staff?"":" <b>Pick any 6 numbers</b> you'll remember (please avoid your birthday)."}</p>
     <div class="kf"><label>${staff?"New password (min 6 characters)":"New PIN — exactly 6 digits"}</label><input id="np1" type="password" ${staff?"":'inputmode="numeric"'} maxlength="${staff?32:6}" placeholder="${staff?"choose a password":"6-digit number"}"></div>
     <div class="kf"><label>Confirm</label><input id="np2" type="password" ${staff?"":'inputmode="numeric"'} maxlength="${staff?32:6}" placeholder="re-enter it"></div>
     <div class="formmsg" id="pinMsg"></div>
@@ -394,7 +394,7 @@ async function renderStudentIntake(st){
     <div class="panel"><h3>Please check the details we've entered</h3>
       <p class="mini" style="color:var(--muted);margin:-2px 0 10px">The school filled these in for you — have a quick look.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
-        ${rv("Name",st.full_name)}${rv("Date of birth",st.date_of_birth)}
+        ${rv("Name",st.full_name)}
         ${rv("Mobile",mobile)}${rv("Branch",st.branches&&st.branches.name)}
         ${rv("Course",st.courses&&st.courses.name)}${rv("Primary guru",guru)}
         ${rv("Class level",st.level)}${rv("Joining date",st.join_date)}
@@ -407,6 +407,7 @@ async function renderStudentIntake(st){
       </div>
     </div>
     <div class="panel"><h3>Your details</h3>
+      <div class="kf"><label>Date of birth *</label><input id="si_dob" type="date" value="${esc(st.date_of_birth||"")}"></div>
       ${minor?`<div class="kf"><label>Parent / guardian name *</label><input id="si_parent" value="${esc(st.parent_name||"")}"></div>`:""}
       <div class="kf"><label>WhatsApp number *</label><div style="display:flex;gap:6px">${cc('si_wa')}${numIn('si_wa')}</div></div>
       <div class="kf"><label>${minor?"Parent's email *":"Email *"}</label><input id="si_email" type="email" value="${esc((minor?st.parent_email:st.email)||"")}"></div>
@@ -437,6 +438,7 @@ async function submitStudentIntake(){
   const D=id=>((($(id)||{}).value)||"").toString().trim();
   const digits=id=>D(id).replace(/\D/g,"");
   const fail=(id,t)=>{ m.className="formmsg err"; m.textContent=t; const el=$(id); if(el){ el.focus(); el.scrollIntoView({block:"center",behavior:"smooth"}); } return false; };
+  if(!D("si_dob")) return fail("si_dob","Please enter the date of birth.");
   if(minor && !D("si_parent")) return fail("si_parent","Please enter the parent/guardian name.");
   const wc=$("si_wa_cc").value, wn=digits("si_wa");
   if(!wn) return fail("si_wa","Please enter a WhatsApp number.");
@@ -451,7 +453,7 @@ async function submitStudentIntake(){
   if(!D("si_owns")) return fail("si_owns","Please choose whether you own the instrument.");
   if(!$("si_terms").checked){ m.className="formmsg err"; m.textContent="Please tick to acknowledge the IMPORTANT NOTICE."; $("si_terms").focus(); return; }
   if(!D("si_signer")) return fail("si_signer","Please enter the name of the person consenting.");
-  const p={ parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
+  const p={ date_of_birth:D("si_dob"), parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
     email: minor? null : D("si_email"), parent_email: minor? D("si_email") : null,
     emergency_contact: ec+en, goal:D("si_goal"), owns_instrument:D("si_owns")==="yes",
     health_notes:D("si_health"), heard_via:D("si_heard"), consent_signed_by:D("si_signer"), consent_text:consentNoticeHTML() };
@@ -4311,30 +4313,29 @@ async function createStudentLogin(id){
   const { data:st } = await db.from("students").select("phone,parent_phone,date_of_birth,full_name").eq("id",id).maybeSingle();
   if(!st){ if(m){ m.className="formmsg err"; m.textContent="Couldn't load this student."; } return; }
   const phone=st.phone||st.parent_phone;
-  if(!phone || !st.date_of_birth){ if(m){ m.className="formmsg err"; m.textContent="Add a mobile number and date of birth first, then create the login."; } return; }
-  let { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, dob:st.date_of_birth, name:st.full_name } });
+  if(!phone){ if(m){ m.className="formmsg err"; m.textContent="Add a mobile number first, then create the login."; } return; }
+  let { data:fn, error:ferr } = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, name:st.full_name } });
   if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't create login — "+(await fnErr(ferr)); } return; }
   if(fn && fn.needs_confirmation){
     const ok=confirm("This mobile number already has a login for "+(fn.existing_name||"another student")+".\n\nAttach THIS student to that same family login? They'll share one login and see a combined bill.\n\nIf that is NOT the same family, click Cancel and use a different mobile number.");
     if(!ok){ if(m){ m.className="formmsg err"; m.textContent="Cancelled — use a different mobile number for this student, or link them later from the Family panel."; } return; }
-    const res = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, dob:st.date_of_birth, name:st.full_name, confirm:true } });
+    const res = await db.functions.invoke("create-student-login",{ body:{ student_id:id, phone, name:st.full_name, confirm:true } });
     fn=res.data; ferr=res.error;
     if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't link — "+(await fnErr(ferr)); } return; }
   }
   if(fn && (fn.ok || fn.attached)){
-    const [yy,mm,dd]=String(st.date_of_birth).split("-"); const pin=`${dd}${mm}${yy}`;
-    if(m){ m.className="formmsg ok"; m.textContent=fn.attached?"✓ Linked to the family's existing login (same mobile).":("✓ Login created. They sign in with their mobile + PIN "+pin+" (date of birth, DDMMYYYY)."); }
+    const pin=(fn&&fn.pin)||"";
+    if(m){ m.className="formmsg ok"; m.textContent=fn.attached?"✓ Linked to the family's existing login (same mobile).":("✓ Login created. They sign in with their mobile + PIN "+pin+". Share this PIN with the family — they'll set their own on first login."); }
     renderStudentDetail(id);
   } else { if(m){ m.className="formmsg err"; m.textContent="Couldn't create login — "+((fn&&fn.error)||"unknown"); } }
 }
-async function resetStudentPin(id, dob){
-  if(!dob){ alert("This student has no date of birth on record, so the PIN can't be reset to it."); return; }
-  if(!confirm("Reset this student's PIN to their date of birth? They'll be asked to set a new private PIN the next time they log in.")) return;
+async function resetStudentPin(id){
+  const pin=String(Math.floor(100000+Math.random()*900000));
+  if(!confirm("Reset this student's PIN to a new one ("+pin+")? They'll be asked to set their own private PIN the next time they log in.")) return;
   const m=$("manageMsg"); if(m){ m.className="formmsg ok"; m.textContent="Resetting…"; }
-  const [y,mo,d]=dob.split("-"); const pin=`${d}${mo}${y}`;
   const { data:fn, error:ferr } = await db.functions.invoke("admin-user",{ body:{ action:"reset_pin", student_id:id, new_pin:pin } });
   if(ferr){ if(m){ m.className="formmsg err"; m.textContent="Couldn't reset — "+(await fnErr(ferr)); } return; }
-  if(fn&&fn.ok){ if(m){ m.className="formmsg ok"; m.textContent="✓ PIN reset to date of birth ("+pin+"). They'll set a new private PIN on next login."; } }
+  if(fn&&fn.ok){ if(m){ m.className="formmsg ok"; m.textContent="✓ PIN reset to "+pin+". Share it with the family — they'll set a new private PIN on next login."; } }
   else if(m){ m.className="formmsg err"; m.textContent="Couldn't reset — "+((fn&&fn.error)||"unknown"); }
 }
 
@@ -4400,7 +4401,7 @@ async function renderStudentDetail(id){
         ? `<button class="kbtn teal" onclick="restoreStudent('${s.id}')">♻️ Restore student</button>`
         : `<button class="kbtn" style="background:var(--warn);color:#fff" onclick="archiveStudent('${s.id}')">🗃 Archive student</button>`}
       ${s.profile_id
-        ? `<button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}','${s.date_of_birth||""}')">🔑 Reset PIN</button>`
+        ? `<button class="kbtn ghost" style="margin-left:6px" onclick="resetStudentPin('${s.id}')">🔑 Reset PIN</button>`
         : `<button class="kbtn" style="margin-left:6px;background:var(--maroon);color:#fff" onclick="createStudentLogin('${s.id}')">🔑 Create login</button>`}
       <div class="formmsg" id="manageMsg"></div>
       <p class="footnote" style="margin-top:8px">Set status when a student takes a break, completes, leaves (alumni), or is suspended. <b>Archive</b> hides a student from the active list and stops billing, but keeps their full record — you can <b>Restore</b> them anytime. Nothing is ever deleted.</p>
@@ -4651,12 +4652,12 @@ async function renderQuickRegister(){
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
   const cc=id=>`<select id="${id}_cc" style="max-width:150px">${CC_OPTS.map(o=>`<option value="${o[0]}"${o[0]==="+91"?" selected":""}>${o[1]}</option>`).join("")}</select>`;
   const numIn=id=>`<input id="${id}" inputmode="numeric" maxlength="15" placeholder="mobile number" oninput="this.value=this.value.replace(/\\D/g,'')">`;
-  M.innerHTML=`<div class="ph"><div><h2>Quick register${tip("Enter just the basics the school knows — name, login mobile, date of birth, course, branch and guru. The family fills their contact details and signs the consent on first login. This creates their login and adds them to <b>Students</b>.")}</h2><p>Create a basic account once the registration fee is paid. The student completes &amp; signs the rest on their first login.</p></div>
+  M.innerHTML=`<div class="ph"><div><h2>Quick register${tip("Enter just the basics the school knows — name, login mobile, course, branch and guru. The family fills their contact details and signs the consent on first login. This creates their login and adds them to <b>Students</b>.")}</h2><p>Create a basic account once the registration fee is paid. The student completes &amp; signs the rest on their first login.</p></div>
       <button class="kbtn ghost" onclick="state._intakeMode='full';gotoNav('intake')">📝 Full intake form</button></div>
     <div class="panel" style="max-width:640px">
       <div class="form2">
         <div class="kf"><label>Full name *</label><input id="q_name"></div>
-        <div class="kf"><label>Date of birth *</label><input id="q_dob" type="date"></div>
+        
       </div>
       <div class="kf"><label>Mobile — used to log in *</label><div style="display:flex;gap:6px">${cc('q_phone')}${numIn('q_phone')}</div>
         <div class="check" style="margin:6px 0 0"><input type="checkbox" id="q_minor"><label for="q_minor" style="margin:0;font-size:12px">Student is a minor (this is the parent's mobile)</label></div></div>
@@ -4679,7 +4680,6 @@ async function renderQuickRegister(){
       <button class="kbtn teal" id="qSave" style="width:100%">Create account &amp; enable login</button>
       <p class="footnote" style="margin-top:10px">🔑 Starting PIN is their date of birth — they set their own private PIN on first login, then complete the intake &amp; sign it.</p>
     </div>`;
-  $("q_dob").onchange=()=>{ const a=ageFromDOB($("q_dob").value); if(a!=null) $("q_minor").checked=a<18; };
   $("qSave").onclick=saveQuickStudent;
   function _setRegFromBranch(){ const _b=(state.branches||[]).find(x=>x.id===((($("q_branch")||{}).value)||"")); if($("q_regamt")) $("q_regamt").value=(_b&&_b.registration_fee!=null)?String(Number(_b.registration_fee)):""; }
   if($("q_branch")) $("q_branch").addEventListener("change",_setRegFromBranch);
@@ -4699,7 +4699,6 @@ async function saveQuickStudent(){
   const fail=(id,t)=>{ m.className="formmsg err"; m.textContent=t; const el=$(id); if(el) el.focus(); return false; };
   const minor=$("q_minor").checked;
   if(!D("q_name")) return fail("q_name","Enter the student's name.");
-  if(!D("q_dob")) return fail("q_dob","Enter the date of birth.");
   const pc=$("q_phone_cc").value, pn=digits("q_phone");
   if(!pn) return fail("q_phone","Enter a mobile number.");
   if(!phoneOK(pc,pn)) return fail("q_phone","That mobile doesn't look right — "+pc+" needs "+phoneHint(pc)+".");
@@ -4710,7 +4709,7 @@ async function saveQuickStudent(){
   if(!D("q_join")) return fail("q_join","Set the joining date.");
   const e164=pc+pn;
   m.className="formmsg ok"; m.textContent="Creating…"; $("qSave").disabled=true;
-  const rec={ full_name:D("q_name"), date_of_birth:D("q_dob"), is_minor:minor,
+  const rec={ full_name:D("q_name"), is_minor:minor,
     phone: minor?null:e164, parent_phone: minor?e164:null,
     branch_id:D("q_branch"), course_id:D("q_course"), primary_teacher_id:D("q_guru")||null,
     level:D("q_level"), join_date:D("q_join"), status:"active", intake_completed:false };
