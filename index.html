@@ -3476,7 +3476,7 @@ async function loadFamily(){
   const { data:{ user } } = await db.auth.getUser();
   if(!user){ state._children=[]; state._childId=null; return []; }
   const { data } = await db.from("students")
-    .select("id,full_name,status,intake_completed,is_minor,branch_id,course_id,level,join_date,goal,primary_teacher_id,upi_id,branches(name,upi_id),courses(name)")
+    .select("id,full_name,status,intake_completed,is_minor,branch_id,course_id,level,join_date,actual_join_date,date_of_birth,goal,primary_teacher_id,upi_id,branches(name,upi_id),courses(name)")
     .eq("profile_id",user.id).eq("status","active").order("full_name");
   state._children = data||[];
   if(!state._childId || !state._children.some(c=>c.id===state._childId)){
