@@ -94,7 +94,7 @@
   .welcome h2{font-size:22px} .welcome p{font-size:13px;color:var(--muted);margin-top:2px}
   .ok-pill{display:inline-flex;align-items:center;gap:6px;background:#e2f3e9;color:var(--good);font-size:12px;font-weight:700;padding:5px 11px;border-radius:20px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-top:18px}
-  .tile{border:1px solid var(--line);border-radius:14px;padding:16px;background:linear-gradient(180deg,#fff,#fffdf8)}
+  .tile{border:1.5px solid var(--saffron);border-radius:14px;padding:16px;background:linear-gradient(180deg,#fff,#fffdf8)}
   .tile .ic{font-size:22px} .tile h3{font-size:14px;margin:8px 0 4px} .tile p{font-size:12px;color:var(--muted)}
   .tile .soon{font-size:10px;font-weight:700;color:var(--saffron-deep);background:#fcefcf;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:8px}
   .tile .ready{font-size:10px;font-weight:700;color:#1f7a5a;background:#dff3e8;padding:2px 8px;border-radius:20px;display:inline-block;margin-top:8px}
@@ -109,7 +109,7 @@
   .kbtn:disabled{opacity:.55;cursor:default}
   /* kpis */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:18px}
-  .kpi{border:1px solid var(--line);border-radius:14px;padding:18px;background:linear-gradient(180deg,#fff,#fffdf8);box-shadow:0 1px 3px rgba(43,32,24,.05);color:var(--ink)}
+  .kpi{border:1.5px solid var(--saffron);border-radius:14px;padding:18px;background:linear-gradient(180deg,#fff,#fffdf8);box-shadow:0 1px 3px rgba(43,32,24,.05);color:var(--ink)}
   .kpi .v{font-size:26px;font-weight:800;color:var(--ink)} .kpi .l{font-size:12px;color:#6b5b49} .kpi .mini{color:#6b5b49}
   /* table */
   table{width:100%;border-collapse:collapse;font-size:13.5px}
@@ -135,6 +135,8 @@
   .empty{text-align:center;color:var(--muted);padding:40px 10px;font-size:14px}
   /* form */
   .form2{display:grid;grid-template-columns:1fr 1fr;gap:20px 26px;margin-bottom:8px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px 26px;margin-bottom:8px}
+  .inp{width:100%;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;background:#fffdf8}
   .panel{border:1.5px solid var(--saffron);border-radius:14px;padding:26px;margin-bottom:28px;background:#fff;box-shadow:0 3px 14px rgba(43,32,24,.08)}
   .tip{position:relative;display:inline-block;vertical-align:middle;font-weight:400}
   .tipbtn{width:22px;height:22px;border-radius:50%;border:1px solid var(--saffron-deep);background:var(--saffron);cursor:pointer;font-size:12px;line-height:20px;padding:0;vertical-align:middle;box-shadow:0 1px 3px rgba(43,32,24,.25)}
@@ -164,7 +166,7 @@
   .dl{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1ead9;font-size:13.5px}
   .dl .k{color:var(--muted)} .dl .hl{background:#fff7e8}
   .menuBtn{display:none;background:#fff;border:1px solid var(--line);border-radius:9px;font-size:20px;line-height:1;padding:3px 11px;cursor:pointer;color:#7A2233}
-  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2{grid-template-columns:1fr}.main table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}.menuBtn{display:inline-flex;align-items:center}.side{display:none}#app.nav-open .side{display:block;margin-bottom:12px}}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}.form2,.row2{grid-template-columns:1fr}.main table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}.menuBtn{display:inline-flex;align-items:center}.side{display:none}#app.nav-open .side{display:block;margin-bottom:12px}}
   @media(max-width:600px){
     /* header */
     .top{padding:8px 12px;padding-top:calc(8px + env(safe-area-inset-top))}
@@ -207,6 +209,7 @@
     /* footer respects the home indicator */
     #appFooter{font-size:12.5px;padding:14px 12px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
   }
+  .kbtn:focus-visible,.rowbtn:focus-visible,.navitem:focus-visible,.chiptab:focus-visible{outline:2px solid var(--maroon);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -537,11 +540,11 @@ function renderShell(role, name, warn){
   $("whoRole").textContent = ROLE_LABELS[role] || role;
   const items = NAV[role] || NAV.student;
   $("sideNav").innerHTML = items.map((it,i)=>
-    `<div class="navitem${i===0?' active':''}" data-key="${it[2]}"><span class="ic">${it[0]}</span> ${it[1]}</div>`).join("");
+    `<div class="navitem${i===0?' active':''}" role="link" tabindex="0" aria-current="${i===0?'page':'false'}" data-key="${it[2]}"><span class="ic">${it[0]}</span> ${it[1]}</div>`).join("");
   $("sideNav").querySelectorAll(".navitem").forEach(n=>{
     n.onclick=()=>{
-      $("sideNav").querySelectorAll(".navitem").forEach(x=>x.classList.remove("active"));
-      n.classList.add("active");
+      $("sideNav").querySelectorAll(".navitem").forEach(x=>{x.classList.remove("active");x.setAttribute("aria-current","false");});
+      n.classList.add("active"); n.setAttribute("aria-current","page");
       navigate(n.dataset.key, name, warn);
       var _app=document.getElementById("app"); if(_app) _app.classList.remove("nav-open");
     };
@@ -962,6 +965,8 @@ function drawAttendance(studs, map){
 }
 function markAtt(id,status){ if(state._att[id]===status) delete state._att[id]; else state._att[id]=status; drawAttendance(state._attStuds, state._att); }
 async function saveAttendance(){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const m=$("attMsg"); const sessId=state._attSession; const date=state._attDate;
   if(!sessId){ m.className="formmsg err"; m.textContent="Pick a class first."; return; }
   const today=todayIST();
@@ -978,6 +983,7 @@ async function saveAttendance(){
   }
   m.className="formmsg ok"; m.textContent="✓ Saved attendance for this class ("+rows.length+" marked).";
   loadAttendance();
+  } finally { state._busyForm=false; }
 }
 /* ----- Attendance: student-wise report ----- */
 async function renderAttendanceByStudent(){
@@ -1046,7 +1052,7 @@ async function renderAttendanceReport(){
   const M=$("mainArea"); await loadRef(); await loadClassRefs();
   const branchOpts=state.branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const guruOpts=(state._classTeachers||[]).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");
-  const now=new Date(); const first=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10); const today=now.toISOString().slice(0,10);
+  const today=todayIST(); const first=today.slice(0,7)+"-01";
   M.innerHTML=`<div class="ph"><div><h2>Attendance${tip("Pull attendance figures by student, guru, branch or date range, then export to CSV.")}</h2><p>Pull a report — by student, guru, branch or date</p></div></div>
     <div style="margin-bottom:12px"><button class="kbtn ghost" onclick="renderAttendance()">📋 Mark a day</button><button class="kbtn ghost" style="margin-left:6px" onclick="renderAttendanceByStudent()">📊 By student</button><button class="kbtn teal" style="margin-left:6px" disabled>📈 Reports</button></div>
     <div class="searchbar" style="flex-wrap:wrap;gap:8px">
@@ -1215,7 +1221,7 @@ function drawFees(){
     <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px">${mShow.map(k=>_cell(mLabel[k],byMethod[k]||0)).join("")}</div>
     <div class="mini" style="color:var(--muted);margin-top:12px;font-weight:600">By type</div>
     <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px">${_cell("Tuition",tuiC)}${_cell("Registration",regC)}</div>
-    <p class="footnote" style="margin:8px 0 0">Both rows total the same — “method” is how it came in (tally against cash / UPI / online); “type” splits tuition vs the ₹1,000 registration.</p></div>`;
+    <p class="footnote" style="margin:8px 0 0">Both rows total the same — “method” is how it came in (tally against cash / UPI / online); “type” splits tuition vs the one-time registration fee (set per branch in Settings).</p></div>`;
   $("feeList").innerHTML = studs.length?`<table><tr><th>Student</th><th>Branch</th><th>Amount</th><th>Status</th><th>Action</th></tr>${rows}</table>
     <p class="footnote" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"><b>Generate invoices</b> raises this month's monthly fee for everyone not already covered. For a Gachibowli family paying ahead, pick <b>3</b> or <b>6 months</b> on their row and tap <b>Raise</b>. “Covered · paid ahead” means a multi-month invoice already covers this month.</p>`:`<div class="empty">No active students.</div>`;
 }
@@ -1227,6 +1233,7 @@ async function adminRaisePlan(sid){
   const fee=Number(s.branches.monthly_fee)||0; if(!fee){ alert("This branch has no monthly fee set in Settings."); return; }
   const { count:_ac } = await db.from("student_courses").select("id",{count:"exact",head:true}).eq("student_id",sid).eq("status","active");
   if((_ac||0)>1){ alert("This student takes more than one course, so each course is billed at its full fee. Raise each course's monthly fee from their profile - combined 3/6-month plans for multi-course students aren't supported yet."); return; }
+  if(!confirm("Raise a fee invoice for this student? This creates a new bill they will see as due.")) return;
   let amount=fee*months;
   if(months===3 && s.branches.plan_3_price!=null && Number(s.branches.plan_3_price)>0) amount=Number(s.branches.plan_3_price);
   if(months===6 && s.branches.plan_6_price!=null && Number(s.branches.plan_6_price)>0) amount=Number(s.branches.plan_6_price);
@@ -1592,6 +1599,7 @@ function recordPayoutForm(tid){
 async function savePayout(tid){
   if(state._busyMoney) return; state._busyMoney=true;
   try{
+  if(!confirm("Record this payout payment to the guru? Please double-check the amount and date.")) return;
   const m=$("po_msg_"+tid); const amt=Number($("po_amt_"+tid).value); const date=$("po_date_"+tid).value;
   if(!amt||amt<=0){ m.className="formmsg err"; m.textContent="Enter an amount."; return; }
   if(!date){ m.className="formmsg err"; m.textContent="Pick a date."; return; }
@@ -1612,6 +1620,8 @@ async function reviewReimb(id, status){
   loadPayouts();
 }
 async function savePlan(tid){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const c=document.querySelector('.poGard[data-tid="'+tid+'"]'); if(!c) return;
   const rec={ teacher_id:tid, period:state._poPeriod,
     pct:parseFloat(c.querySelector(".po_pct").value)||0,
@@ -1624,6 +1634,7 @@ async function savePlan(tid){
   if(error){ alert("Couldn't save adjustments — "+error.message); return; }
   const s=$("po_saved_"+tid); if(s){ s.style.display="inline"; setTimeout(()=>{ if($("po_saved_"+tid)) $("po_saved_"+tid).style.display="none"; },1600); }
   recalcPayouts();
+  } finally { state._busyForm=false; }
 }
 async function loadPayoutHistory(){
   const { data } = await db.from("guru_payouts").select("id,teacher_id,amount,paid_on,method,note").eq("period",state._poPeriod).order("paid_on",{ascending:false});
@@ -2301,12 +2312,12 @@ function drawCalendar(){
   for(let d=1;d<=dim;d++){
     const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
     const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" onclick="event.stopPropagation();editSession('${c.id}')" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
-    const evs=(byDay[d]||[]).map(e=>`<div class="calev" style="background:#E1F0EA;color:#1d6b4f;border-color:#bfe0d2" onclick="event.stopPropagation();gotoNav('news')" title="${esc(e.title)} — manage in Announcements">${esc(e.title)}</div>`).join("");
-    const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FBEAF0;color:#993556;border-color:#EDC9D7" title="${esc(b.name)}'s birthday">\u{1F382} ${esc(b.name)}</div>`).join("");
+    const evs=(byDay[d]||[]).map(e=>`<div class="calev" style="background:var(--soft);color:var(--maroon);border-color:#bfe0d2" onclick="event.stopPropagation();gotoNav('news')" title="${esc(e.title)} — manage in Announcements">${esc(e.title)}</div>`).join("");
+    const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FCEFCF;color:#9a6b00;border-color:#e7c98f" title="${esc(b.name)}'s birthday">\u{1F382} ${esc(b.name)}</div>`).join("");
     cells+=`<div class="calcell${ds===todayS?" today":""}" style="cursor:pointer${ds===todayS?';box-shadow:0 0 0 2px var(--saffron)':''}" onclick="pickSessionDate('${ds}')" title="Click to schedule a class on ${ds}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
   }
   $("calGrid").innerHTML=`<div style="background:linear-gradient(160deg,var(--maroon),var(--maroon-deep));border:1.5px solid var(--maroon-deep);border-radius:14px;padding:16px;box-shadow:0 3px 14px rgba(43,32,24,.18)"><div class="calgrid">${wd}${cells}</div>
-    <div class="mini" style="margin-top:10px;color:#F4E7D6"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FBEAF0;color:#993556">\u{1F382} birthdays</span> · tip: click any day to schedule a class on it</div></div>`;
+    <div class="mini" style="margin-top:10px;color:#F4E7D6"><span class="badge" style="background:var(--saffron);color:#3a2c00">classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FCEFCF;color:#9a6b00">\u{1F382} birthdays</span> · tip: click any day to schedule a class on it</div></div>`;
   const sess=state._calSess||[];
   const sessList=sess.length?`<details class="panel" style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;font-size:14px">📋 Classes in ${MONS[mo-1]} ${y} (${sess.length}) — click to expand</summary>
     <table style="margin-top:12px"><tr><th>Date</th><th>Class</th><th>Guru</th><th>Time</th><th></th></tr>${sess.map(c=>`<tr>
@@ -2435,50 +2446,6 @@ async function delSession(id){
 }
 function calShift(d){ const [y,mo]=state._calMonth.split("-").map(Number); const t=y*12+(mo-1)+d; state._calMonth=Math.floor(t/12)+"-"+PAD((t%12)+1); state._calEdit=null; loadCalendar(); }
 function calToday(){ state._calMonth=todayIST().slice(0,7); loadCalendar(); }
-async function saveEvent(){
-  const m=$("evMsg"); const title=$("ev_title").value.trim(), date=$("ev_date").value;
-  if(!title) return failMsg(m,"Enter an event title.");
-  if(!date) return failMsg(m,"Pick a start date.");
-  const end=$("ev_end").value||null;
-  if(end && end<date) return failMsg(m,"End date can't be before the start date.");
-  const rec={ title, event_type:$("ev_type").value||null, event_date:date, end_date:end, description:$("ev_desc").value.trim()||null };
-  const file=$("ev_file")&&$("ev_file").files[0];
-  m.className="formmsg ok"; m.textContent=file?"Uploading poster…":"Saving…"; $("addEv").disabled=true;
-  if(file){ try{ rec.poster_url=await uploadImage(file,"events"); }catch(err){ $("addEv").disabled=false; return failMsg(m,"Poster upload failed — "+(err.message||err)+". (Did you run the storage setup SQL?)"); } }
-  let error;
-  if(state._calEdit){ ({ error } = await db.from("events").update(rec).eq("id",state._calEdit)); }
-  else { ({ error } = await db.from("events").insert(rec)); }
-  $("addEv").disabled=false;
-  if(error) return failMsg(m,"Couldn't save — "+error.message);
-  m.className="formmsg ok"; m.textContent=state._calEdit?"✓ Event updated.":"✓ Event added.";
-  // jump the calendar to the event's month so the user sees it
-  state._calMonth=date.slice(0,7); cancelEvEdit(); loadCalendar();
-}
-function editEvent(id){
-  const e=(state._events||[]).find(x=>x.id===id); if(!e) return;
-  state._calEdit=id;
-  $("ev_title").value=e.title||""; $("ev_type").value=e.event_type||"Other"; $("ev_date").value=e.event_date||""; $("ev_desc").value=e.description||"";
-  if($("ev_end")) $("ev_end").value=e.end_date||"";
-  if($("ev_file")) $("ev_file").value="";
-  $("evFormTitle").textContent="Edit event"+(e.poster_url?" (leave poster empty to keep the current one)":"");
-  $("addEv").textContent="Save changes"; $("evCancelBtn").style.display="inline-block";
-  window.scrollTo({top:0,behavior:"smooth"});
-}
-function cancelEvEdit(){
-  state._calEdit=null;
-  ["ev_title","ev_desc","ev_end"].forEach(x=>{ if($(x)) $(x).value=""; });
-  if($("ev_file")) $("ev_file").value=""; if($("ev_type")) $("ev_type").value="Competition";
-  if($("ev_date")) $("ev_date").value=todayIST();
-  if($("evFormTitle")) $("evFormTitle").textContent="Add an event";
-  if($("addEv")) $("addEv").textContent="Add event";
-  if($("evCancelBtn")) $("evCancelBtn").style.display="none";
-}
-async function delEvent(id){
-  if(!confirm("Delete this event?")) return;
-  const { error } = await db.from("events").delete().eq("id",id);
-  if(error){ alert("Couldn't delete — "+error.message); return; }
-  loadCalendar();
-}
 
 /* ---------------- CLASSES (batches) ---------------- */
 const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -3020,6 +2987,8 @@ function drawMyAtt(){
 }
 function toggleAtt(sid){ const t=state._maHere; if(!t) return; if(t.has(sid)) t.delete(sid); else t.add(sid); drawMyAtt(); }
 async function saveMyAtt(){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const m=$("maMsg"); const tid=state._maTid; const sessId=state._maSession; const date=state._maDate||($("maDate")&&$("maDate").value);
   if(!sessId){ m.className="formmsg err"; m.textContent="Pick a class first."; return; }
   const today=todayIST();
@@ -3036,6 +3005,7 @@ async function saveMyAtt(){
   }
   m.className="formmsg ok"; m.textContent="✓ Saved attendance for this class.";
   loadMyAtt();
+  } finally { state._busyForm=false; }
 }
 
 /* ---------------- TEACHER: MY EARNINGS ---------------- */
@@ -3053,7 +3023,7 @@ async function renderMyEarnings(){
   state._earnRows=rows;
   const cmK=rows[0].k; const [cy,cmo]=cmK.split("-").map(Number);
   const cmStart=`${cy}-${PAD(cmo)}-01`, cmNext=`${cmo===12?cy+1:cy}-${PAD(cmo===12?1:cmo+1)}-01`;
-  let earnedNow=0; try{ const { data:ge } = await db.rpc("my_guru_earnings",{ p_start:cmStart, p_end:cmNext }); const g=Array.isArray(ge)?ge[0]:ge; if(g) earnedNow=Math.round(Number(g.gross||0)*Number(g.pct||0)/100); }catch(e){}
+  let earnedNow=0; try{ const { data:ge } = await db.rpc("my_guru_earnings",{ p_start:cmStart, p_end:cmNext }); const g=Array.isArray(ge)?ge[0]:ge; if(g) earnedNow=Math.round(Number(g.earned!=null?g.earned:(Number(g.gross||0)*Number(g.pct||0)/100))); }catch(e){}
   const paidNow=Math.round(paidByMonth[cmK]||0);
   const last3=rows.slice(0,3);
   M.innerHTML=`<div class="ph"><div><h2>My Earnings${tip("Earned = your share of the tuition collected from your students this month. Paid = what the school has actually paid you. Download a statement for any paid month.")}</h2><p>What you have earned and what has been paid</p></div></div>
@@ -3647,7 +3617,7 @@ function drawStudentCalendar(){
   for(let d=1;d<=dim;d++){ const ds=`${y}-${PAD(mo)}-${PAD(d)}`;
     const clsChips=(sessByDay[d]||[]).sort((a,b)=>String(a.start_time||"").localeCompare(String(b.start_time||""))).map(c=>`<div class="calev" style="background:var(--saffron);color:#3a2c00;border-color:var(--saffron)" title="${esc(c.title)} · ${esc(teacherName(c.teacher_id))}${c.start_time?' · '+fmtTime(c.start_time.slice(0,5)):''}">${c.start_time?fmtTime(c.start_time.slice(0,5))+' · ':''}${esc(c.title)}</div>`).join("");
     const evs=(byDay[d]||[]).map(e=>`<div class="calev" title="${esc(e.title)}">${esc(e.title)}</div>`).join("");
-    const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FBEAF0;color:#993556;border-color:#EDC9D7" title="${esc(b.name)}'s birthday">🎂 ${esc(b.name)}</div>`).join("");
+    const bdays=(bdayByDay[d]||[]).map(b=>`<div class="calev" style="background:#FCEFCF;color:#9a6b00;border-color:#e7c98f" title="${esc(b.name)}'s birthday">🎂 ${esc(b.name)}</div>`).join("");
     cells+=`<div class="calcell${ds===todayS?" today":""}"><div class="caldate">${d}</div>${clsChips}${bdays}${evs}</div>`;
   }
   const wdN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -3657,7 +3627,7 @@ function drawStudentCalendar(){
   const online=(state._scalSess||[]).filter(c=>(c.mode==="online"||c.mode==="hybrid")&&c.zoom_link).sort((a,b)=>String((a.session_date||"")+(a.start_time||"")).localeCompare(String((b.session_date||"")+(b.start_time||""))));
   const datedHtml=online.map(c=>joinRow(c.title, String(c.session_date).slice(0,10)+(c.start_time?" · "+fmtTime(c.start_time.slice(0,5)):""), c.zoom_link)).join("");
   const onlineHtml=(recur.length||online.length)?`<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 8px">🔴 Online classes — Join links</h3>${recurHtml}${datedHtml}</div>`:"";
-  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">your classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FBEAF0;color:#993556">🎂 birthdays</span></div>${onlineHtml}`;
+  $("scalGrid").innerHTML=`<div class="calgrid">${wd}${cells}</div><div class="mini" style="margin-top:8px;color:var(--muted)"><span class="badge" style="background:var(--saffron);color:#3a2c00">your classes</span> <span class="badge b-teal">school events</span> <span class="badge" style="background:#FCEFCF;color:#9a6b00">🎂 birthdays</span></div>${onlineHtml}`;
 }
 function scalShift(d){ const [y,mo]=state._scalMonth.split("-").map(Number); const t=y*12+(mo-1)+d; state._scalMonth=Math.floor(t/12)+"-"+PAD((t%12)+1); loadStudentCalendar(); }
 function scalToday(){ state._scalMonth=todayIST().slice(0,7); loadStudentCalendar(); }
@@ -4088,12 +4058,14 @@ function editTeacher(id){
     <div class="kf" style="max-width:220px"><label>Payout %</label><input id="te_pay" type="number" min="0" max="100" value="${t.payout_pct||40}"></div>
     <div class="kf"><label>Default Zoom link <span class="mini" style="color:var(--muted)">(used for this guru's online/hybrid classes)</span></label><input id="te_zoom" value="${esc(t.zoom_link||"")}" placeholder="https://us05web.zoom.us/j/…"></div>
     <div class="kf"><label>Login email</label><input value="${esc(t.profiles?.email||"")}" disabled style="background:#f1f1f1"></div>
-    <p class="footnote">The login email can't be changed here — tell me if a guru's email needs updating and I'll handle it safely.</p>
+    <p class="footnote">The login email can't be changed here — contact the school administrator if a guru's email needs updating.</p>
     <div class="formmsg" id="teMsg"></div>
     <button class="kbtn teal" onclick="saveTeacherEdits('${id}','${t.profile_id}')">Save changes</button>
     <button class="kbtn ghost" style="margin-left:6px" onclick="drawTeachers()">Cancel</button></div>`;
 }
 async function saveTeacherEdits(id, profileId){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const m=$("teMsg"); const name=$("te_name").value.trim();
   if(!name){ m.className="formmsg err"; m.textContent="Name can't be empty."; return; }
   const disc=$("te_disc").value.split(",").map(x=>x.trim()).filter(Boolean);
@@ -4105,6 +4077,7 @@ async function saveTeacherEdits(id, profileId){
   const { error:e2 } = await db.from("teachers").update({ disciplines:disc, payout_pct:pay, zoom_link:zoom }).eq("id",id);
   if(e2){ m.className="formmsg err"; m.textContent="Couldn't save — "+e2.message; return; }
   loadTeachers();
+  } finally { state._busyForm=false; }
 }
 async function addTeacher(){
   const m=$("tMsg"); const name=$("t_name").value.trim(), email=$("t_email").value.trim(), pass=$("t_pass").value, disc=$("t_disc").value.trim(); const zoom=($("t_zoom")&&$("t_zoom").value.trim())||"";
@@ -4185,6 +4158,8 @@ async function renderSettings(){
   loadStaff();
 }
 async function saveFeeStructure(){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const m=$("feeStructMsg"); m.className="formmsg ok"; m.textContent="Saving…";
   for(const b of state.branches){
     const mf=Number($("bf_"+b.id).value)||0, rf=Number($("br_"+b.id).value)||0;
@@ -4197,6 +4172,7 @@ async function saveFeeStructure(){
   }
   state.refLoaded=false; await loadRef();
   m.className="formmsg ok"; m.textContent="✓ Fee structure saved.";
+  } finally { state._busyForm=false; }
 }
 async function addBranch(){
   const m=$("nbMsg"); const name=(($("nb_name")||{}).value||"").trim();
@@ -4290,7 +4266,7 @@ function drawStaff(){
   $("staffList").innerHTML=`<table><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>${rows.map(p=>{
     const editing=state._staffEdit===p.id; const isTeacher=p.role==="teacher"; const isMe=p.id===me;
     const nameCell=editing?`<input id="sn_${p.id}" value="${esc(p.full_name||"")}" style="width:150px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8">`:`<b>${esc(p.full_name||"—")}</b>`;
-    const badge=`<span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc((p.role||"").replace("_"," "))}</span>`;
+    const badge=`<span class="badge ${p.role==="super_admin"?"b-teal":(p.role==="admin"?"b-amber":"b-grey")}">${esc(ROLE_LABELS[p.role]||(p.role||"").replace("_"," "))}</span>`;
     const roleCell=(editing&&!isTeacher)?`<select id="sr_${p.id}" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="super_admin"${p.role==="super_admin"?" selected":""}>Super Admin — full access</option><option value="admin"${p.role==="admin"?" selected":""}>Admin — front desk</option></select>`:badge;
     let actions;
     if(isTeacher){ actions=`<span class="mini" style="color:var(--muted)">Edit in Gurus</span>`; }
@@ -4530,6 +4506,8 @@ async function editStudentCourse(studentId, scId){
   if($("sc_course")) $("sc_course").focus();
 }
 async function saveStudentCourse(studentId){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const m=$("scMsg");
   const course_id=($("sc_course")&&$("sc_course").value)||null;
   const teacher_id=($("sc_guru")&&$("sc_guru").value)||null;
@@ -4551,6 +4529,7 @@ async function saveStudentCourse(studentId){
   }
   await syncPrimaryCourse(studentId);
   renderStudentDetail(studentId);
+  } finally { state._busyForm=false; }
 }
 async function syncPrimaryCourse(studentId){
   // keep the student's top-of-profile "primary" fields matching their first course
@@ -4659,6 +4638,8 @@ async function editStudent(id){
     <button class="kbtn ghost" style="margin-left:6px" onclick="renderStudentDetail('${id}')">Cancel</button>`;
 }
 async function saveStudentEdits(id){
+  if(state._busyForm) return; state._busyForm=true;
+  try{
   const m=$("edMsg"); const V=i=>((($(i)||{}).value)||"").trim();
   const comb=(c,n)=>{ const num=V(n).replace(/\D/g,""); return num?(V(c)+num):null; };
   if(!V("ed_name")){ m.className="formmsg err"; m.textContent="Name can't be empty."; return; }
@@ -4676,6 +4657,7 @@ async function saveStudentEdits(id){
   const { error } = await db.from("students").update(upd).eq("id",id);
   if(error){ m.className="formmsg err"; m.textContent="Couldn't save — "+error.message; return; }
   renderStudentDetail(id);
+  } finally { state._busyForm=false; }
 }
 
 /* ---------------- INTAKE FORM ---------------- */
@@ -4776,15 +4758,18 @@ async function saveQuickStudent(){
     if(rec.course_id) await db.from("student_courses").insert({ student_id:ins.id, course_id:rec.course_id, teacher_id:rec.primary_teacher_id||null, monthly_fee:_cfee, status:"active", start_date:rec.join_date||todayIST() });
   }catch(e){}
   // record the one-time registration fee as a PAID invoice (shows in income; family can download a receipt)
+  let _regWarn="";
   try{
     const regHas=$("q_reghas")&&$("q_reghas").checked;
     const regAmt=Number((($("q_regamt")||{}).value)||0);
     if(regHas && regAmt>0){
       const regDate=D("q_regdate")||todayIST();
       const { data:rinv, error:rie } = await db.from("invoices").insert({ student_id:ins.id, period_label:"Registration", amount:0, registration:regAmt, due_date:regDate, status:"paid", months:0 }).select("id").single();
-      if(!rie && rinv) await db.from("payments").insert({ invoice_id:rinv.id, amount:regAmt, method:(($("q_regmethod")||{}).value)||"upi", paid_at:regDate+"T12:00:00+05:30" });
-    }
-  }catch(e){}
+      if(rie||!rinv){ _regWarn=" \u2014 but the \u20b9"+regAmt+" registration fee could NOT be recorded; add it from their profile."; }
+      else { const { error:rpe } = await db.from("payments").insert({ invoice_id:rinv.id, amount:regAmt, method:(($("q_regmethod")||{}).value)||"upi", paid_at:regDate+"T12:00:00+05:30" }); if(rpe){ _regWarn=" \u2014 registration invoice created but its payment wasn't recorded; check their Fees."; } }
+    } else if(regHas && !(regAmt>0)){ _regWarn=" \u2014 registration was ticked but no amount was entered, so it was NOT recorded."; }
+  }catch(e){ _regWarn=" \u2014 the registration fee may not have been recorded; please check their Fees."; }
+  if(_regWarn){ if(m){ m.className="formmsg err"; m.textContent=(m.textContent||"Student created")+_regWarn; } }
   ["q_name","q_phone","q_branch","q_course","q_guru","q_level","q_join"].forEach(i=>{ if($(i)) $(i).value=""; }); if($("q_minor")) $("q_minor").checked=false;
   if($("q_regamt")) $("q_regamt").value=""; if(typeof _setRegFromBranch==="function") _setRegFromBranch(); if($("q_regdate")) $("q_regdate").value=todayIST(); if($("q_reghas")) $("q_reghas").checked=true;
   $("qSave").disabled=false;
