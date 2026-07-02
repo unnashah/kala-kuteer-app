@@ -437,8 +437,8 @@ async function renderStudentIntake(st){
   if(st.heard_via&&$("si_heard")) $("si_heard").value=st.heard_via;
   if(st.owns_instrument!=null&&$("si_owns")) $("si_owns").value=st.owns_instrument?"yes":"no";
   $("si_submit").onclick=submitStudentIntake;
-  try{ const _d=JSON.parse(localStorage.getItem("kk_si_draft_v1")||"null"); if(_d) $("mainArea").querySelectorAll('[id^="si_"]').forEach(el=>{ if(el.id==="si_flagnote") return; if(el.id in _d){ if(el.type==="checkbox") el.checked=_d[el.id]; else el.value=_d[el.id]; } }); }catch(e){}
-  $("mainArea").addEventListener("input", ()=>{ const o={}; $("mainArea").querySelectorAll('[id^="si_"]').forEach(el=>{ if(el.id==="si_flagnote") return; o[el.id]=el.type==="checkbox"?el.checked:el.value; }); try{ localStorage.setItem("kk_si_draft_v1", JSON.stringify(o)); }catch(e){} });
+  try{ const _d=JSON.parse(localStorage.getItem("kk_si_draft_v1")||"null"); const _own=(st.id||st.profile_id||""); if(_d && _d._owner===_own) $("mainArea").querySelectorAll('[id^="si_"]').forEach(el=>{ if(el.id==="si_flagnote") return; if(el.id in _d){ if(el.type==="checkbox") el.checked=_d[el.id]; else el.value=_d[el.id]; } }); else if(_d){ try{ localStorage.removeItem("kk_si_draft_v1"); }catch(e){} } }catch(e){}
+  $("mainArea").addEventListener("input", ()=>{ const o={_owner:(st.id||st.profile_id||"")}; $("mainArea").querySelectorAll('[id^="si_"]').forEach(el=>{ if(el.id==="si_flagnote") return; o[el.id]=el.type==="checkbox"?el.checked:el.value; }); try{ localStorage.setItem("kk_si_draft_v1", JSON.stringify(o)); }catch(e){} });
 }
 async function submitStudentIntake(){
   const st=state._intakeSt||{}; const minor=!!st.is_minor; const m=$("si_msg");
@@ -719,9 +719,9 @@ async function loadDashFees(){
   const s=await myStudent(); if(!s) return;
   const { data:invs } = await db.from("invoices").select("id,amount,due_date,status,student_response,period_start,period_end,course_id").eq("student_id",s.id);
   const all=invs||[];
-  const _pbc={}; all.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ const c=i.course_id||""; (_pbc[c]=_pbc[c]||[]).push([i.period_start,i.period_end]); });
-  const coveredFee=i=>{ const ref=i.period_start||i.due_date; const rs=_pbc[i.course_id||""]||[]; return ref && rs.some(r=>r[0]<=ref&&r[1]>=ref); };
-  const due=all.filter(i=>i.status!=="paid" && !coveredFee(i));
+  const _pbc={}, _pbAll=[]; all.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ if(i.course_id){ (_pbc[i.course_id]=_pbc[i.course_id]||[]).push([i.period_start,i.period_end]); } else { _pbAll.push([i.period_start,i.period_end]); } });
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; if(!ref) return false; const rs=(i.course_id?(_pbc[i.course_id]||[]):[]).concat(_pbAll); return rs.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const due=all.filter(i=>i.status!=="paid" && i.status!=="cancelled" && !coveredFee(i));
   if(!due.length) return;
   const total=due.reduce((a,i)=>a+Number(i.amount||0),0);
   const todayS=todayIST();
@@ -768,7 +768,7 @@ async function loadOwnerStats(){
   const weekEnd=new Date(Date.now()+19800000+7*86400000).toISOString().slice(0,10);
   const [invMonth, unpaid, pays, regInv, trials, newCnt, breakCnt, activeCnt, gurusCnt, branchesCnt] = await Promise.all([
     fetchAll(()=> db.from("invoices").select("amount,status,period_start,period_end").lte("period_start",mEnd).gte("period_end",mStart)),
-    fetchAll(()=> db.from("invoices").select("amount,due_date,status").neq("status","paid")),
+    fetchAll(()=> db.from("invoices").select("amount,due_date,status").not("status","in","(paid,cancelled)")),
     fetchAll(()=> db.from("payments").select("amount,invoices(students(branch_id))").gte("paid_at",mStart).lt("paid_at",mNext)),
     fetchAll(()=> db.from("invoices").select("registration,status").gt("registration",0).gte("due_date",mStart).lte("due_date",mEnd)),
     fetchAll(()=> db.from("enquiries").select("trial_fee,trial_paid_at").eq("trial_paid",true).gte("trial_paid_at",mStart).lt("trial_paid_at",mNext)),
@@ -1180,6 +1180,7 @@ function drawFees(){
     return `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branches?.name||"—")}</td><td>${amtCell}</td><td><span class="badge b-grey">No invoice</span></td><td>${action}</td></tr>`;
   };
   const invRow=(s,inv)=>{ let stHtml, action="", amtCell="—";
+    if(inv.status==="cancelled"){ const clx=inv.course_id?courseName(inv.course_id):""; return `<tr style="opacity:.55"><td><b>${esc(s.full_name)}</b>${clx?`<br><span class="mini" style="color:var(--muted)">${esc(clx)}</span>`:""}</td><td>${esc(s.branches?.name||"—")}</td><td><span style="text-decoration:line-through;color:var(--muted)">${INR(inv.amount)}</span></td><td><span class="badge b-grey">Cancelled</span></td><td></td></tr>`; }
     const startsThis = inv.period_start? (inv.period_start>=P.start) : true;
     const multi=(inv.months||1)>1;
     if(startsThis){
@@ -1190,7 +1191,7 @@ function drawFees(){
         stHtml=(overdue?`<span class="badge b-red">Overdue · was due ${inv.due_date}</span>`:`<span class="badge b-amber">Due ${inv.due_date}</span>`)+(multi?` <span class="badge b-teal">${esc(inv.period_label)}</span>`:"");
         if(inv.student_response==="says_paid"||inv.student_response==="paid") stHtml+=` <span class="badge b-teal">Student says paid — verify</span>`;
         else if(inv.student_response==="will_pay_later") stHtml+=` <span class="badge b-grey">Student: will pay later</span>`;
-        action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>`;
+        action=`<select id="pm_${inv.id}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fffdf8"><option value="cash">Cash</option><option value="upi">UPI / QR</option><option value="card">Card</option><option value="netbanking">Net banking</option></select> <span class="rowbtn" onclick="recordPayment('${inv.id}',${Number(inv.amount)})">Mark paid</span>${state.role==="super_admin"?` <span class="rowbtn edit" onclick="voidInvoice('${inv.id}')">✕ Cancel</span>`:""}`;
       }
     } else {
       stHtml=`<span class="badge b-green">Covered · paid ahead${inv.period_end?" through "+esc(inv.period_end):""}</span>`;
@@ -1224,6 +1225,8 @@ async function adminRaisePlan(sid){
   const sel=$("rp_"+sid); const months=Number(sel&&sel.value)||1;
   const s=((state._fee&&state._fee.studs)||[]).find(x=>x.id===sid); if(!s||!s.branches){ alert("No branch set for this student."); return; }
   const fee=Number(s.branches.monthly_fee)||0; if(!fee){ alert("This branch has no monthly fee set in Settings."); return; }
+  const { count:_ac } = await db.from("student_courses").select("id",{count:"exact",head:true}).eq("student_id",sid).eq("status","active");
+  if((_ac||0)>1){ alert("This student takes more than one course, so each course is billed at its full fee. Raise each course's monthly fee from their profile - combined 3/6-month plans for multi-course students aren't supported yet."); return; }
   let amount=fee*months;
   if(months===3 && s.branches.plan_3_price!=null && Number(s.branches.plan_3_price)>0) amount=Number(s.branches.plan_3_price);
   if(months===6 && s.branches.plan_6_price!=null && Number(s.branches.plan_6_price)>0) amount=Number(s.branches.plan_6_price);
@@ -1249,8 +1252,9 @@ async function generateInvoices(){
   const P=feePeriod(); const m=$("feeMsg"); m.className="formmsg ok"; m.textContent="Generating…";
   const { data:studs } = await db.from("students").select("id,join_date,branches(monthly_fee)").or(`status.eq.active,status_effective_date.gt.${P.start}`);
   // existing invoices this period, keyed per student+course so each course bills once
-  const { data:inv } = await db.from("invoices").select("student_id,course_id").lte("period_start",P.end).gte("period_end",P.start);
+  const { data:inv } = await db.from("invoices").select("student_id,course_id,status").neq("status","cancelled").lte("period_start",P.end).gte("period_end",P.start);
   const have=new Set((inv||[]).map(i=>i.student_id+"|"+(i.course_id||"")));
+  const coversStudent=new Set((inv||[]).filter(i=>!i.course_id).map(i=>i.student_id)); // a course-less invoice (monthly OR 3/6-month plan) already covers this whole student for the period
   const today=todayIST();
   const dim=new Date(P.year, P.monthIdx+1, 0).getDate();
   const dueFor=s=>{ const day=s.join_date?new Date(s.join_date).getDate():1; return `${P.year}-${PAD(P.monthIdx+1)}-${PAD(Math.min(day,dim))}`; };
@@ -1261,6 +1265,8 @@ async function generateInvoices(){
   const scByStu={}; scList.forEach(sc=>{ (scByStu[sc.student_id]=scByStu[sc.student_id]||[]).push(sc); });
   const rows=[];
   (studs||[]).forEach(s=>{
+    if(s.join_date && s.join_date>P.end) return;        // enrols later than this period - don't bill ahead
+    if(coversStudent.has(s.id)) return;                 // already has a whole-student invoice (monthly or prepaid plan) this period
     const courses=(scByStu[s.id]||[]).filter(sc=>(!sc.status||sc.status==="active") && Number(sc.monthly_fee)>0);
     if(courses.length){
       // multi-course: one full-fee invoice per active course, credited to that course's guru
@@ -1282,6 +1288,17 @@ async function generateInvoices(){
   if(error){ m.className="formmsg err"; m.textContent="Couldn't generate — "+error.message; return; }
   m.className="formmsg ok"; m.textContent="✓ Created "+rows.length+" invoice(s) for "+P.label+".";
   loadFees();
+  } finally { state._busyMoney=false; }
+}
+async function voidInvoice(invId){
+  if(state.role!=="super_admin"){ alert("Only the owner can cancel an invoice."); return; }
+  if(state._busyMoney) return;
+  if(!confirm("Cancel this invoice?\n\nThis marks the invoice as Cancelled and removes it from the student's dues. Use it to clear a duplicate or a mistake. It does NOT refund a payment - use Undo on a paid invoice for that.")) return;
+  state._busyMoney=true;
+  try{
+    const { error } = await db.from("invoices").update({ status:"cancelled" }).eq("id",invId);
+    if(error){ alert("Couldn't cancel - "+error.message); return; }
+    loadFees();
   } finally { state._busyMoney=false; }
 }
 async function voidPayment(invId){
@@ -3690,9 +3707,9 @@ async function renderStudentFees(){
   const upiOf=id=>{ const k=kidOf(id); return k.upi_id||(k.branches&&k.branches.upi_id)||SCHOOL_UPI.id; };
   // paid ranges are per-student (one child's payment never covers another)
   const _ckey=i=>i.student_id+"|"+(i.course_id||"");
-  const paidRangesBy={}; list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ const k=_ckey(i); (paidRangesBy[k]=paidRangesBy[k]||[]).push([i.period_start,i.period_end]); });
-  const coveredFee=i=>{ const ref=i.period_start||i.due_date; const rs=paidRangesBy[_ckey(i)]||[]; return ref && rs.some(r=>r[0]<=ref&&r[1]>=ref); };
-  const dueInv=list.filter(i=>i.status!=="paid" && !coveredFee(i));
+  const paidRangesBy={}, paidWholeBy={}; list.filter(i=>i.status==="paid"&&i.period_start&&i.period_end).forEach(i=>{ const k=_ckey(i); (paidRangesBy[k]=paidRangesBy[k]||[]).push([i.period_start,i.period_end]); if(!i.course_id){ (paidWholeBy[i.student_id]=paidWholeBy[i.student_id]||[]).push([i.period_start,i.period_end]); } });
+  const coveredFee=i=>{ const ref=i.period_start||i.due_date; if(!ref) return false; const rs=(paidRangesBy[_ckey(i)]||[]).concat(paidWholeBy[i.student_id]||[]); return rs.some(r=>r[0]<=ref&&r[1]>=ref); };
+  const dueInv=list.filter(i=>i.status!=="paid" && i.status!=="cancelled" && !coveredFee(i));
   const paidInv=list.filter(i=>i.status==="paid");
   const grandTotal=dueInv.reduce((a,i)=>a+Number(i.amount||0),0);
 
@@ -4672,7 +4689,7 @@ function phoneHint(code){ const r=PHONE_RULES[code]; return r?(r[0]===r[1]?r[0]+
 const DRAFT_KEY="kk_intake_draft_v2";
 function saveDraft(){ const f=$("intakeForm"); if(!f) return; const o={}; f.querySelectorAll("input,select,textarea").forEach(el=>{ if(!el.id) return; o[el.id]=el.type==="checkbox"?el.checked:el.value; }); try{ localStorage.setItem(DRAFT_KEY,JSON.stringify(o)); }catch(e){} }
 function restoreDraft(){ let o; try{ o=JSON.parse(localStorage.getItem(DRAFT_KEY)||"null"); }catch(e){} if(!o) return false; let any=false; Object.keys(o).forEach(id=>{ const el=$(id); if(!el) return; if(el.type==="checkbox") el.checked=o[id]; else el.value=o[id]; if(o[id]!==""&&o[id]!==false) any=true; }); return any; }
-function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
+function clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} try{ localStorage.removeItem("kk_si_draft_v1"); }catch(e){} }
 
 async function renderQuickRegister(){
   const M=$("mainArea"); await loadRef(); await loadClassRefs();
