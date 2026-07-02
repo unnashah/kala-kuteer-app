@@ -4684,12 +4684,9 @@ async function renderQuickRegister(){
   M.innerHTML=`<div class="ph"><div><h2>Quick register${tip("Enter just the basics the school knows — name, login mobile, course, branch and guru. The family fills their contact details and signs the consent on first login. This creates their login and adds them to <b>Students</b>.")}</h2><p>Create a basic account once the registration fee is paid. The student completes &amp; signs the rest on their first login.</p></div>
       <button class="kbtn ghost" onclick="state._intakeMode='full';gotoNav('intake')">📝 Full intake form</button></div>
     <div class="panel" style="max-width:640px">
-      <div class="form2">
-        <div class="kf"><label>Full name *</label><input id="q_name"></div>
-        
-      </div>
-      <div class="kf"><label>Mobile — used to log in *</label><div style="display:flex;gap:6px">${cc('q_phone')}${numIn('q_phone')}</div>
-        <div class="check" style="margin:6px 0 0"><input type="checkbox" id="q_minor"><label for="q_minor" style="margin:0;font-size:12px">Student is a minor (this is the parent's mobile)</label></div></div>
+      <div class="kf"><label>Full name *</label><input id="q_name"></div>
+      <div class="kf"><label>Mobile — used to log in *</label><div style="display:flex;gap:6px">${cc('q_phone')}${numIn('q_phone')}</div></div>
+      <div class="check" style="margin:-6px 0 16px"><input type="checkbox" id="q_minor"><label for="q_minor" style="margin:0">Student is a minor — this is the parent's mobile</label></div>
       <div class="form2">
         <div class="kf"><label>Branch *</label><select id="q_branch"><option value="">Select…</option>${branchOpts}</select></div>
         <div class="kf"><label>Course *</label><select id="q_course"><option value="">Select…</option>${courseOpts}</select></div>
