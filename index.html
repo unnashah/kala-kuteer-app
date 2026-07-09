@@ -337,7 +337,8 @@ async function loadApp(session){
   if(role==="student"){
     const kids = await loadFamily();
     if(!kids.length){ show("app"); renderInactiveStudent(name); return; }
-    if(kids.length===1 && kids[0].intake_completed!==true){ state._intakeSt=kids[0]; show("app"); renderStudentIntake(kids[0]); return; }
+    const _pend=kids.filter(k=>k.intake_completed!==true);
+    if(_pend.length){ state._intakeSt=_pend[0]; state._intakeTotal=kids.length; show("app"); renderStudentIntake(_pend[0]); return; }
   }
   if(role==="teacher"){
     const { data:tc } = await db.from("teachers").select("id,coc_agreed").eq("profile_id", session.user.id).maybeSingle();
@@ -399,16 +400,16 @@ async function renderStudentIntake(st){
   const rv=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:8px 0;font-size:13px"><span style="color:var(--muted)">${esc(l)}</span><b style="text-align:right">${esc(v||"—")}</b></div>`;
   $("mainArea").innerHTML=`<div style="max-width:620px;margin:2px auto">
     <h2 style="font-size:21px;margin:0 0 4px">Welcome, ${esc((st.full_name||"").split(" ")[0]||"")} 👋</h2>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 16px">Let's complete your enrolment. Please check the details below, fill in the rest, and sign.</p>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px">${(state._intakeTotal>1)?`<b style="color:var(--maroon)">This form is for ${esc(st.full_name)}.</b> `:""}Let's complete your enrolment. Please check the details below, fill in the rest, and sign.</p>
     <div class="panel"><h3>Please check the details we've entered</h3>
       <p class="mini" style="color:var(--muted);margin:-2px 0 10px">The school filled these in for you — have a quick look.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
         ${rv("Name",st.full_name)}
         ${rv("Mobile",mobile)}${rv("Branch",st.branches&&st.branches.name)}
         ${rv("Course",st.courses&&st.courses.name)}${rv("Primary guru",guru)}
-        ${rv("Class level",st.level)}${rv("Fee start date",st.join_date)}
+        ${rv("Class level",st.level)}
       </div>
-      <div style="margin-top:12px"><span class="rowbtn" onclick="document.getElementById('siFlag').style.display=''">⚠️ Something's wrong</span></div>
+      <div style="margin-top:12px"><span class="rowbtn" onclick="document.getElementById('siFlag').style.display=''">✏️ Request a change</span></div>
       <div id="siFlag" style="display:none;margin-top:10px;background:#FBF1DA;border:1px solid var(--saffron);border-radius:9px;padding:12px">
         <div class="kf" style="margin:0 0 8px"><label>What needs correcting? We'll fix it.</label><textarea id="si_flagnote" rows="2" placeholder="e.g. my date of birth is wrong"></textarea></div>
         <button class="kbtn ghost" onclick="flagIntakeIssue()">Send to office</button>
@@ -464,7 +465,7 @@ async function submitStudentIntake(){
   if(!D("si_owns")) return fail("si_owns","Please choose whether you own the instrument.");
   if(!$("si_terms").checked){ m.className="formmsg err"; m.textContent="Please tick to acknowledge the IMPORTANT NOTICE."; $("si_terms").focus(); return; }
   if(!D("si_signer")) return fail("si_signer","Please enter the name of the person consenting.");
-  const p={ date_of_birth:D("si_dob"), actual_join_date:D("si_join"), parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
+  const p={ student_id: st.id, date_of_birth:D("si_dob"), actual_join_date:D("si_join"), parent_name: minor?D("si_parent"):null, whatsapp: wc+wn,
     email: minor? null : D("si_email"), parent_email: minor? D("si_email") : null,
     emergency_contact: ec+en, goal:D("si_goal"), owns_instrument:D("si_owns")==="yes",
     health_notes:D("si_health"), heard_via:D("si_heard"), consent_signed_by:D("si_signer"), consent_text:consentNoticeHTML() };
@@ -478,7 +479,7 @@ async function submitStudentIntake(){
 }
 async function flagIntakeIssue(){
   const note=((($("si_flagnote")||{}).value)||"").trim(); const fm=$("si_flagmsg");
-  const { error } = await db.rpc("flag_my_intake",{ p_note:note });
+  const { error } = await db.rpc("flag_my_intake",{ p_note:note, p_sid:(state._intakeSt&&state._intakeSt.id)||null });
   if(fm){ if(error){ fm.style.color="var(--warn)"; fm.textContent="Couldn't send — "+error.message; } else { fm.style.color="var(--good)"; fm.textContent="✓ Sent — the office will fix it. You can still finish below."; } }
 }
 function consentNoticeHTML(){ return `<div class="notice"><b>IMPORTANT NOTICE</b><br>
@@ -3565,7 +3566,7 @@ async function renderStudentProfile(){
 }
 async function requestProfileFix(){
   const note=((($("mp_note")||{}).value)||"").trim(); const fm=$("mp_msg");
-  const { error } = await db.rpc("flag_my_intake",{ p_note:note });
+  const { error } = await db.rpc("flag_my_intake",{ p_note:note, p_sid:state._childId||null });
   if(fm){ if(error){ fm.style.color="var(--warn)"; fm.textContent="Couldn't send — "+error.message; } else { fm.style.color="var(--good)"; fm.textContent="✓ Sent — the office will fix it."; } }
 }
 /* ----- Student: News ----- */
